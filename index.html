@@ -2,27 +2,33 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <title>3D 방탈출: PC 버전 완성</title>
+    <title>3D 방탈출: 인게임 UI 적용</title>
     <script src="https://aframe.io/releases/1.4.0/aframe.min.js"></script>
     <style>
-        /* 게임 화면 위에 겹쳐서 텍스트를 보여줄 UI 스타일 */
+        /* 고전 게임 대화창 스타일의 UI */
         #game-ui {
             position: absolute;
-            bottom: 20%;
+            bottom: 10%;
             left: 50%;
             transform: translateX(-50%);
-            color: #FFD700;
-            font-size: 24px;
-            font-weight: bold;
+            background-color: rgba(0, 0, 0, 0.85); /* 반투명한 검은색 배경 */
+            color: #fff;
+            padding: 15px 30px;
+            border: 3px solid #fff; /* 하얀색 테두리 */
+            border-radius: 8px;
             font-family: 'Malgun Gothic', sans-serif;
-            z-index: 100; /* 3D 화면보다 위로 오게 설정 */
-            pointer-events: none; /* 클릭을 방해하지 않음 */
-            text-shadow: 2px 2px 4px #000; /* 글씨가 잘 보이게 그림자 추가 */
+            font-size: 20px;
+            font-weight: bold;
+            box-shadow: 4px 4px 0px #222; /* 픽셀 느낌의 그림자 */
+            z-index: 1000; /* 3D 화면보다 무조건 앞에 오도록 설정 */
+            pointer-events: none; /* 마우스 클릭을 방해하지 않음 */
+            display: none; /* 평소에는 숨겨둠 */
+            text-align: center;
         }
     </style>
 </head>
 <body>
-    <div id="game-ui">게임 화면을 클릭하면 마우스가 고정됩니다. (취소: ESC)</div>
+    <div id="game-ui"></div>
 
     <a-scene fog="type: exponential; color: #000; density: 0.15" vr-mode-ui="enabled: false">
         
@@ -50,31 +56,47 @@
         let hasKey = false;
         const keyObj = document.querySelector('#key');
         const doorObj = document.querySelector('#escape-door');
-        const uiText = document.querySelector('#game-ui');
+        const uiBox = document.querySelector('#game-ui');
+        let uiTimeout; // 타이머를 관리할 변수
 
-        // 자막을 3초간 띄우고 지우는 함수
+        // 화면 하단에 메시지를 3초간 띄우는 함수
         function showMessage(text) {
-            uiText.innerText = text;
-            setTimeout(() => {
-                uiText.innerText = '';
+            uiBox.innerText = text;
+            uiBox.style.display = 'block'; // 텍스트 상자를 화면에 표시
+            
+            // 기존에 작동 중인 타이머가 있다면 취소 (메시지가 겹치지 않게)
+            clearTimeout(uiTimeout);
+            
+            // 3초(3000ms) 뒤에 텍스트 상자를 다시 숨김
+            uiTimeout = setTimeout(() => {
+                uiBox.style.display = 'none';
             }, 3000);
         }
 
+        // 초기 시작 가이드 메시지 띄우기
+        setTimeout(() => {
+            showMessage('화면을 클릭하면 마우스가 고정됩니다. (취소: ESC)');
+        }, 1000);
+
+        // 열쇠 클릭 이벤트
         keyObj.addEventListener('click', () => {
             if (!hasKey) {
                 hasKey = true;
                 keyObj.setAttribute('visible', 'false');
                 keyObj.removeAttribute('class');
-                showMessage('반짝이는 황금 열쇠를 주웠습니다!');
+                // alert() 대신 우리가 만든 함수 사용
+                showMessage('반짝이는 황금 열쇠를 주웠다!'); 
             }
         });
 
+        // 문 클릭 이벤트
         doorObj.addEventListener('click', () => {
             if (hasKey) {
-                showMessage('철컥! 열쇠가 맞아 문이 열렸습니다. 탈출 성공!');
+                showMessage('철컥! 열쇠가 맞아 문이 열렸다. 탈출 성공!');
                 doorObj.setAttribute('position', '0 4.5 -7.2'); 
             } else {
-                showMessage('문이 굳게 잠겨 있습니다. 방 안에서 열쇠를 찾아보세요.');
+                // alert() 대신 우리가 만든 함수 사용
+                showMessage('문이 굳게 잠겨 있다. 방 안에서 열쇠를 찾아보자.');
             }
         });
     </script>
