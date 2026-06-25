@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <title>3D 방탈출: 맞춤형 조작 버전</title>
+    <title>3D 방탈출: 화이트 룸 버전</title>
     <script src="https://cdn.babylonjs.com/babylon.js"></script>
     <style>
         html, body {
@@ -53,35 +53,35 @@
 
         const createScene = function () {
             const scene = new BABYLON.Scene(engine);
-            scene.clearColor = new BABYLON.Color3(0, 0, 0);
-            scene.fogMode = BABYLON.Scene.FOGMODE_EXP;
-            scene.fogDensity = 0.05;
+            
+            // 💡 1. 화이트 룸 분위기를 위해 배경색을 밝게 설정하고 안개 제거
+            scene.clearColor = new BABYLON.Color3(0.9, 0.9, 0.9);
 
-            // 💡 1인칭 시야 회전에 최적화된 UniversalCamera 생성
-            const camera = new BABYLON.UniversalCamera("UniversalCamera", new BABYLON.Vector3(0, 1.6, 0), scene);
+            // 💡 카메라 배치 및 초기 시선 설정 (방 내부 중앙 뒤쪽에서 문을 바라보게 설정)
+            const camera = new BABYLON.UniversalCamera("UniversalCamera", new BABYLON.Vector3(0, 1.6, 2.5), scene);
+            camera.setTarget(new BABYLON.Vector3(0, 1.6, -4)); // 정면(문이 있는 곳)을 바라봄
             camera.attachControl(canvas, true);
 
-            // 💡 1. 터치/마우스 이동 기능 제거 (시야 회전 기능만 남기기)
-            // UniversalCamera의 기본 터치 입력엔 이동이 섞여있으므로, 시야 전용 터치 감도로 변환합니다.
+            // 터치 드래그로 이동하는 기본 기능 차단 (시야 회전만 남김)
             if (camera.inputs.attached.touch) {
-                camera.inputs.attached.touch.touchMoveSensibility = 0; // 터치 드래그로 이동 안 되게 설정
+                camera.inputs.attached.touch.touchMoveSensibility = 0;
             }
 
-            // 💡 2. 오직 WASD 키로만 이동하도록 키 매핑 (방향키 제거)
+            // 오직 WASD 키로만 이동하도록 키 매핑
             camera.keysUp = [87];    // W
             camera.keysDown = [83];  // S
             camera.keysLeft = [65];  // A
             camera.keysRight = [68]; // D
             
-            camera.speed = 0.25;        // 이동 속도
-            camera.angularSensibility = 1500; // 시야 회전 민감도 (낮을수록 빠름)
+            camera.speed = 0.2;        // 이동 속도 적정치 조절
+            camera.angularSensibility = 1500; // 시야 회전 민감도
 
-            // 물리 및 중력 설정 (점프 및 바닥 착지)
-            scene.gravity = new BABYLON.Vector3(0, -0.15, 0);
+            // 💡 2. 물리 및 중력/충돌 시스템 전면 활성화
             scene.collisionsEnabled = true;
             camera.checkCollisions = true;
             camera.applyGravity = true;
-            camera.ellipsoid = new BABYLON.Vector3(0.5, 0.8, 0.5);
+            // 플레이어 몸체 크기 지정 (반지름 0.4, 높이 0.8의 타원체로 벽에 부딪힘)
+            camera.ellipsoid = new BABYLON.Vector3(0.4, 0.8, 0.4);
 
             // Space바 점프 구현
             let isJumping = false;
@@ -107,76 +107,6 @@
                 }
             });
 
-            // 조명
+            // 💡 3. 하얀 방에 어울리는 밝은 조명 설정
             const ambientLight = new BABYLON.HemisphericLight("ambient", new BABYLON.Vector3(0, 1, 0), scene);
-            ambientLight.intensity = 0.1;
-
-            const spotLight = new BABYLON.SpotLight("spot", new BABYLON.Vector3(0, 4, 0), new BABYLON.Vector3(0, -1, 0), Math.PI / 3, 2, scene);
-            spotLight.intensity = 1.5;
-
-            // 바닥
-            const ground = BABYLON.MeshBuilder.CreateGround("ground", {width: 15, height: 15}, scene);
-            const groundMat = new BABYLON.StandardMaterial("groundMat", scene);
-            groundMat.diffuseColor = new BABYLON.Color3(0.1, 0.1, 0.1);
-            ground.material = groundMat;
-            ground.checkCollisions = true;
-
-            // 벽면
-            const wallMat = new BABYLON.StandardMaterial("wallMat", scene);
-            wallMat.diffuseColor = new BABYLON.Color3(0.15, 0.15, 0.15);
-
-            const wall1 = BABYLON.MeshBuilder.CreateBox("wall1", {width: 15, height: 4, depth: 0.5}, scene);
-            wall1.position = new BABYLON.Vector3(0, 2, -7.5);
-            wall1.material = wallMat;
-            wall1.checkCollisions = true;
-
-            // 문 (Door)
-            const door = BABYLON.MeshBuilder.CreateBox("door", {width: 2, height: 3, depth: 0.2}, scene);
-            door.position = new BABYLON.Vector3(0, 1.5, -7.3);
-            const doorMat = new BABYLON.StandardMaterial("doorMat", scene);
-            doorMat.diffuseColor = new BABYLON.Color3(0.3, 0.15, 0.05);
-            door.material = doorMat;
-            door.checkCollisions = true;
-
-            // 열쇠 (Key)
-            const key = BABYLON.MeshBuilder.CreateBox("key", {width: 0.4, height: 0.4, depth: 0.4}, scene);
-            key.position = new BABYLON.Vector3(-4, 0.2, -4);
-            const keyMat = new BABYLON.StandardMaterial("keyMat", scene);
-            keyMat.diffuseColor = new BABYLON.Color3(1, 0.85, 0);
-            key.material = keyMat;
-
-            // 클릭/터치 상호작용
-            scene.onPointerDown = function (evt, pickResult) {
-                if (pickResult.hit) {
-                    if (pickResult.pickedMesh === key && !hasKey) {
-                        hasKey = true;
-                        key.visibility = 0;
-                        showMessage('황금 열쇠를 주웠다!');
-                    }
-                    if (pickResult.pickedMesh === door) {
-                        if (hasKey) {
-                            showMessage('탈출 성공!');
-                            door.position.y = 4.5;
-                            door.checkCollisions = false;
-                        } else {
-                            showMessage('문이 잠겨 있다. 열쇠를 찾아보자.');
-                        }
-                    }
-                }
-            };
-
-            return scene;
-        };
-
-        const scene = createScene();
-
-        engine.runRenderLoop(function () {
-            scene.render();
-        });
-
-        window.addEventListener("resize", function () {
-            engine.resize();
-        });
-    </script>
-</body>
-</html>
+            ambientLight.intensity = 0.8; // 방 전체
