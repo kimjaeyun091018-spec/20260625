@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <title>3D 방탈출: 완벽한 1인칭 조작 버전</title>
+    <title>3D 방탈출: 상하좌우 완벽 수정 버전</title>
     <script src="https://cdn.babylonjs.com/babylon.js"></script>
     <style>
         html, body {
@@ -60,17 +60,21 @@
             camera.setTarget(new BABYLON.Vector3(0, 1.6, -4));
             camera.attachControl(canvas, true);
 
-            // 💡 [핵심 수정 1] 터치 시 '걸어가는' 모바일 기본 기능을 삭제하고, 마우스처럼 '시야 회전'만 하도록 설정
-            camera.inputs.remove(camera.inputs.attached.touch); // 엉뚱한 터치 이동 삭제
-            camera.inputs.attached.mouse.touchEnabled = true;   // 터치를 마우스 회전과 동일하게 취급
+            // 💡 [해결책 1] 터치 입력을 완전히 지우지 않고, 터치 이동 감도만 0으로 밀어버립니다.
+            // 이렇게 해야 태블릿 터치 시 상하/좌우 회전 로직이 깨지지 않고 온전히 작동합니다.
+            if (camera.inputs.attached.touch) {
+                camera.inputs.attached.touch.touchMoveSensibility = 0; // 터치로 앞뒤좌우 이동 불가
+                camera.inputs.attached.touch.touchAngularSensibility = 8000; // 태블릿 터치 회전 속도 (클수록 느려짐)
+            }
 
-            // 💡 [핵심 수정 2] 시야 회전 속도 조절 (기본값 2000 -> 5000으로 올려서 너무 빠른 회전 속도를 차분하게 만듦)
-            camera.angularSensibility = 5000; 
+            // 💡 [해결책 2] PC 마우스 감도 최적화 
+            // 기본값(2000)보다 훨씬 높은 8000으로 설정해 좌우로 홱 도는 현상을 묵직하고 부드럽게 잡았습니다.
+            camera.angularSensibility = 8000; 
 
-            // 고개가 뒤로 넘어가는 현상 방지 (위/아래 최대 각도 제한)
+            // 고개가 완전히 뒤집히는 현상 제한 (약 70도 제한)
             scene.onBeforeRenderObservable.add(() => {
-                if (camera.rotation.x > Math.PI / 2.5) camera.rotation.x = Math.PI / 2.5;   
-                if (camera.rotation.x < -Math.PI / 2.5) camera.rotation.x = -Math.PI / 2.5; 
+                if (camera.rotation.x > 1.2) camera.rotation.x = 1.2;   
+                if (camera.rotation.x < -1.2) camera.rotation.x = -1.2; 
             });
 
             // 오직 WASD 키로만 이동
@@ -81,7 +85,7 @@
             
             camera.speed = 0.2; // 걷는 속도
 
-            // 물리 및 중력/충돌 시스템
+            // 물리 및 중력/충돌 시스템 (벽 뚫기 방지)
             scene.collisionsEnabled = true;
             camera.checkCollisions = true;
             camera.applyGravity = true;
@@ -140,6 +144,7 @@
 
             const wallRight = BABYLON.MeshBuilder.CreateBox("wallRight", {width: 0.2, height: 4, depth: 8}, scene);
             wallRight.position = new BABYLON.Vector3(4, 2, 0);
+            whiteMat.diffuseColor = new BABYLON.Color3(0.95, 0.95, 0.95);
             wallRight.material = whiteMat;
             wallRight.checkCollisions = true;
 
