@@ -1,89 +1,250 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Babylon.js 1인칭 데모</title>
-  <style>
-    html, body { margin: 0; height: 100%; overflow: hidden; background: #000; }
-    #renderCanvas { width: 100%; height: 100%; display: block; touch-action: none; }
-    #hint {
-      position: absolute; top: 12px; left: 12px;
-      color: #fff; font-family: system-ui, sans-serif; font-size: 14px;
-      background: rgba(0,0,0,.55); padding: 8px 12px; border-radius: 6px;
-      pointer-events: none;
-    }
-  </style>
-  <script src="https://cdn.babylonjs.com/babylon.js"></script>
+    <meta charset="UTF-8">
+    <title>3D 방탈출: 물리·탈출 수정 버전</title>
+    <script src="https://cdn.babylonjs.com/babylon.js"></script>
+    <style>
+        html, body {
+            overflow: hidden;
+            width: 100%;
+            height: 100%;
+            margin: 0;
+            padding: 0;
+        }
+        #renderCanvas {
+            width: 100%;
+            height: 100%;
+            touch-action: none;
+        }
+        #game-ui {
+            position: absolute;
+            bottom: 10%; left: 50%;
+            transform: translateX(-50%);
+            background-color: rgba(0, 0, 0, 0.85);
+            color: #fff;
+            padding: 15px 30px;
+            border: 3px solid #fff;
+            border-radius: 8px;
+            font-size: 18px;
+            z-index: 1000;
+            pointer-events: none;
+            display: none;
+            text-align: center;
+            font-family: sans-serif;
+        }
+        #controls-hint {
+            position: absolute;
+            top: 12px; left: 12px;
+            color: #fff;
+            background: rgba(0,0,0,0.5);
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 13px;
+            font-family: sans-serif;
+            z-index: 1000;
+            pointer-events: none;
+        }
+    </style>
 </head>
 <body>
-  <div id="hint">화면을 클릭해 마우스를 잠그고 · WASD 이동 · 마우스로 상하/좌우 시야 회전</div>
-  <canvas id="renderCanvas"></canvas>
+    <div id="controls-hint">마우스 드래그로 시야 회전 · WASD 이동 · Space 점프 · 물체 클릭으로 상호작용</div>
+    <div id="game-ui"></div>
+    <canvas id="renderCanvas"></canvas>
 
-  <script>
-    const canvas = document.getElementById("renderCanvas");
-    const engine = new BABYLON.Engine(canvas, true, { preserveDrawingBuffer: true, stencil: true });
+    <script>
+        const canvas = document.getElementById("renderCanvas");
+        const engine = new BABYLON.Engine(canvas, true);
+        let hasKey = false;
+        let doorOpen = false;
+        let won = false;
 
-    const createScene = () => {
-      const scene = new BABYLON.Scene(scene => scene, engine) instanceof BABYLON.Scene
-        ? new BABYLON.Scene(engine) : new BABYLON.Scene(engine);
+        const uiBox = document.getElementById('game-ui');
+        function showMessage(text) {
+            uiBox.innerText = text;
+            uiBox.style.display = 'block';
+            setTimeout(() => { uiBox.style.display = 'none'; }, 3000);
+        }
 
-      scene.clearColor = new BABYLON.Color3(0.5, 0.7, 0.9);
-      scene.gravity = new BABYLON.Vector3(0, -0.9, 0);
-      scene.collisionsEnabled = true;
+        const createScene = function () {
+            const scene = new BABYLON.Scene(engine);
+            scene.clearColor = new BABYLON.Color3(0.6, 0.75, 0.9);
 
-      // 1인칭 카메라: UniversalCamera 를 사용해야 위/아래 시야가 자연스럽게 동작
-      const camera = new BABYLON.UniversalCamera("fpsCam", new BABYLON.Vector3(0, 1.7, -8), scene);
-      camera.setTarget(new BABYLON.Vector3(0, 1.7, 0));
+            // 1인칭 시야 카메라
+            const camera = new BABYLON.UniversalCamera("UniversalCamera", new BABYLON.Vector3(0, 1.6, 2.5), scene);
+            camera.setTarget(new BABYLON.Vector3(0, 1.6, -4));
+            camera.attachControl(canvas, true);
 
-      // 핵심: attachControl 이 좌우(yaw)와 상하(pitch)를 모두 자동 처리한다.
-      // 직접 pointermove 를 다루지 않으므로 "위아래가 안 움직이는" 문제가 생기지 않는다.
-      camera.attachControl(canvas, true);
+            // 터치 입력 감도 조정 (태블릿 회전 유지, 이동만 차단)
+            if (camera.inputs.attached.touch) {
+                camera.inputs.attached.touch.touchMoveSensibility = 0;
+                camera.inputs.attached.touch.touchAngularSensibility = 8000;
+            }
 
-      // WASD 이동 (기본은 화살표 키만 동작하므로 추가)
-      camera.keysUp.push(87);    // W
-      camera.keysDown.push(83);  // S
-      camera.keysLeft.push(65);  // A
-      camera.keysRight.push(68); // D
-      camera.speed = 0.35;
-      camera.angularSensibility = 800; // 값이 작을수록 마우스 회전이 빨라짐
+            // PC 마우스 감도 (값이 작을수록 빠르게 회전)
+            camera.angularSensibility = 8000;
 
-      // 충돌 + 중력 (사람 크기 캡슐)
-      camera.checkCollisions = true;
-      camera.applyGravity = true;
-      camera.ellipsoid = new BABYLON.Vector3(0.5, 0.85, 0.5);
+            // 고개가 뒤집히지 않도록 상하 시야 제한 (약 ±68도)
+            scene.onBeforeRenderObservable.add(() => {
+                if (camera.rotation.x > 1.2) camera.rotation.x = 1.2;
+                if (camera.rotation.x < -1.2) camera.rotation.x = -1.2;
+            });
 
-      const light = new BABYLON.HemisphericLight("light", new BABYLON.Vector3(0, 1, 0), scene);
-      light.intensity = 0.95;
+            // WASD 이동
+            camera.keysUp = [87];    // W
+            camera.keysDown = [83];  // S
+            camera.keysLeft = [65];  // A
+            camera.keysRight = [68]; // D
+            camera.speed = 0.2;
 
-      // 바닥
-      const ground = BABYLON.MeshBuilder.CreateGround("ground", { width: 60, height: 60 }, scene);
-      const groundMat = new BABYLON.StandardMaterial("gmat", scene);
-      groundMat.diffuseColor = new BABYLON.Color3(0.35, 0.55, 0.35);
-      ground.material = groundMat;
-      ground.checkCollisions = true;
+            // [수정 1] 벽 충돌만 사용하고, 연속 중력(applyGravity)은 끈다.
+            // applyGravity를 켜면 ellipsoid 때문에 눈높이가 1.6m -> 0.8m로 가라앉는 버그가 생긴다.
+            scene.collisionsEnabled = true;
+            camera.checkCollisions = true;
+            camera.applyGravity = false; // <- 핵심 수정
+            camera.ellipsoid = new BABYLON.Vector3(0.4, 0.8, 0.4);
 
-      // 둘러볼 박스들
-      for (let i = 0; i < 7; i++) {
-        const box = BABYLON.MeshBuilder.CreateBox("box" + i, { size: 2 }, scene);
-        box.position = new BABYLON.Vector3((i - 3) * 4, 1, 10);
-        const m = new BABYLON.StandardMaterial("bmat" + i, scene);
-        m.diffuseColor = new BABYLON.Color3(0.3 + i * 0.1, 0.4, 0.8 - i * 0.08);
-        box.material = m;
-        box.checkCollisions = true;
-      }
+            // [수정 2] 점프 전용 상수로 분리.
+            // 기존엔 scene.gravity(약 -9.8)를 써서 한 프레임 만에 속도가 뒤집혀 점프가 안 됐다.
+            const GROUND_EYE_Y = 1.6;   // 서 있을 때 눈높이
+            const JUMP_STRENGTH = 0.13; // 초기 점프 속도
+            const JUMP_GRAVITY = -0.01; // 점프 중력(프레임당)
+            let isJumping = false;
+            let jumpVelocity = 0;
 
-      // 클릭하면 포인터 락(FPS 느낌). 락 상태에서도 attachControl 이 상하/좌우를 처리한다.
-      scene.onPointerDown = () => {
-        if (!engine.isPointerLock) engine.enterPointerlock();
-      };
+            window.addEventListener("keydown", function (evt) {
+                if (evt.keyCode === 32 && !isJumping) {
+                    isJumping = true;
+                    jumpVelocity = JUMP_STRENGTH;
+                }
+            });
 
-      return scene;
-    };
+            scene.onBeforeRenderObservable.add(() => {
+                if (isJumping) {
+                    camera.position.y += jumpVelocity;
+                    jumpVelocity += JUMP_GRAVITY;
+                    if (camera.position.y <= GROUND_EYE_Y) {
+                        camera.position.y = GROUND_EYE_Y;
+                        isJumping = false;
+                        jumpVelocity = 0;
+                    }
+                }
+            });
 
-    const scene = createScene();
-    engine.runRenderLoop(() => scene.render());
-    window.addEventListener("resize", () => engine.resize());
-  </script>
+            // 조명
+            const ambientLight = new BABYLON.HemisphericLight("ambient", new BABYLON.Vector3(0, 1, 0), scene);
+            ambientLight.intensity = 0.9;
+
+            const whiteMat = new BABYLON.StandardMaterial("whiteMat", scene);
+            whiteMat.diffuseColor = new BABYLON.Color3(0.95, 0.95, 0.95);
+
+            // 바닥 (방 바깥까지 넓게 -> 탈출 후 설 곳 확보)
+            const ground = BABYLON.MeshBuilder.CreateGround("ground", {width: 24, height: 24}, scene);
+            const groundMat = new BABYLON.StandardMaterial("groundMat", scene);
+            groundMat.diffuseColor = new BABYLON.Color3(0.55, 0.6, 0.55);
+            ground.material = groundMat;
+            ground.checkCollisions = true;
+
+            // 방 벽 (뒤/좌/우)
+            const wallBack = BABYLON.MeshBuilder.CreateBox("wallBack", {width: 8, height: 4, depth: 0.2}, scene);
+            wallBack.position = new BABYLON.Vector3(0, 2, 4);
+            wallBack.material = whiteMat;
+            wallBack.checkCollisions = true;
+
+            const wallLeft = BABYLON.MeshBuilder.CreateBox("wallLeft", {width: 0.2, height: 4, depth: 8}, scene);
+            wallLeft.position = new BABYLON.Vector3(-4, 2, 0);
+            wallLeft.material = whiteMat;
+            wallLeft.checkCollisions = true;
+
+            const wallRight = BABYLON.MeshBuilder.CreateBox("wallRight", {width: 0.2, height: 4, depth: 8}, scene);
+            wallRight.position = new BABYLON.Vector3(4, 2, 0);
+            wallRight.material = whiteMat;
+            wallRight.checkCollisions = true;
+
+            // [수정 3] 앞벽을 '문 구멍'이 뚫린 형태로 구성한다.
+            //  -> 양옆 패널 + 위쪽 인방(lintel). 문을 열면 이 구멍으로 실제로 걸어 나갈 수 있다.
+            const frontLeft = BABYLON.MeshBuilder.CreateBox("frontLeft", {width: 3, height: 4, depth: 0.2}, scene);
+            frontLeft.position = new BABYLON.Vector3(-2.5, 2, -4);
+            frontLeft.material = whiteMat;
+            frontLeft.checkCollisions = true;
+
+            const frontRight = BABYLON.MeshBuilder.CreateBox("frontRight", {width: 3, height: 4, depth: 0.2}, scene);
+            frontRight.position = new BABYLON.Vector3(2.5, 2, -4);
+            frontRight.material = whiteMat;
+            frontRight.checkCollisions = true;
+
+            const lintel = BABYLON.MeshBuilder.CreateBox("lintel", {width: 2, height: 1.2, depth: 0.2}, scene);
+            lintel.position = new BABYLON.Vector3(0, 3.4, -4); // 문 구멍(높이 2.8) 위를 메움
+            lintel.material = whiteMat;
+            lintel.checkCollisions = true;
+
+            // 문 (닫혀 있으면 구멍을 막는다)
+            const door = BABYLON.MeshBuilder.CreateBox("door", {width: 1.8, height: 2.8, depth: 0.15}, scene);
+            door.position = new BABYLON.Vector3(0, 1.4, -3.9);
+            const doorMat = new BABYLON.StandardMaterial("doorMat", scene);
+            doorMat.diffuseColor = new BABYLON.Color3(0.4, 0.2, 0.1);
+            door.material = doorMat;
+            door.checkCollisions = true;
+
+            // 바깥 도착 지점
+            const exitPad = BABYLON.MeshBuilder.CreateGround("exitPad", {width: 3, height: 3}, scene);
+            exitPad.position = new BABYLON.Vector3(0, 0.02, -6.5);
+            const exitMat = new BABYLON.StandardMaterial("exitMat", scene);
+            exitMat.diffuseColor = new BABYLON.Color3(0.2, 0.8, 0.3);
+            exitMat.emissiveColor = new BABYLON.Color3(0.08, 0.35, 0.13);
+            exitPad.material = exitMat;
+
+            // 열쇠 (잘 보이도록 발광 + 회전)
+            const key = BABYLON.MeshBuilder.CreateBox("key", {width: 0.3, height: 0.3, depth: 0.3}, scene);
+            key.position = new BABYLON.Vector3(-2.5, 0.4, -2.5);
+            const keyMat = new BABYLON.StandardMaterial("keyMat", scene);
+            keyMat.diffuseColor = new BABYLON.Color3(1, 0.75, 0);
+            keyMat.emissiveColor = new BABYLON.Color3(0.55, 0.4, 0);
+            key.material = keyMat;
+            scene.onBeforeRenderObservable.add(() => {
+                if (key.visibility > 0) key.rotation.y += 0.03;
+            });
+
+            // 클릭/터치 상호작용
+            scene.onPointerDown = function (evt, pickResult) {
+                if (!pickResult.hit) return;
+                const mesh = pickResult.pickedMesh;
+                if (mesh === key && !hasKey) {
+                    hasKey = true;
+                    key.visibility = 0;
+                    showMessage('황금 열쇠를 주웠다!');
+                } else if (mesh === door) {
+                    if (hasKey && !doorOpen) {
+                        doorOpen = true;
+                        door.position.y += 3.2;       // 문을 위로 올리고
+                        door.checkCollisions = false; // 충돌 해제 -> 구멍으로 통과 가능
+                        showMessage('문이 열렸다! 밖으로 나가자.');
+                    } else if (!hasKey) {
+                        showMessage('문이 잠겨 있다. 열쇠를 찾아보자.');
+                    }
+                }
+            };
+
+            // 실제로 방을 빠져나가면 승리 처리
+            scene.onBeforeRenderObservable.add(() => {
+                if (doorOpen && !won && camera.position.z < -4.6) {
+                    won = true;
+                    showMessage('탈출 성공!');
+                }
+            });
+
+            return scene;
+        };
+
+        const scene = createScene();
+
+        engine.runRenderLoop(function () {
+            scene.render();
+        });
+
+        window.addEventListener("resize", function () {
+            engine.resize();
+        });
+    </script>
 </body>
 </html>
