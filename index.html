@@ -2,16 +2,18 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <title>3D 방탈출: 열쇠 찾기</title>
+    <title>3D 방탈출: PC 버전</title>
     <script src="https://aframe.io/releases/1.4.0/aframe.min.js"></script>
 </head>
 <body>
-    <a-scene fog="type: exponential; color: #000; density: 0.15">
+    <a-scene fog="type: exponential; color: #000; density: 0.15" vr-mode-ui="enabled: false">
         
         <a-entity position="0 1.6 0">
-            <a-camera look-controls wasd-controls>
+            <a-camera look-controls="pointerLockEnabled: true" wasd-controls>
+                
                 <a-cursor color="#ff0000" scale="0.8 0.8 0.8"></a-cursor>
                 <a-light type="spot" color="#ffffff" intensity="1.5" distance="15" angle="35" position="0 0 0"></a-light>
+                
             </a-camera>
         </a-entity>
 
@@ -20,32 +22,28 @@
         <a-plane position="0 0 0" rotation="-90 0 0" width="15" height="15" color="#111"></a-plane>
         
         <a-box position="0 2 -7.5" width="15" height="4" depth="0.5" color="#222"></a-box> <a-box position="0 2 7.5" width="15" height="4" depth="0.5" color="#222"></a-box>  <a-box position="-7.5 2 0" rotation="0 90 0" width="15" height="4" depth="0.5" color="#222"></a-box> <a-box position="7.5 2 0" rotation="0 90 0" width="15" height="4" depth="0.5" color="#222"></a-box>  <a-box id="escape-door" position="0 1.5 -7.2" width="2" height="3" depth="0.2" color="#4a2711"></a-box>
-        
         <a-box id="key" position="-6 0.2 -6" width="0.4" height="0.4" depth="0.4" color="#ffd700"></a-box>
 
     </a-scene>
 
     <script>
-        let hasKey = false; // 열쇠 보유 상태를 저장하는 변수
+        let hasKey = false;
 
         const keyObj = document.querySelector('#key');
         const doorObj = document.querySelector('#escape-door');
 
-        // 열쇠를 클릭(조준점에 두고 클릭)했을 때
         keyObj.addEventListener('click', () => {
             if (!hasKey) {
-                hasKey = true; // 열쇠 획득 상태로 변경
-                keyObj.setAttribute('visible', 'false'); // 화면에서 열쇠를 안 보이게 숨김
-                keyObj.removeAttribute('class'); // 추가 상호작용 방지
+                hasKey = true;
+                keyObj.setAttribute('visible', 'false');
+                keyObj.removeAttribute('class');
                 alert('반짝이는 황금 열쇠를 주웠습니다!');
             }
         });
 
-        // 문을 클릭했을 때
         doorObj.addEventListener('click', () => {
             if (hasKey) {
                 alert('철컥! 열쇠가 맞아 문이 열렸습니다. 탈출 성공!');
-                // 문을 위로 들어 올려서 열린 것처럼 연출
                 doorObj.setAttribute('position', '0 4.5 -7.2'); 
             } else {
                 alert('문이 굳게 잠겨 있습니다. 방 안에서 열쇠를 찾아보세요.');
