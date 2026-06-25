@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>A-Frame 호러 방탈출</title>
+    <script src="https://aframe.io/releases/1.4.0/aframe.min.js"></script>
+</head>
+<body>
+    <a-scene fog="type: exponential; color: #050505; density: 0.2">
+        
+        <a-entity position="0 1.6 0">
+            <a-camera look-controls wasd-controls>
+                <a-cursor color="#ff0000" fuse="false"></a-cursor>
+            </a-camera>
+        </a-entity>
+
+        <a-light type="ambient" color="#111"></a-light>
+        <a-light type="point" intensity="1.5" position="0 2 -2" color="#8b0000" distance="7"></a-light>
+
+        <a-plane position="0 0 0" rotation="-90 0 0" width="15" height="15" color="#1a1a1a"></a-plane>
+        <a-plane position="0 4 0" rotation="90 0 0" width="15" height="15" color="#0a0a0a"></a-plane>
+        
+        <a-box position="0 2 -7.5" width="15" height="4" depth="0.5" color="#222"></a-box> <a-box position="0 2 7.5" width="15" height="4" depth="0.5" color="#222"></a-box>  <a-box position="-7.5 2 0" rotation="0 90 0" width="15" height="4" depth="0.5" color="#222"></a-box> <a-box position="7.5 2 0" rotation="0 90 0" width="15" height="4" depth="0.5" color="#222"></a-box>  <a-box id="door" position="0 1.5 -7.2" width="1.5" height="3" depth="0.2" color="#3a0000"></a-box>
+
+        <a-cylinder position="4 1.5 -4" radius="0.5" height="3" color="#000"></a-cylinder>
+
+    </a-scene>
+
+    <script>
+        // 문(door)을 쳐다보고 클릭했을 때의 이벤트
+        const door = document.querySelector('#door');
+        door.addEventListener('click', () => {
+            alert('끼이익... 잠겨있던 문이 열렸습니다. 무사히 탈출했습니다!');
+            // 문 색상을 초록색으로 변경하여 탈출 성공 시각화
+            door.setAttribute('color', '#00ff00');
+        });
+    </script>
+</body>
+</html>
