@@ -109,4 +109,90 @@
 
             // 💡 3. 하얀 방에 어울리는 밝은 조명 설정
             const ambientLight = new BABYLON.HemisphericLight("ambient", new BABYLON.Vector3(0, 1, 0), scene);
-            ambientLight.intensity = 0.8; // 방 전체
+            ambientLight.intensity = 0.8; // 방 전체를 화사하게 밝힘
+
+            // 💡 4. 하얀색 방 마테리얼(재질) 생성
+            const whiteMat = new BABYLON.StandardMaterial("whiteMat", scene);
+            whiteMat.diffuseColor = new BABYLON.Color3(0.95, 0.95, 0.95);
+
+            // 바닥 (충돌 설정)
+            const ground = BABYLON.MeshBuilder.CreateGround("ground", {width: 8, height: 8}, scene);
+            ground.material = whiteMat;
+            ground.checkCollisions = true;
+
+            // 💡 5. 사방을 완벽히 막는 4개의 벽면 배치 (두께 0.2, 높이 4, 크기 8x8 룸)
+            // 앞벽 (정면 - 문이 설치될 벽)
+            const wallFront = BABYLON.MeshBuilder.CreateBox("wallFront", {width: 8, height: 4, depth: 0.2}, scene);
+            wallFront.position = new BABYLON.Vector3(0, 2, -4);
+            wallFront.material = whiteMat;
+            wallFront.checkCollisions = true; // 뚫기 방지
+
+            // 뒷벽
+            const wallBack = BABYLON.MeshBuilder.CreateBox("wallBack", {width: 8, height: 4, depth: 0.2}, scene);
+            wallBack.position = new BABYLON.Vector3(0, 2, 4);
+            wallBack.material = whiteMat;
+            wallBack.checkCollisions = true;
+
+            // 왼벽
+            const wallLeft = BABYLON.MeshBuilder.CreateBox("wallLeft", {width: 0.2, height: 4, depth: 8}, scene);
+            wallLeft.position = new BABYLON.Vector3(-4, 2, 0);
+            wallLeft.material = whiteMat;
+            wallLeft.checkCollisions = true;
+
+            // 오른벽
+            const wallRight = BABYLON.MeshBuilder.CreateBox("wallRight", {width: 0.2, height: 4, depth: 8}, scene);
+            wallRight.position = new BABYLON.Vector3(4, 2, 0);
+            wallRight.material = whiteMat;
+            wallRight.checkCollisions = true;
+
+
+            // 탈출 문 (Door) - 앞벽 바로 앞에 배치
+            const door = BABYLON.MeshBuilder.CreateBox("door", {width: 1.8, height: 2.8, depth: 0.15}, scene);
+            door.position = new BABYLON.Vector3(0, 1.4, -3.85);
+            const doorMat = new BABYLON.StandardMaterial("doorMat", scene);
+            doorMat.diffuseColor = new BABYLON.Color3(0.4, 0.2, 0.1); // 갈색 나무문 느낌
+            door.material = doorMat;
+            door.checkCollisions = true; // 문도 뚫지 못하게 설정
+
+            // 열쇠 (Key) - 방 내부 구석에 배치
+            const key = BABYLON.MeshBuilder.CreateBox("key", {width: 0.3, height: 0.3, depth: 0.3}, scene);
+            key.position = new BABYLON.Vector3(-2.5, 0.15, -2.5);
+            const keyMat = new BABYLON.StandardMaterial("keyMat", scene);
+            keyMat.diffuseColor = new BABYLON.Color3(1, 0.75, 0); // 황금 상자/열쇠 느낌
+            key.material = keyMat;
+
+            // 클릭/터치 상호작용
+            scene.onPointerDown = function (evt, pickResult) {
+                if (pickResult.hit) {
+                    if (pickResult.pickedMesh === key && !hasKey) {
+                        hasKey = true;
+                        key.visibility = 0;
+                        showMessage('황금 열쇠를 주웠다!');
+                    }
+                    if (pickResult.pickedMesh === door) {
+                        if (hasKey) {
+                            showMessage('탈출 성공!');
+                            door.position.y = 4.2; // 문이 위로 열림
+                            door.checkCollisions = false; // 열린 문은 통과 가능하게 변경
+                        } else {
+                            showMessage('문이 잠겨 있다. 열쇠를 찾아보자.');
+                        }
+                    }
+                }
+            };
+
+            return scene;
+        };
+
+        const scene = createScene();
+
+        engine.runRenderLoop(function () {
+            scene.render();
+        });
+
+        window.addEventListener("resize", function () {
+            engine.resize();
+        });
+    </script>
+</body>
+</html>
