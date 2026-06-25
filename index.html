@@ -2,8 +2,15 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <title>3D 방탈출: 완벽한 PC 시야 조작</title>
+    <title>3D 방탈출: 완벽한 PC 버전</title>
+    
+    <script>
+        window.addEventListener('deviceorientation', function(e) { e.stopPropagation(); }, true);
+        window.addEventListener('deviceorientationabsolute', function(e) { e.stopPropagation(); }, true);
+    </script>
+    
     <script src="https://aframe.io/releases/1.4.0/aframe.min.js"></script>
+    
     <style>
         #game-ui {
             position: absolute;
@@ -32,7 +39,7 @@
     <a-scene fog="type: exponential; color: #000; density: 0.15" vr-mode-ui="enabled: false">
         
         <a-entity position="0 1.6 0">
-            <a-camera look-controls="pointerLockEnabled: true; magicWindowTrackingEnabled: false" wasd-controls>
+            <a-camera look-controls="pointerLockEnabled: true" wasd-controls>
                 <a-cursor color="#ff0000" scale="0.8 0.8 0.8"></a-cursor>
                 <a-light type="spot" color="#ffffff" intensity="1.5" distance="15" angle="35" position="0 0 0"></a-light>
             </a-camera>
