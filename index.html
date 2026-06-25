@@ -4,10 +4,6 @@
     <meta charset="UTF-8">
     <title>3D 방탈출: 태블릿 터치 버전</title>
     
-    <script>
-        window.addEventListener('deviceorientation', function(e) { e.stopPropagation(); }, true);
-    </script>
-    
     <script src="https://aframe.io/releases/1.4.0/aframe.min.js"></script>
     
     <style>
@@ -34,7 +30,7 @@
     <a-scene fog="type: exponential; color: #000; density: 0.15" vr-mode-ui="enabled: false">
         
         <a-entity position="0 1.6 0">
-            <a-camera look-controls wasd-controls>
+            <a-camera look-controls="magicWindowTrackingEnabled: false" wasd-controls>
                 <a-cursor color="#ff0000" scale="0.8 0.8 0.8"></a-cursor>
                 <a-light type="spot" color="#ffffff" intensity="1.5" distance="15" angle="35" position="0 0 0"></a-light>
             </a-camera>
@@ -54,8 +50,6 @@
     </a-scene>
 
     <script>
-        // 터치 기기에서는 'click' 대신 'mousedown' 또는 'touchstart'가 잘 먹힐 수 있습니다.
-        // A-Frame의 cursor는 기본적으로 'click'을 지원하지만, 터치에서는 지연이 있을 수 있습니다.
         let hasKey = false;
         const keyObj = document.querySelector('#key');
         const doorObj = document.querySelector('#escape-door');
