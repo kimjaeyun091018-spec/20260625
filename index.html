@@ -2,11 +2,22 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <title>3D 방탈출: 태블릿 터치 버전</title>
-    
-    <script src="https://aframe.io/releases/1.4.0/aframe.min.js"></script>
-    
+    <title>3D 방탈출: 바빌론.js 모바일 버전</title>
+    <script src="https://cdn.babylonjs.com/babylon.js"></script>
     <style>
+        html, body {
+            overflow: hidden;
+            width: 100%;
+            height: 100%;
+            margin: 0;
+            padding: 0;
+        }
+        #renderCanvas {
+            width: 100%;
+            height: 100%;
+            touch-action: none; /* 모바일 터치 간섭 방지 */
+        }
+        /* 게임 UI */
         #game-ui {
             position: absolute;
             bottom: 10%; left: 50%;
@@ -21,61 +32,113 @@
             pointer-events: none;
             display: none;
             text-align: center;
+            font-family: sans-serif;
         }
     </style>
 </head>
 <body>
     <div id="game-ui"></div>
-
-    <a-scene fog="type: exponential; color: #000; density: 0.15" vr-mode-ui="enabled: false">
-        
-        <a-entity position="0 1.6 0">
-            <a-camera look-controls="magicWindowTrackingEnabled: false" wasd-controls>
-                <a-cursor color="#ff0000" scale="0.8 0.8 0.8"></a-cursor>
-                <a-light type="spot" color="#ffffff" intensity="1.5" distance="15" angle="35" position="0 0 0"></a-light>
-            </a-camera>
-        </a-entity>
-
-        <a-light type="ambient" color="#050505"></a-light>
-
-        <a-plane position="0 0 0" rotation="-90 0 0" width="15" height="15" color="#111"></a-plane>
-        <a-box position="0 2 -7.5" width="15" height="4" depth="0.5" color="#222"></a-box>
-        <a-box position="0 2 7.5" width="15" height="4" depth="0.5" color="#222"></a-box> 
-        <a-box position="-7.5 2 0" rotation="0 90 0" width="15" height="4" depth="0.5" color="#222"></a-box>
-        <a-box position="7.5 2 0" rotation="0 90 0" width="15" height="4" depth="0.5" color="#222"></a-box> 
-
-        <a-box id="escape-door" position="0 1.5 -7.2" width="2" height="3" depth="0.2" color="#4a2711"></a-box>
-        <a-box id="key" position="-6 0.2 -6" width="0.4" height="0.4" depth="0.4" color="#ffd700"></a-box>
-
-    </a-scene>
+    <canvas id="renderCanvas"></canvas>
 
     <script>
+        const canvas = document.getElementById("renderCanvas");
+        const engine = new BABYLON.Engine(canvas, true);
         let hasKey = false;
-        const keyObj = document.querySelector('#key');
-        const doorObj = document.querySelector('#escape-door');
-        const uiBox = document.querySelector('#game-ui');
 
+        // UI 띄우기 함수
+        const uiBox = document.getElementById('game-ui');
         function showMessage(text) {
             uiBox.innerText = text;
             uiBox.style.display = 'block';
             setTimeout(() => { uiBox.style.display = 'none'; }, 3000);
         }
 
-        keyObj.addEventListener('click', () => {
-            if (!hasKey) {
-                hasKey = true;
-                keyObj.setAttribute('visible', 'false');
-                showMessage('황금 열쇠를 주웠다!'); 
-            }
+        const createScene = function () {
+            const scene = new BABYLON.Scene(engine);
+            scene.clearColor = new BABYLON.Color3(0, 0, 0); // 배경 검은색
+            scene.fogMode = BABYLON.Scene.FOGMODE_EXP;
+            scene.fogDensity = 0.05;
+
+            // 💡 모바일 터치에 최적화된 ArcRotateCamera 설정 (상하좌우 회전 가능)
+            // 순서: Alpha(좌우각), Beta(상하각), Radius(거리), Target(바라보는 중심점)
+            const camera = new BABYLON.ArcRotateCamera("Camera", -Math.PI / 2, Math.PI / 2.5, 5, new BABYLON.Vector3(0, 1.5, 0), scene);
+            camera.attachControl(canvas, true);
+            
+            // 시야 왜곡 및 조작 제한 설정
+            camera.lowerRadiusLimit = 0.1;
+            camera.upperRadiusLimit = 10;
+            camera.upperBetaLimit = Math.PI / 2; // 땅 밑으로 카메라가 들어가지 않도록 제한
+
+            // 조명 설정
+            const ambientLight = new BABYLON.HemisphericLight("ambient", new BABYLON.Vector3(0, 1, 0), scene);
+            ambientLight.intensity = 0.1; // 어두운 방 분위기
+
+            const spotLight = new BABYLON.SpotLight("spot", new BABYLON.Vector3(0, 4, 0), new BABYLON.Vector3(0, -1, 0), Math.PI / 3, 2, scene);
+            spotLight.intensity = 1.5;
+
+            // 바닥 (Plane)
+            const ground = BABYLON.MeshBuilder.CreateGround("ground", {width: 15, height: 15}, scene);
+            const groundMat = new BABYLON.StandardMaterial("groundMat", scene);
+            groundMat.diffuseColor = new BABYLON.Color3(0.1, 0.1, 0.1);
+            ground.material = groundMat;
+
+            // 벽 (기존 A-Frame 구도를 구현)
+            const wallMat = new BABYLON.StandardMaterial("wallMat", scene);
+            wallMat.diffuseColor = new BABYLON.Color3(0.15, 0.15, 0.15);
+
+            const wall1 = BABYLON.MeshBuilder.CreateBox("wall1", {width: 15, height: 4, depth: 0.5}, scene);
+            wall1.position = new BABYLON.Vector3(0, 2, -7.5);
+            wall1.material = wallMat;
+
+            // 탈출 문 (Door)
+            const door = BABYLON.MeshBuilder.CreateBox("door", {width: 2, height: 3, depth: 0.2}, scene);
+            door.position = new BABYLON.Vector3(0, 1.5, -7.3);
+            const doorMat = new BABYLON.StandardMaterial("doorMat", scene);
+            doorMat.diffuseColor = new BABYLON.Color3(0.3, 0.15, 0.05); // 갈색
+            door.material = doorMat;
+
+            // 열쇠 (Key)
+            const key = BABYLON.MeshBuilder.CreateBox("key", {width: 0.4, height: 0.4, depth: 0.4}, scene);
+            key.position = new BABYLON.Vector3(-4, 0.2, -4);
+            const keyMat = new BABYLON.StandardMaterial("keyMat", scene);
+            keyMat.diffuseColor = new BABYLON.Color3(1, 0.85, 0); // 황금색
+            key.material = keyMat;
+
+            // 💡 모바일/PC 통합 터치(클릭) 이벤트 처리
+            scene.onPointerDown = function (evt, pickResult) {
+                if (pickResult.hit) {
+                    // 열쇠를 눌렀을 때
+                    if (pickResult.pickedMesh === key && !hasKey) {
+                        hasKey = true;
+                        key.visibility = 0; // 열쇠 숨기기
+                        showMessage('황금 열쇠를 주웠다!');
+                    }
+                    // 문을 눌렀을 때
+                    if (pickResult.pickedMesh === door) {
+                        if (hasKey) {
+                            showMessage('탈출 성공!');
+                            // 문이 위로 열리는 애니메이션 효과
+                            door.position.y = 4.5;
+                        } else {
+                            showMessage('문이 잠겨 있다. 열쇠를 찾아보자.');
+                        }
+                    }
+                }
+            };
+
+            return scene;
+        };
+
+        const scene = createScene();
+
+        // 매 프레임마다 화면을 다시 그리는 루프
+        engine.runRenderLoop(function () {
+            scene.render();
         });
 
-        doorObj.addEventListener('click', () => {
-            if (hasKey) {
-                showMessage('탈출 성공!');
-                doorObj.setAttribute('position', '0 4.5 -7.2'); 
-            } else {
-                showMessage('문이 잠겨 있다. 열쇠를 찾아보자.');
-            }
+        // 브라우저 창 크기가 바뀔 때 대응
+        window.addEventListener("resize", function () {
+            engine.resize();
         });
     </script>
 </body>
