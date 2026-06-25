@@ -2,11 +2,10 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <title>3D 방탈출: 완벽한 PC 버전</title>
+    <title>3D 방탈출: 태블릿 터치 버전</title>
     
     <script>
         window.addEventListener('deviceorientation', function(e) { e.stopPropagation(); }, true);
-        window.addEventListener('deviceorientationabsolute', function(e) { e.stopPropagation(); }, true);
     </script>
     
     <script src="https://aframe.io/releases/1.4.0/aframe.min.js"></script>
@@ -14,18 +13,14 @@
     <style>
         #game-ui {
             position: absolute;
-            bottom: 10%;
-            left: 50%;
+            bottom: 10%; left: 50%;
             transform: translateX(-50%);
             background-color: rgba(0, 0, 0, 0.85);
             color: #fff;
             padding: 15px 30px;
             border: 3px solid #fff;
             border-radius: 8px;
-            font-family: 'Malgun Gothic', sans-serif;
-            font-size: 20px;
-            font-weight: bold;
-            box-shadow: 4px 4px 0px #222;
+            font-size: 18px;
             z-index: 1000;
             pointer-events: none;
             display: none;
@@ -39,7 +34,7 @@
     <a-scene fog="type: exponential; color: #000; density: 0.15" vr-mode-ui="enabled: false">
         
         <a-entity position="0 1.6 0">
-            <a-camera look-controls="pointerLockEnabled: true" wasd-controls>
+            <a-camera look-controls wasd-controls>
                 <a-cursor color="#ff0000" scale="0.8 0.8 0.8"></a-cursor>
                 <a-light type="spot" color="#ffffff" intensity="1.5" distance="15" angle="35" position="0 0 0"></a-light>
             </a-camera>
@@ -59,40 +54,33 @@
     </a-scene>
 
     <script>
+        // 터치 기기에서는 'click' 대신 'mousedown' 또는 'touchstart'가 잘 먹힐 수 있습니다.
+        // A-Frame의 cursor는 기본적으로 'click'을 지원하지만, 터치에서는 지연이 있을 수 있습니다.
         let hasKey = false;
         const keyObj = document.querySelector('#key');
         const doorObj = document.querySelector('#escape-door');
         const uiBox = document.querySelector('#game-ui');
-        let uiTimeout;
 
         function showMessage(text) {
             uiBox.innerText = text;
             uiBox.style.display = 'block';
-            clearTimeout(uiTimeout);
-            uiTimeout = setTimeout(() => {
-                uiBox.style.display = 'none';
-            }, 3000);
+            setTimeout(() => { uiBox.style.display = 'none'; }, 3000);
         }
-
-        setTimeout(() => {
-            showMessage('화면을 클릭하면 마우스가 고정됩니다. (취소: ESC)');
-        }, 1000);
 
         keyObj.addEventListener('click', () => {
             if (!hasKey) {
                 hasKey = true;
                 keyObj.setAttribute('visible', 'false');
-                keyObj.removeAttribute('class');
-                showMessage('반짝이는 황금 열쇠를 주웠다!'); 
+                showMessage('황금 열쇠를 주웠다!'); 
             }
         });
 
         doorObj.addEventListener('click', () => {
             if (hasKey) {
-                showMessage('철컥! 열쇠가 맞아 문이 열렸다. 탈출 성공!');
+                showMessage('탈출 성공!');
                 doorObj.setAttribute('position', '0 4.5 -7.2'); 
             } else {
-                showMessage('문이 굳게 잠겨 있다. 방 안에서 열쇠를 찾아보자.');
+                showMessage('문이 잠겨 있다. 열쇠를 찾아보자.');
             }
         });
     </script>
