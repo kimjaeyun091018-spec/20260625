@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>인생네컷 — 웹 포토부스</title>
+  <meta name="description" content="웹캠으로 4컷을 찍어 한 장의 포토 스트립으로 저장하는 인생네컷 포토부스" />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Jua&family=Noto+Sans+KR:wght@400;500;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet" />
+
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="booth">
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand__logo">인생네컷</span>
+        <span class="brand__tag">WEB PHOTO BOOTH</span>
+      </div>
+      <div class="rec" id="recBadge" aria-hidden="true">
+        <span class="rec__dot"></span>READY
+      </div>
+    </header>
+
+    <main class="stage">
+      <!-- 카메라 영역 -->
+      <section class="cam" aria-label="카메라">
+        <div class="cam__viewport" id="viewport">
+          <video id="video" playsinline autoplay muted></video>
+
+          <div class="cam__grid" aria-hidden="true"></div>
+
+          <div class="countdown" id="countdown" aria-hidden="true"></div>
+          <div class="flash" id="flash" aria-hidden="true"></div>
+
+          <div class="cam__hint" id="camHint">
+            <p class="cam__hint-title">카메라를 켜주세요</p>
+            <p class="cam__hint-sub">아래 <b>카메라 켜기</b>를 누르면 권한 요청이 떠요.<br />카메라가 없다면 사진을 업로드해도 돼요.</p>
+          </div>
+        </div>
+
+        <div class="controls">
+          <div class="control-row" role="group" aria-label="필터">
+            <span class="control-label">필터</span>
+            <div class="chips" id="filterChips"></div>
+          </div>
+
+          <div class="control-row" role="group" aria-label="프레임 색상">
+            <span class="control-label">프레임</span>
+            <div class="swatches" id="frameSwatches"></div>
+          </div>
+
+          <div class="control-row control-row--caption">
+            <span class="control-label">문구</span>
+            <input id="captionInput" class="caption-input" type="text"
+                   maxlength="18" value="인생네컷" aria-label="스트립 하단 문구" />
+          </div>
+
+          <div class="actions">
+            <button id="startBtn" class="btn btn--primary" disabled>
+              <span class="btn__icon">◉</span> 카메라 켜기
+            </button>
+            <button id="shootBtn" class="btn btn--shoot" disabled>4컷 촬영</button>
+            <button id="resetBtn" class="btn btn--ghost" disabled>다시</button>
+            <label class="btn btn--ghost upload">
+              사진 업로드
+              <input id="uploadInput" type="file" accept="image/*" multiple hidden />
+            </label>
+          </div>
+        </div>
+      </section>
+
+      <!-- 스트립 영역 -->
+      <section class="result" aria-label="포토 스트립">
+        <div class="strip" id="strip">
+          <div class="strip__cuts" id="stripCuts">
+            <div class="cut" data-i="0"><span class="cut__num">1</span></div>
+            <div class="cut" data-i="1"><span class="cut__num">2</span></div>
+            <div class="cut" data-i="2"><span class="cut__num">3</span></div>
+            <div class="cut" data-i="3"><span class="cut__num">4</span></div>
+          </div>
+          <div class="strip__footer">
+            <span class="strip__caption" id="stripCaption">인생네컷</span>
+            <span class="strip__date" id="stripDate">2026.06.26</span>
+          </div>
+        </div>
+
+        <button id="saveBtn" class="btn btn--primary btn--save" disabled>이미지 저장</button>
+        <p class="result__note" id="resultNote">4컷을 모두 찍으면 저장 버튼이 켜져요.</p>
+      </section>
+    </main>
+
+    <footer class="footnote">
+      찍은 사진은 어디에도 전송되지 않고 이 브라우저 안에서만 처리돼요.
+    </footer>
+  </div>
+
+  <!-- 합성용 숨김 캔버스 -->
+  <canvas id="exportCanvas" hidden></canvas>
+
+  <script src="script.js"></script>
+</body>
+</html>
