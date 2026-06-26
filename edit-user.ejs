@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <title>너의 연인은</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>사용자 정보 수정</title>
+    <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+    <div class="container">
+        <h1>사용자 정보 수정</h1>
+        <form action="/user/<%= user.id %>" method="POST">
+            <div class="form-group">
+                <label for="id">아이디:</label>
+                <input type="text" id="id" name="id" value="<%= user.id %>" readonly>
+            </div>
+            <div class="form-group">
+                <label for="name">이름:</label>
+                <input type="text" id="name" name="name" value="<%= user.name %>" required>
+            </div>
+            <div class="form-group">
+                <label for="sch_name">학교명:</label>
+                <input type="text" id="sch_name" name="sch_name" value="<%= user.sch_name %>" required>
+            </div>
+            <div class="form-group">
+                <label for="sch_name">성별:</label>
+                <input type="text" id="gender" name="gender" value="<%= user.gender %>" required>
+            </div>
+            <div class="form-group">
+                <label for="sch_name">인스타그램:</label>
+                <input type="text" id="instagram" name="instagram" value="<%= user.instagram %>" required>
+            </div>
+            <div class="form-group">
+                <label for="sch_class">나이:</label>
+                <input type="text" id="age" name="age" value="<%= user.age %>" required>
+            </div>
+            <button type="submit">수정 확인</button>
+        </form>
+    </div>
+</body>
+</html>

@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <title>너의 연인은</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>메인 페이지 - 사용자 리스트</title>
+    <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+    
+    <div class="container">
+        <h1 class="head">너의 연인은</h1>
+        <!-- <h1>사용자 리스트</h1> -->
+        <table class="user-table">
+            <thead>
+                <tr>
+                    <th>이름</th>
+                    <th>학교</th>
+                    <th>나이</th>
+                    <th>성별</th>
+                    <th>작업</th>
+                </tr>
+            </thead>
+            <tbody>
+                <% users.forEach(user => { %>
+                    <tr>
+                        <td><%= user.name %></td>
+                        <td><%= user.sch_name %></td>
+                        <td><%= user.age %></td>
+                        <td><%= user.gender %></td>
+                        <td>
+                            <form action="/user/<%= user.id %>/update" method="POST" style="display:inline;">
+                                <button type="submit" class="edit-btn" onclick="return confirm('정말로 이 사용자에게 신청하시겠습니까?');">만남 신청하기</button>
+                            </form>
+                        </td>
+                    </tr>
+                <% }) %>
+            </tbody>
+        </table>
+    </div>
+</body>
+</html>

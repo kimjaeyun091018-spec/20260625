@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>사용자 정보</title>
+    <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+    <div class="container">
+        <h1>사용자 정보</h1>
+        <div class="user-info">
+            <p><strong>아이디:</strong> <%= user.id %></p>
+            <p><strong>이름:</strong> <%= user.name %></p>
+            <p><strong>학교명:</strong> <%= user.sch_name %></p>
+        </div>
+        <a href="/logout" class="logout-btn">로그아웃</a>
+
+        <a href="/admin" class="admin-btn">어드민</a>
+
+    </div>
+</body>
+</html>

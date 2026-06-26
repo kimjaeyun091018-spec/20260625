@@ -1,0 +1,176 @@
+body {
+    font-family: Arial, sans-serif;
+    background-color: #f0f0f0;
+    margin: 0;
+    padding: 0;
+}
+
+.container {
+    max-width: 800px;
+    margin: 50px auto;
+    padding: 20px;
+    background-color: #fff;
+    border-radius: 5px;
+    box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+    text-align: center;
+}
+
+.mini-text {
+    font-size: 10px;
+}
+
+h1 {
+    text-align: center;
+    color: #333;
+}
+
+.form-group {
+    margin-bottom: 15px;
+}
+
+label {
+    display: block;
+    margin-bottom: 5px;
+    color: #666;
+}
+
+input[type="text"],
+input[type="password"] {
+    width: 100%;
+    padding: 8px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+}
+
+button {
+    display: block;
+    width: 100%;
+    padding: 10px;
+    background-color: #007bff;
+    color: #fff;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+button:hover {
+    background-color: #0056b3;
+}
+
+a {
+    color: #007bff;
+    text-decoration: none;
+}
+
+a:hover {
+    text-decoration: underline;
+}
+
+.user-info {
+    background-color: #f9f9f9;
+    padding: 15px;
+    border-radius: 4px;
+    margin-bottom: 20px;
+}
+
+.logout-btn {
+    display: inline-block;
+    padding: 10px 20px;
+    background-color: #a0a0a0;
+    color: #fff;
+    text-decoration: none;
+    border-radius: 4px;
+}
+
+.logout-btn:hover {
+    background-color: #a0a0a0;
+    text-decoration: none;
+}
+
+
+
+.admin-btn {
+    display: inline-block;
+    padding: 10px 20px;
+    background-color: #2d7ee7;
+    color: #fff;
+    text-decoration: none;
+    border-radius: 4px;
+}
+
+.admin-btn:hover {
+    background-color: #2d7ee7;
+    text-decoration: none;
+}
+
+.go-to-checker {
+    display: inline-block;
+    padding: 10px 20px;
+    background-color: #2d7ee7;
+    color: #fff;
+    text-decoration: none;
+    border-radius: 4px;
+}
+
+.go-to-main {
+    display: inline-block;
+    padding: 10px 20px;
+    background-color: #2d7ee7;
+    color: #fff;
+    text-decoration: none;
+    border-radius: 4px;
+}
+
+
+/* 기존 스타일 유지 */
+
+.user-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 20px;
+}
+
+.user-table th,
+.user-table td {
+    border: 1px solid #ddd;
+    padding: 8px;
+    text-align: left;
+}
+
+.user-table th {
+    background-color: #f2f2f2;
+    font-weight: bold;
+}
+
+.edit-btn,
+.delete-btn {
+    display: inline-block;
+    padding: 5px 10px;
+    margin: 2px;
+    color: #fff;
+    text-decoration: none;
+    border-radius: 3px;
+    cursor: pointer;
+}
+
+.head {
+    font-size: 70px;
+    color: #007bff;
+}
+
+.edit-btn {
+    background-color: #007bff;
+}
+
+.delete-btn {
+    background-color: #777777;
+    border: none;
+}
+
+.edit-btn:hover {
+    background-color: #007bff;
+}
+
+.delete-btn:hover {
+    background-color: #777777;
+}

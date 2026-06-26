@@ -1,0 +1,187 @@
+<!-- <!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>관리자 페이지 - 사용자 리스트</title>
+    <link rel="stylesheet" href="/styles.css">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            font-size: 14px;
+            background-color: #f4f4f4;
+            color: #333;
+            margin: 0;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background-color: #fff;
+            padding: 20px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+            border-radius: 8px;
+        }
+
+        h1 {
+            font-size: 24px;
+            color: #444;
+            text-align: center;
+            margin-bottom: 20px;
+        }
+
+        .user-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .user-table thead th {
+            background-color: #f8f8f8;
+            text-align: left;
+            padding: 10px;
+            border-bottom: 2px solid #ddd;
+            font-size: 16px;
+        }
+
+        .user-table tbody td {
+            padding: 10px;
+            border-bottom: 1px solid #ddd;
+        }
+
+        .user-table tbody tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+
+        .edit-btn, .delete-btn {
+            padding: 5px 10px;
+            font-size: 14px;
+            color: #fff;
+            text-decoration: none;
+            border-radius: 5px;
+            margin-right: 5px;
+        }
+
+        .edit-btn {
+            background-color: #2d7ee7;
+        }
+
+        .delete-btn {
+            background-color: #a0a0a0;
+            border: none;
+            cursor: pointer;
+        }
+
+        .delete-btn:hover {
+            background-color: #a0a0a0;
+        }
+
+        .edit-btn:hover {
+            background-color: #2d7ee7;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>사용자 리스트</h1>
+        <table class="user-table">
+            <thead>
+                <tr>
+                    <th>아이디</th>
+                    <th>이름</th>
+                    <th>학교</th>
+                    <th>성별</th>  
+                    <th>인스타그램</th>
+                    <th>나이</th>
+                    <th>작업</th>
+                </tr>
+            </thead>
+            <tbody>
+                <% users.forEach(user => { %>
+                    <tr>
+                        <td><%= user.id %></td>
+                        <td><%= user.name %></td>
+                        <td><%= user.sch_name %></td>
+                        <td><%= user.gender %></td>
+                        <td><%= user.instagram %></td>
+                        <td><%= user.age %></td>
+                        <td>
+                            <a href="/user/<%= user.id %>" class="edit-btn">수정</a>
+                            <form action="/user/<%= user.id %>/delete" method="POST" style="display:inline;">
+                                <button type="submit" class="delete-btn" onclick="return confirm('정말로 이 사용자를 삭제하시겠습니까?');">삭제</button>
+                            </form>
+                        </td>
+                    </tr>
+                <% }) %>
+            </tbody>
+        </table>
+    </div>
+</body>
+</html>
+` -->
+
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>관리자 페이지 - 사용자 리스트</title>
+    <link rel="stylesheet" href="/styles.css">
+    <style>
+        /* ... (existing styles) ... */
+        .reset-btn {
+            background-color: #777777;
+            color: #fff;
+            border: none;
+            padding: 5px 10px;
+            font-size: 14px;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        .reset-btn:hover {
+            background-color: #777777;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>사용자 리스트</h1>
+        <table class="user-table">
+            <thead>
+                <tr>
+                    <th>아이디</th>
+                    <th>이름</th>
+                    <th>나이</th>
+                    <th>학교</th>
+                    <th>성별</th>  
+                    <th>인스타그램</th>
+                    <th>고백한 사람</th>
+                    <th>작업</th>
+                </tr>
+            </thead>
+            <tbody>
+                <% users.forEach(user => { %>
+                    <tr>
+                        <td><%= user.id %></td>
+                        <td><%= user.name %></td>
+                        <td><%= user.age %></td>
+                        <td><%= user.sch_name %></td>
+                        <td><%= user.gender %></td>
+                        <td><%= user.instagram %></td>
+                        <td><%= user.asker %></td>
+                        <td>
+                            <a href="/user/<%= user.id %>" class="edit-btn">수정</a>
+                            <form action="/user/<%= user.id %>/delete" method="POST" style="display:inline;">
+                                <button type="submit" class="delete-btn" onclick="return confirm('정말로 이 사용자를 삭제하시겠습니까?');">삭제</button>
+                            </form>
+                            <form action="/user/<%= user.id %>/reset-asker" method="POST" style="display:inline;">
+                                <button type="submit" class="delete-btn" onclick="return confirm('정말로 이 사용자의 고백 정보를 초기화하시겠습니까?');">고백 초기화</button>
+                            </form>
+                        </td>
+                    </tr>
+                <% }) %>
+            </tbody>
+        </table>
+    </div>
+</body>
+</html>
