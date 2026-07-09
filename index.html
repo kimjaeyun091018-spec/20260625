@@ -3,42 +3,65 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
-<title>소방관 - 붕괴하는 3층 건물</title>
+<title>소방관 - 붕괴하는 건물 (방독면 · 산소 · 달리기)</title>
 <script src="https://cdn.babylonjs.com/babylon.js"></script>
 <style>
   html,body{overflow:hidden;width:100%;height:100%;margin:0;padding:0;background:#000;font-family:sans-serif;}
   #renderCanvas{width:100%;height:100%;touch-action:none;display:block;}
-  #hud{position:absolute;top:12px;left:12px;color:#fff;z-index:10;pointer-events:none;}
-  #hpWrap{width:220px;height:16px;background:rgba(0,0,0,.6);border:2px solid #fff;border-radius:8px;overflow:hidden;}
-  #hpBar{height:100%;width:100%;background:linear-gradient(90deg,#2ecc71,#f1c40f,#e74c3c);background-size:220px 100%;transition:width .15s linear;}
-  #timer{margin-top:8px;font-size:22px;font-weight:bold;text-shadow:0 2px 4px #000;}
-  #objective{margin-top:4px;font-size:13px;background:rgba(0,0,0,.55);padding:6px 10px;border-radius:6px;display:inline-block;max-width:360px;}
-  #floorTag{margin-top:6px;font-size:12px;color:#ffd7a0;background:rgba(0,0,0,.5);padding:4px 8px;border-radius:5px;display:inline-block;}
-  #integrity{margin-top:6px;width:220px;height:8px;background:rgba(255,255,255,.15);border-radius:4px;overflow:hidden;}
-  #integBar{height:100%;width:100%;background:#8fd6ff;transition:width .4s;}
-  #torchUI{position:absolute;top:12px;right:12px;color:#ffd;background:rgba(0,0,0,.5);padding:8px 12px;border-radius:6px;font-size:13px;z-index:10;pointer-events:none;text-align:right;}
-  #battWrap{margin-top:6px;width:120px;height:8px;background:rgba(255,255,255,.2);border-radius:4px;overflow:hidden;}
+  #hud{position:absolute;top:12px;left:12px;color:#fff;z-index:10;pointer-events:none;font-size:12px;}
+  .bar{width:210px;height:13px;background:rgba(0,0,0,.6);border:1.5px solid rgba(255,255,255,.75);border-radius:7px;overflow:hidden;margin-top:3px;}
+  .bar > div{height:100%;width:100%;transition:width .12s linear;}
+  .lbl{margin-top:7px;opacity:.85;letter-spacing:.5px;}
+  #hpBar{background:#e74c3c;}
+  #oxyBar{background:#5bc8f5;}
+  #stamBar{background:#7ed957;}
+  #integBar{background:#8fd6ff;}
+  #timer{margin-top:9px;font-size:21px;font-weight:bold;text-shadow:0 2px 4px #000;}
+  #objective{margin-top:5px;font-size:12px;background:rgba(0,0,0,.55);padding:6px 10px;border-radius:6px;display:inline-block;max-width:340px;}
+  #floorTag{margin-top:5px;font-size:12px;color:#ffd7a0;background:rgba(0,0,0,.5);padding:4px 8px;border-radius:5px;display:inline-block;}
+  #rightUI{position:absolute;top:12px;right:12px;color:#ffd;background:rgba(0,0,0,.5);padding:9px 12px;border-radius:6px;font-size:12px;z-index:10;pointer-events:none;text-align:right;line-height:1.7;}
+  #battWrap{margin-top:5px;width:110px;height:7px;background:rgba(255,255,255,.2);border-radius:4px;overflow:hidden;margin-left:auto;}
   #battBar{height:100%;width:100%;background:#ffd76a;}
-  #msg{position:absolute;bottom:12%;left:50%;transform:translateX(-50%);background:rgba(0,0,0,.88);color:#fff;padding:14px 28px;border:3px solid #fff;border-radius:8px;font-size:18px;z-index:10;pointer-events:none;display:none;text-align:center;max-width:70%;}
-  #vig{position:absolute;inset:0;pointer-events:none;z-index:5;opacity:0;background:radial-gradient(ellipse at center, transparent 45%, rgba(200,20,0,.85) 100%);transition:opacity .12s linear;}
+  #maskState{color:#8fe6a0;}
+  #msg{position:absolute;bottom:13%;left:50%;transform:translateX(-50%);background:rgba(0,0,0,.88);color:#fff;padding:13px 26px;border:3px solid #fff;border-radius:8px;font-size:17px;z-index:12;pointer-events:none;display:none;text-align:center;max-width:70%;}
+  #vig{position:absolute;inset:0;pointer-events:none;z-index:5;opacity:0;background:radial-gradient(ellipse at center,transparent 45%,rgba(200,20,0,.85) 100%);transition:opacity .12s linear;}
+  #chokeVig{position:absolute;inset:0;pointer-events:none;z-index:6;opacity:0;background:radial-gradient(ellipse at center,transparent 30%,rgba(0,0,0,.95) 95%);transition:opacity .4s linear;}
+  #goggles{position:absolute;inset:0;pointer-events:none;z-index:7;opacity:0;transition:opacity .35s;}
   #fade{position:absolute;inset:0;background:#000;opacity:0;pointer-events:none;z-index:15;transition:opacity 1s;}
-  #overlay{position:absolute;inset:0;background:rgba(0,0,0,.88);color:#fff;z-index:20;display:none;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:20px;}
-  #overlay h1{font-size:42px;margin:0 0 10px;}
+  #overlay{position:absolute;inset:0;background:rgba(0,0,0,.9);color:#fff;z-index:20;display:none;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:20px;}
+  #overlay h1{font-size:40px;margin:0 0 10px;}
   #overlay button{margin-top:18px;padding:12px 28px;font-size:16px;border:none;border-radius:6px;background:#e74c3c;color:#fff;cursor:pointer;}
-  #crosshair{position:absolute;top:50%;left:50%;width:6px;height:6px;margin:-3px 0 0 -3px;border-radius:50%;background:rgba(255,255,255,.6);z-index:6;pointer-events:none;}
+  #crosshair{position:absolute;top:50%;left:50%;width:5px;height:5px;margin:-2.5px 0 0 -2.5px;border-radius:50%;background:rgba(255,255,255,.55);z-index:8;pointer-events:none;}
 </style>
 </head>
 <body>
 <div id="hud">
-  <div id="hpWrap"><div id="hpBar"></div></div>
+  <div class="lbl">체력</div><div class="bar"><div id="hpBar"></div></div>
+  <div class="lbl">산소</div><div class="bar"><div id="oxyBar"></div></div>
+  <div class="lbl">스태미나</div><div class="bar"><div id="stamBar"></div></div>
+  <div class="lbl">건물 안정도</div><div class="bar"><div id="integBar"></div></div>
   <div id="timer">03:20</div>
-  <div id="integrity"><div id="integBar"></div></div>
   <div id="floorTag">현재: 건물 외부</div>
   <div id="objective">목표: 정문으로 진입해 최상층의 생존자를 찾아라</div>
 </div>
-<div id="torchUI">손전등: 켜짐 (F)<div id="battWrap"><div id="battBar"></div></div></div>
+<div id="rightUI">
+  <div id="torchLine">손전등: 켜짐 (F)</div>
+  <div id="battWrap"><div id="battBar"></div></div>
+  <div id="maskState">방독면: 착용 (G)</div>
+  <div style="opacity:.7">Shift 달리기 · E 상호작용</div>
+</div>
 <div id="crosshair"></div>
-<div id="msg"></div><div id="vig"></div><div id="fade"></div>
+<svg id="goggles" xmlns="http://www.w3.org/2000/svg">
+  <defs><mask id="gm">
+    <rect width="100%" height="100%" fill="white"/>
+    <circle cx="37%" cy="50%" r="25%" fill="black"/>
+    <circle cx="63%" cy="50%" r="25%" fill="black"/>
+  </mask></defs>
+  <rect width="100%" height="100%" fill="rgba(4,6,8,0.97)" mask="url(#gm)"/>
+  <circle cx="37%" cy="50%" r="25%" fill="none" stroke="rgba(0,0,0,0.55)" stroke-width="14"/>
+  <circle cx="63%" cy="50%" r="25%" fill="none" stroke="rgba(0,0,0,0.55)" stroke-width="14"/>
+</svg>
+<div id="msg"></div><div id="vig"></div><div id="chokeVig"></div><div id="fade"></div>
 <div id="overlay"><h1 id="oTitle"></h1><p id="oText"></p><button onclick="location.reload()">다시 시도</button></div>
 <canvas id="renderCanvas"></canvas>
 
@@ -46,21 +69,50 @@
 const canvas=document.getElementById("renderCanvas");
 const engine=new BABYLON.Engine(canvas,true,{stencil:true});
 
-const GAME={phase:1,hp:100,timeLeft:200,over:false,survivorFound:false,
-            survivorFollowing:false,cutscenePlayed:false,battery:100,integrity:100};
+const GAME={phase:1,hp:100,oxygen:100,stamina:100,integrity:100,battery:100,
+            timeLeft:200,over:false,maskOn:true,running:false,
+            survivorFound:false,survivorFollowing:false,cutscenePlayed:false};
 
-const hpBar=document.getElementById("hpBar"),timerEl=document.getElementById("timer"),
-      msgEl=document.getElementById("msg"),vig=document.getElementById("vig"),
-      torchUI=document.getElementById("torchUI"),overlay=document.getElementById("overlay"),
-      objEl=document.getElementById("objective"),floorTag=document.getElementById("floorTag"),
-      battBar=document.getElementById("battBar"),fade=document.getElementById("fade"),
-      integBar=document.getElementById("integBar");
+const $=id=>document.getElementById(id);
+const hpBar=$("hpBar"),oxyBar=$("oxyBar"),stamBar=$("stamBar"),integBar=$("integBar"),
+      timerEl=$("timer"),msgEl=$("msg"),vig=$("vig"),chokeVig=$("chokeVig"),goggles=$("goggles"),
+      overlay=$("overlay"),objEl=$("objective"),floorTag=$("floorTag"),battBar=$("battBar"),
+      fade=$("fade"),torchLine=$("torchLine"),maskState=$("maskState");
 
-function showMessage(t,ms=2800){msgEl.innerText=t;msgEl.style.display="block";
+function showMessage(t,ms=2600){msgEl.innerText=t;msgEl.style.display="block";
   clearTimeout(showMessage._t);showMessage._t=setTimeout(()=>msgEl.style.display="none",ms);}
 function endGame(title,text){if(GAME.over)return;GAME.over=true;
-  document.getElementById("oTitle").innerText=title;document.getElementById("oText").innerText=text;
-  overlay.style.display="flex";}
+  $("oTitle").innerText=title;$("oText").innerText=text;overlay.style.display="flex";}
+
+/* ═══════════ 사운드 (외부 파일 없이 Web Audio 로 합성) ═══════════ */
+let actx=null;
+function initAudio(){ if(!actx){ try{ actx=new (window.AudioContext||window.webkitAudioContext)(); }catch(e){} } }
+window.addEventListener("keydown",initAudio,{once:true});
+window.addEventListener("pointerdown",initAudio,{once:true});
+
+function playNoise(dur,freq,gain,type="lowpass"){
+  if(!actx) return;
+  const len=Math.max(1,Math.floor(actx.sampleRate*dur));
+  const buf=actx.createBuffer(1,len,actx.sampleRate);
+  const d=buf.getChannelData(0);
+  for(let i=0;i<len;i++){ const env=Math.pow(1-i/len,2.6); d[i]=(Math.random()*2-1)*env; }
+  const src=actx.createBufferSource(); src.buffer=buf;
+  const f=actx.createBiquadFilter(); f.type=type; f.frequency.value=freq; f.Q.value=0.8;
+  const g=actx.createGain(); g.gain.value=gain;
+  src.connect(f); f.connect(g); g.connect(actx.destination);
+  src.start();
+}
+// 발걸음: 바닥 재질 느낌의 짧은 저역 노이즈 + 미세한 피치 변화
+function footstep(onStairs){
+  const p = 0.85 + Math.random()*0.35;
+  playNoise(0.11, (onStairs?1500:780)*p, onStairs?0.18:0.24);
+}
+// 호흡: 방독면 착용 시 규칙적 흡기/호기, 미착용 시 거친 숨
+function breath(hard){
+  if(hard){ playNoise(0.42, 480, 0.13, "bandpass"); }
+  else { playNoise(0.30, 320, 0.07, "lowpass"); }
+}
+function rumble(){ playNoise(1.1, 130, 0.35, "lowpass"); }
 
 const createScene=function(){
   const scene=new BABYLON.Scene(engine);
@@ -77,6 +129,7 @@ const createScene=function(){
   camera.inputs.removeByType("FreeCameraTouchInput");
   camera.inputs.removeByType("FreeCameraKeyboardMoveInput");
   camera.minZ=0.15;
+  camera.fov=0.95;
   scene.collisionsEnabled=true;
   camera.checkCollisions=true;
   camera.applyGravity=false;
@@ -91,104 +144,105 @@ const createScene=function(){
     return m;
   }
   const matWall=mkMat("w",0.42,0.40,0.38), matFloor=mkMat("f",0.30,0.27,0.25),
-        matCeil=mkMat("c",0.26,0.24,0.22), matStair=mkMat("s",0.38,0.33,0.28),
-        matRubble=mkMat("r",0.18,0.16,0.15), matGround=mkMat("g",0.14,0.15,0.13);
+        matStair=mkMat("s",0.38,0.33,0.28), matRubble=mkMat("r",0.18,0.16,0.15),
+        matGround=mkMat("g",0.14,0.15,0.13), matCeil=mkMat("c",0.24,0.22,0.20);
 
   const shadowCasters=[];
-  const walkables=[]; // ✅ 광선 검사 대상만 모아 성능/정확도 향상
 
   function makeWall(x,y,z,w,h,d,mat){
     const b=BABYLON.MeshBuilder.CreateBox("wall",{width:w,height:h,depth:d},scene);
     b.position.set(x,y,z);b.material=mat||matWall;b.checkCollisions=true;
     b.receiveShadows=true;shadowCasters.push(b);return b;
   }
-  function makeFloor(x,y,z,w,d,mat){
-    const f=BABYLON.MeshBuilder.CreateBox("floor",{width:w,height:0.25,depth:d},scene);
-    f.position.set(x,y-0.125,z);f.material=mat||matFloor;
+  function makeSlab(x,y,z,w,d,mat){   // 윗면이 y 인 바닥판
+    const f=BABYLON.MeshBuilder.CreateBox("floor",{width:w,height:0.3,depth:d},scene);
+    f.position.set(x,y-0.15,z);f.material=mat||matFloor;
     f.isWalkable=true;f.checkCollisions=false;f.receiveShadows=true;
-    walkables.push(f);return f;
+    return f;
   }
   function makeCeiling(x,y,z,w,d,mat){
     const c=BABYLON.MeshBuilder.CreateBox("ceil",{width:w,height:0.25,depth:d},scene);
     c.position.set(x,y,z);c.material=mat||matCeil;c.receiveShadows=true;return c;
   }
-  function wallWithGap(axis,konst,center,totalLen,height,gapW,gapH,mat){
-    const side=(totalLen-gapW)/2;
-    const a=center-(gapW/2+side/2),b=center+(gapW/2+side/2);
-    if(axis==='x'){
-      makeWall(a,height/2,konst,side,height,0.25,mat);
-      makeWall(b,height/2,konst,side,height,0.25,mat);
-      makeWall(center,(gapH+height)/2,konst,gapW,height-gapH,0.25,mat);
-    }else{
-      makeWall(konst,height/2,a,0.25,height,side,mat);
-      makeWall(konst,height/2,b,0.25,height,side,mat);
-      makeWall(konst,(gapH+height)/2,center,0.25,height-gapH,gapW,mat);
-    }
+
+  /* ═══════ ✅ 바닥 버그 수정: '액자(frame)' 방식 ═══════
+     이전엔 슬래브 여러 장을 늘어놓다 좌표 사이에 틈이 생겨 아래층으로 떨어졌다.
+     구멍(계단실) 하나만 남기고 네 장으로 완전히 덮으면 틈이 생길 수 없다. */
+  function makeFloorWithHole(y, x1,x2, z1,z2, hx1,hx2, hz1,hz2, mat){
+    const slabs=[];
+    // 서쪽 / 동쪽 (전체 z 를 덮음)
+    if(hx1>x1) slabs.push(makeSlab((x1+hx1)/2, y, (z1+z2)/2, hx1-x1, z2-z1, mat));
+    if(x2>hx2) slabs.push(makeSlab((hx2+x2)/2, y, (z1+z2)/2, x2-hx2, z2-z1, mat));
+    // 북쪽 / 남쪽 (구멍 폭 구간만)
+    if(hz1>z1) slabs.push(makeSlab((hx1+hx2)/2, y, (z1+hz1)/2, hx2-hx1, hz1-z1, mat));
+    if(z2>hz2) slabs.push(makeSlab((hx1+hx2)/2, y, (hz2+z2)/2, hx2-hx1, z2-hz2, mat));
+    return slabs;
   }
 
-  // ═══════ ✅ 계단: 틈 없는 '경사 램프 + 디딤판' 방식 ═══════
-  // 이전 버그: 개별 계단 박스 사이 미세한 틈으로 광선이 빠져나가 추락.
-  // 해결: 아래에 연속된 경사면(ramp)을 깔아 광선이 항상 무언가를 맞히게 한다.
+  // 계단: 연속 경사면(광선 판정) + 시각용 디딤판(판정 제외)
   function makeStairs(cx,baseY,startZ,steps,stepW,stepH,stepD,dir,mat){
     const runLen=steps*stepD, rise=steps*stepH;
-    // 1) 연속 경사면 (실제 걷는 면 - 틈이 없다)
-    const ramp=BABYLON.MeshBuilder.CreateBox("ramp",{width:stepW,height:0.3,depth:Math.hypot(runLen,rise)+0.6},scene);
+    const ramp=BABYLON.MeshBuilder.CreateBox("ramp",{width:stepW,height:0.3,depth:Math.hypot(runLen,rise)+0.8},scene);
     ramp.position.set(cx, baseY+rise/2, startZ+dir*(runLen/2 - stepD/2));
-    ramp.rotation.x = -dir*Math.atan2(rise,runLen);
-    ramp.material=mat||matStair;
-    ramp.isWalkable=true; ramp.checkCollisions=false; ramp.receiveShadows=true;
-    walkables.push(ramp);
-    // 2) 시각용 디딤판 (걷는 면은 아니지만 계단처럼 보이게)
+    ramp.rotation.x=-dir*Math.atan2(rise,runLen);
+    ramp.material=mat||matStair; ramp.isWalkable=true; ramp.checkCollisions=false; ramp.receiveShadows=true;
+    ramp.isStairs=true;
     for(let i=0;i<steps;i++){
       const h=(i+1)*stepH;
-      const s=BABYLON.MeshBuilder.CreateBox("tread",{width:stepW,height:h,depth:stepD*0.92},scene);
+      const s=BABYLON.MeshBuilder.CreateBox("tread",{width:stepW,height:h,depth:stepD*0.9},scene);
       s.position.set(cx, baseY+h/2, startZ+dir*(i*stepD));
-      s.material=mat||matStair; s.checkCollisions=false; s.receiveShadows=true;
-      s.isPickable=false; // 광선이 무시 → 경사면만 판정
+      s.material=mat||matStair; s.checkCollisions=false; s.receiveShadows=true; s.isPickable=false;
     }
-    // 3) 양옆 난간(추락 방지 충돌벽)
-    makeWall(cx-stepW/2-0.15, baseY+rise/2+0.8, startZ+dir*(runLen/2), 0.3, rise+2.4, runLen+0.6, mat);
-    makeWall(cx+stepW/2+0.15, baseY+rise/2+0.8, startZ+dir*(runLen/2), 0.3, rise+2.4, runLen+0.6, mat);
+    makeWall(cx-stepW/2-0.18, baseY+rise/2+0.5, startZ+dir*(runLen/2), 0.3, rise+1.6, runLen+0.6, mat);
+    makeWall(cx+stepW/2+0.18, baseY+rise/2+0.5, startZ+dir*(runLen/2), 0.3, rise+1.6, runLen+0.6, mat);
     return baseY+rise;
   }
 
-  // ═══════ 맵 ═══════
-  const BX=10,BZ=14,FH=4;
-  makeFloor(0,0,4,80,80,matGround);
+  /* ═══════ 맵 ═══════ */
+  const BX=10, BZ=14, FH=4;
+  makeSlab(0,0,4,80,80,matGround);
+
   makeWall(-BX,6,0,0.4,12,BZ*2); makeWall(BX,6,0,0.4,12,BZ*2);
   makeWall(0,6,-BZ,BX*2,12,0.4);
-  wallWithGap('x',BZ,0,BX*2,12,3,3,matWall);
-  makeFloor(0,0.02,BZ+3,6,6,matStair);
+  // 남쪽 정문 (구멍)
+  makeWall(-6.5,6,BZ,7,12,0.4); makeWall(6.5,6,BZ,7,12,0.4); makeWall(0,7.5,BZ,6,9,0.4);
+  makeSlab(0,0.02,BZ+3,7,6,matStair);
 
-  makeCeiling(0,FH,0,BX*2,BZ*2);
-  wallWithGap('x',0,-5,BX*2,FH,3,2.8,matWall);
-  const corridorWall1 = makeWall(5,FH/2,7,0.25,FH,10);
+  // 1층 내부 칸막이
+  makeWall(-8.5,2,-4,3,4,0.25); makeWall(1.5,2,-4,11,4,0.25);  // 가운데 구멍 x[-7,-4]
+  makeWall(5,2,7,0.25,4,10);
 
-  const s1=makeStairs(7.0,0,10,14,3.4,FH/14,0.62,-1);
+  // 1→2층 계단 (동쪽)
+  makeStairs(7.0,0,10,14,3.4,FH/14,0.62,-1);
+  // 2층 바닥: 계단실 구멍 x[4.6,9.4], z[0.4,11.8]
+  makeFloorWithHole(FH, -BX,BX, -BZ,BZ, 4.6,9.4, 0.4,11.8, matFloor);
+  makeWall(7.0,FH+0.7,11.9,4.8,1.4,0.25);   // 구멍 남쪽 난간
+  makeWall(4.5,FH+0.7,6,0.25,1.4,11.4);     // 구멍 서쪽 난간
 
-  makeFloor(-3.5,FH,0,13,BZ*2,matFloor);
-  const floor2East = makeFloor(7.0,FH,-6.5,5,15,matFloor);
-  const floor2Link = makeFloor(3.6,FH,4,3.2,20,matFloor);
-  makeCeiling(0,FH*2,0,BX*2,BZ*2);
-  wallWithGap('z',1.5,-4,BZ*2,FH,3,2.8,matWall);
+  // 2층 칸막이
+  makeWall(1.5,FH+2,-4,0.25,4,9);  makeWall(1.5,FH+2,9,0.25,4,7);
 
-  const s2=makeStairs(-7.0,FH,-10,14,3.4,FH/14,0.62,1);
+  // 2→3층 계단 (서쪽)
+  makeStairs(-7.0,FH,-10,14,3.4,FH/14,0.62,1);
+  // 3층 바닥: 계단실 구멍 x[-9.4,-4.6], z[-11.8,-0.4]
+  makeFloorWithHole(FH*2, -BX,BX, -BZ,BZ, -9.4,-4.6, -11.8,-0.4, matFloor);
+  makeWall(-7.0,FH*2+0.7,-11.9,4.8,1.4,0.25);
+  makeWall(-4.5,FH*2+0.7,-6,0.25,1.4,11.4);
 
-  const floor3West = makeFloor(-7.0,FH*2,5.5,5,17,matFloor);
-  const floor3Main = makeFloor(1.5,FH*2,0,13,BZ*2,matFloor);
+  // 3층 내부 벽 (약간의 미로)
+  makeWall(-1,FH*2+2,-2,0.25,4,11);
+  makeWall(3,FH*2+2,4,7,4,0.25);
+
   makeCeiling(0,FH*3,0,BX*2,BZ*2);
-  makeWall(-2,FH*2+2,-2,0.25,FH,12,matWall);
 
-  // ═══════ 조명 ═══════
+  /* ═══════ 조명 ═══════ */
   const amb=new BABYLON.HemisphericLight("amb",new BABYLON.Vector3(0,1,0),scene);
-  amb.intensity=0.05;
-  amb.diffuse=new BABYLON.Color3(0.6,0.5,0.45);
+  amb.intensity=0.05; amb.diffuse=new BABYLON.Color3(0.6,0.5,0.45);
   amb.groundColor=new BABYLON.Color3(0.04,0.03,0.03);
 
   const torch=new BABYLON.SpotLight("torch",new BABYLON.Vector3(0,-0.15,0.3),
                                     new BABYLON.Vector3(0,0,1),Math.PI/6.5,4,scene);
-  torch.parent=camera;
-  torch.diffuse=new BABYLON.Color3(1,0.97,0.88);
+  torch.parent=camera; torch.diffuse=new BABYLON.Color3(1,0.97,0.88);
   torch.specular=new BABYLON.Color3(0.15,0.15,0.15);
   torch.range=34; torch.intensity=6.0; torch.shadowEnabled=true;
   const sg=new BABYLON.ShadowGenerator(1024,torch);
@@ -200,85 +254,60 @@ const createScene=function(){
     const b=GAME.battery/100;
     let p=TORCH_MAX*(0.35+0.65*b);
     if(GAME.battery<20&&Math.random()<0.08)p*=0.15;
+    // 방독면 착용 시 유리 반사로 빛이 약간 줄어드는 느낌
+    if(GAME.maskOn) p*=0.9;
     torch.intensity=torchOn?p:0;
-    torchUI.firstChild.textContent=torchOn?"손전등: 켜짐 (F)":"손전등: 꺼짐 (F)";
+    torchLine.textContent=torchOn?"손전등: 켜짐 (F)":"손전등: 꺼짐 (F)";
     battBar.style.width=GAME.battery+"%";
     battBar.style.background=GAME.battery<20?"#ff6b5a":"#ffd76a";
   }
   window.addEventListener("keydown",e=>{if(e.code==="KeyF"){torchOn=!torchOn;refreshTorch();}});
 
-  // ═══════ ✅ 현실감 있는 불길 (파티클 + 화염 시트 + 흔들리는 광원 + 연기) ═══════
+  /* ═══════ 불길 (파티클) ═══════ */
   const fires=[];
-  // 화염 텍스처를 코드로 생성 (외부 이미지 없이 부드러운 원형 그라데이션)
-  function makeFlameTexture(){
-    const dt=new BABYLON.DynamicTexture("flameTex",{width:128,height:128},scene,false);
+  function radialTex(name,stops){
+    const dt=new BABYLON.DynamicTexture(name,{width:128,height:128},scene,false);
     const ctx=dt.getContext();
     const g=ctx.createRadialGradient(64,64,2,64,64,62);
-    g.addColorStop(0,"rgba(255,255,235,1)");
-    g.addColorStop(0.25,"rgba(255,215,110,0.95)");
-    g.addColorStop(0.55,"rgba(255,130,30,0.6)");
-    g.addColorStop(1,"rgba(120,30,0,0)");
-    ctx.fillStyle=g; ctx.fillRect(0,0,128,128);
-    dt.update();
-    return dt;
+    stops.forEach(s=>g.addColorStop(s[0],s[1]));
+    ctx.fillStyle=g; ctx.fillRect(0,0,128,128); dt.update(); return dt;
   }
-  function makeSmokeTexture(){
-    const dt=new BABYLON.DynamicTexture("smokeTex",{width:128,height:128},scene,false);
-    const ctx=dt.getContext();
-    const g=ctx.createRadialGradient(64,64,4,64,64,62);
-    g.addColorStop(0,"rgba(90,85,80,0.55)");
-    g.addColorStop(1,"rgba(40,38,36,0)");
-    ctx.fillStyle=g; ctx.fillRect(0,0,128,128);
-    dt.update();
-    return dt;
-  }
-  const flameTex=makeFlameTexture(), smokeTex=makeSmokeTexture();
+  const flameTex=radialTex("flameTex",[[0,"rgba(255,255,235,1)"],[0.25,"rgba(255,215,110,0.95)"],
+                                       [0.55,"rgba(255,130,30,0.6)"],[1,"rgba(120,30,0,0)"]]);
+  const smokeTex=radialTex("smokeTex",[[0,"rgba(90,85,80,0.55)"],[1,"rgba(40,38,36,0)"]]);
 
   function makeFire(x,y,z,scale=1,withLight=true){
-    const anchor=new BABYLON.TransformNode("fireAnchor",scene);
-    anchor.position.set(x,y,z);
-
-    // 화염 파티클 (위로 솟구침)
-    const ps=new BABYLON.ParticleSystem("flame",600,scene);
-    ps.particleTexture=flameTex;
-    ps.emitter=anchor;
+    const a=new BABYLON.TransformNode("fa",scene); a.position.set(x,y,z);
+    const ps=new BABYLON.ParticleSystem("flame",500,scene);
+    ps.particleTexture=flameTex; ps.emitter=a;
     ps.minEmitBox=new BABYLON.Vector3(-0.45*scale,0,-0.45*scale);
-    ps.maxEmitBox=new BABYLON.Vector3( 0.45*scale,0.1, 0.45*scale);
+    ps.maxEmitBox=new BABYLON.Vector3(0.45*scale,0.1,0.45*scale);
     ps.color1=new BABYLON.Color4(1,0.85,0.35,1);
     ps.color2=new BABYLON.Color4(1,0.35,0.05,1);
     ps.colorDead=new BABYLON.Color4(0.35,0.05,0,0);
     ps.minSize=0.35*scale; ps.maxSize=1.15*scale;
-    ps.minLifeTime=0.35; ps.maxLifeTime=0.85;
-    ps.emitRate=220;
-    ps.blendMode=BABYLON.ParticleSystem.BLENDMODE_ADD; // 겹칠수록 밝게 → 불꽃 느낌
-    ps.gravity=new BABYLON.Vector3(0,3.2,0);           // 위로 상승
+    ps.minLifeTime=0.35; ps.maxLifeTime=0.85; ps.emitRate=200;
+    ps.blendMode=BABYLON.ParticleSystem.BLENDMODE_ADD;
+    ps.gravity=new BABYLON.Vector3(0,3.2,0);
     ps.direction1=new BABYLON.Vector3(-0.5,2.2,-0.5);
     ps.direction2=new BABYLON.Vector3(0.5,3.6,0.5);
     ps.minAngularSpeed=0; ps.maxAngularSpeed=Math.PI;
-    ps.minEmitPower=0.6; ps.maxEmitPower=1.6;
-    ps.updateSpeed=0.012;
-    ps.start();
+    ps.minEmitPower=0.6; ps.maxEmitPower=1.6; ps.updateSpeed=0.012; ps.start();
 
-    // 연기 파티클 (불 위로 피어오름)
-    const smoke=new BABYLON.ParticleSystem("smoke",300,scene);
-    smoke.particleTexture=smokeTex;
-    smoke.emitter=anchor;
-    smoke.minEmitBox=new BABYLON.Vector3(-0.4*scale,0.8*scale,-0.4*scale);
-    smoke.maxEmitBox=new BABYLON.Vector3(0.4*scale,1.0*scale,0.4*scale);
-    smoke.color1=new BABYLON.Color4(0.28,0.26,0.24,0.5);
-    smoke.color2=new BABYLON.Color4(0.15,0.14,0.13,0.35);
-    smoke.colorDead=new BABYLON.Color4(0.08,0.08,0.08,0);
-    smoke.minSize=0.9*scale; smoke.maxSize=2.6*scale;
-    smoke.minLifeTime=1.4; smoke.maxLifeTime=2.8;
-    smoke.emitRate=45;
-    smoke.gravity=new BABYLON.Vector3(0,1.4,0);
-    smoke.direction1=new BABYLON.Vector3(-0.35,1.2,-0.35);
-    smoke.direction2=new BABYLON.Vector3(0.35,2.0,0.35);
-    smoke.minAngularSpeed=0; smoke.maxAngularSpeed=Math.PI/2;
-    smoke.updateSpeed=0.010;
-    smoke.start();
+    const sm=new BABYLON.ParticleSystem("smoke",250,scene);
+    sm.particleTexture=smokeTex; sm.emitter=a;
+    sm.minEmitBox=new BABYLON.Vector3(-0.4*scale,0.8*scale,-0.4*scale);
+    sm.maxEmitBox=new BABYLON.Vector3(0.4*scale,1.0*scale,0.4*scale);
+    sm.color1=new BABYLON.Color4(0.28,0.26,0.24,0.5);
+    sm.color2=new BABYLON.Color4(0.15,0.14,0.13,0.35);
+    sm.colorDead=new BABYLON.Color4(0.08,0.08,0.08,0);
+    sm.minSize=0.9*scale; sm.maxSize=2.6*scale;
+    sm.minLifeTime=1.4; sm.maxLifeTime=2.8; sm.emitRate=42;
+    sm.gravity=new BABYLON.Vector3(0,1.4,0);
+    sm.direction1=new BABYLON.Vector3(-0.35,1.2,-0.35);
+    sm.direction2=new BABYLON.Vector3(0.35,2.0,0.35);
+    sm.updateSpeed=0.010; sm.start();
 
-    // 불빛: 흔들리게(플리커) → 벽에 일렁이는 그림자
     let light=null;
     if(withLight){
       light=new BABYLON.PointLight("fl",new BABYLON.Vector3(x,y+0.6,z),scene);
@@ -286,51 +315,67 @@ const createScene=function(){
       light.specular=new BABYLON.Color3(0,0,0);
       light.intensity=0.85; light.range=8;
     }
-    const f={anchor,ps,smoke,light,radius:2.7*scale,pos:new BABYLON.Vector3(x,y,z),alive:true,scale};
-    fires.push(f);
-    return f;
+    const f={ps,smoke:sm,light,radius:2.7*scale,pos:new BABYLON.Vector3(x,y,z)};
+    fires.push(f); return f;
   }
-  // 불 배치
   makeFire(-6,0.2,8,1.1); makeFire(6,0.2,-2,1.25); makeFire(-2,0.2,-10,1.0);
   makeFire(-6,FH+0.2,-6,1.15); makeFire(2,FH+0.2,8,1.05); makeFire(6.5,FH+0.2,-11,0.9,false);
-  makeFire(4,FH*2+0.2,-8,1.2); makeFire(-4,FH*2+0.2,6,1.0); makeFire(6,FH*2+0.2,4,0.9,false);
+  makeFire(4,FH*2+0.2,-8,1.2); makeFire(-3,FH*2+0.2,7,1.0); makeFire(7,FH*2+0.2,2,0.9,false);
 
-  // 불빛 흔들림
   scene.onBeforeRenderObservable.add(()=>{
     const t=performance.now()/1000;
-    fires.forEach((f,i)=>{
-      if(f.light) f.light.intensity=0.72+Math.sin(t*9+i*1.7)*0.18+Math.sin(t*23+i)*0.07;
-    });
+    fires.forEach((f,i)=>{ if(f.light) f.light.intensity=0.72+Math.sin(t*9+i*1.7)*0.18+Math.sin(t*23+i)*0.07; });
   });
 
-  // ═══════ 생존자 / 방화범 ═══════
+  /* ═══════ 생존자 / 방화범 ═══════ */
   const survivor=BABYLON.MeshBuilder.CreateCapsule("survivor",{height:1.7,radius:0.35},scene);
-  survivor.position.set(5.5,FH*2+0.85,-10);
+  survivor.position.set(6.5,FH*2+0.85,-10);
   const svMat=mkMat("sv",0.25,0.5,0.85,new BABYLON.Color3(0.06,0.14,0.3));
   survivor.material=svMat; sg.addShadowCaster(survivor);
 
   const arsonist=BABYLON.MeshBuilder.CreateCapsule("arsonist",{height:1.85,radius:0.4},scene);
   arsonist.material=mkMat("ar",0.09,0.09,0.11);
-  arsonist.position.set(0,1.0,BZ+4); arsonist.setEnabled(false);
+  arsonist.position.set(0,1.0,BZ+5); arsonist.setEnabled(false);
 
-  // ═══════ 시선 ═══════
+  /* ═══════ 시선 ═══════ */
   const LOOK=0.0038; let drag=false,lx=0,ly=0;
   canvas.addEventListener("pointerdown",e=>{drag=true;lx=e.clientX;ly=e.clientY;});
-  const stop=()=>drag=false;
-  ["pointerup","pointerleave","pointercancel"].forEach(ev=>canvas.addEventListener(ev,stop));
+  const stopDrag=()=>drag=false;
+  ["pointerup","pointerleave","pointercancel"].forEach(ev=>canvas.addEventListener(ev,stopDrag));
   canvas.addEventListener("pointermove",e=>{if(!drag||GAME.phase===2.5)return;
     camera.rotation.y+=(e.clientX-lx)*LOOK; camera.rotation.x+=(e.clientY-ly)*LOOK;
     lx=e.clientX;ly=e.clientY;});
-  scene.onBeforeRenderObservable.add(()=>{
-    camera.rotation.x=Math.max(-1.2,Math.min(1.2,camera.rotation.x));
-  });
+  scene.onBeforeRenderObservable.add(()=>{camera.rotation.x=Math.max(-1.2,Math.min(1.2,camera.rotation.x));});
 
-  // ═══════ 이동 ═══════
-  const SPEED=3.8; const keys={};
+  /* ═══════ ✅ 방독면 / 산소 / 달리기 ═══════ */
+  const BASE_SPEED=3.8, RUN_SPEED=6.4;
+  const OXY_DRAIN_IDLE=1.1;   // 방독면 착용 기본 소모(초당)
+  const OXY_DRAIN_RUN=2.4;    // 달릴 때 추가 소모
+  const STAM_DRAIN=17, STAM_REGEN=9;
+
+  function setMask(on){
+    GAME.maskOn=on;
+    goggles.style.opacity = on ? 1 : 0;
+    camera.fov = on ? 0.72 : 0.95;     // 착용 시 시야각도 좁아짐
+    maskState.textContent = on ? "방독면: 착용 (G)" : "방독면: 벗음 (G)";
+    maskState.style.color = on ? "#8fe6a0" : "#ff9d8a";
+    showMessage(on ? "방독면 착용 — 숨은 편하지만 시야가 좁다." : "방독면 해제 — 시야는 트이지만 연기가 폐를 태운다.",1800);
+  }
+  window.addEventListener("keydown",e=>{ if(e.code==="KeyG"&&!GAME.over&&GAME.phase!==2.5) setMask(!GAME.maskOn); });
+  window.addEventListener("keydown",e=>{ if(e.code==="ShiftLeft"||e.code==="ShiftRight") GAME.running=true; });
+  window.addEventListener("keyup",  e=>{ if(e.code==="ShiftLeft"||e.code==="ShiftRight") GAME.running=false; });
+
+  /* ═══════ 이동 + 발걸음 ═══════ */
+  const keys={};
   window.addEventListener("keydown",e=>keys[e.code]=true);
   window.addEventListener("keyup",e=>keys[e.code]=false);
+
+  let stepAccum=0, breathAccum=0;
+  let currentSpeed=BASE_SPEED, onStairs=false;
+
   scene.onBeforeRenderObservable.add(()=>{
     if(GAME.over||GAME.phase===2.5){camera.cameraDirection.setAll(0);return;}
+    const dt=engine.getDeltaTime()/1000;
     const yaw=camera.rotation.y;
     const fw=new BABYLON.Vector3(Math.sin(yaw),0,Math.cos(yaw));
     const rt=new BABYLON.Vector3(Math.cos(yaw),0,-Math.sin(yaw));
@@ -339,28 +384,75 @@ const createScene=function(){
     if(keys["KeyS"])mv.subtractInPlace(fw);
     if(keys["KeyD"])mv.addInPlace(rt);
     if(keys["KeyA"])mv.subtractInPlace(rt);
-    if(mv.lengthSquared()>0){const dt=engine.getDeltaTime()/1000;mv.normalize().scaleInPlace(SPEED*dt);}
+    const moving = mv.lengthSquared()>0;
+
+    // ── 속도 결정 ──
+    const canRun = GAME.running && moving && GAME.stamina>4 && grounded;
+    let spd = canRun ? RUN_SPEED : BASE_SPEED;
+
+    const inside=Math.abs(camera.position.x)<BX&&Math.abs(camera.position.z)<BZ;
+    const suffocating = (!GAME.maskOn && inside) || GAME.oxygen<=0;
+    if(suffocating) spd *= 0.62;              // 호흡 곤란 → 느려짐
+    if(GAME.stamina<=0) spd *= 0.55;          // 탈진
+    if(GAME.oxygen<=0 && GAME.stamina<=0) spd *= 0.5; // 거의 행동 불가
+    currentSpeed=spd;
+
+    // ── 스태미나 ──
+    if(canRun){ GAME.stamina=Math.max(0,GAME.stamina-STAM_DRAIN*dt); }
+    else { GAME.stamina=Math.min(100,GAME.stamina + STAM_REGEN*dt*(suffocating?0.4:1)); }
+
+    // ── 산소 (방독면을 써야 산소통을 쓴다) ──
+    if(GAME.maskOn && GAME.oxygen>0){
+      let drain=OXY_DRAIN_IDLE + (canRun?OXY_DRAIN_RUN:0);
+      GAME.oxygen=Math.max(0,GAME.oxygen-drain*dt);
+      if(GAME.oxygen===0) showMessage("산소통이 비었다! 방독면이 무용지물이다.",3000);
+    }
+
+    if(moving){
+      mv.normalize().scaleInPlace(spd*dt);
+      // ── 발걸음 소리 ──
+      stepAccum += spd*dt;
+      const stride = canRun ? 1.35 : 1.9;
+      if(stepAccum>stride && grounded){ stepAccum=0; footstep(onStairs); }
+    }
     camera.cameraDirection.copyFrom(mv);
+
+    // ── 호흡 소리 ──
+    breathAccum += dt;
+    const breathRate = suffocating ? 1.1 : (canRun ? 1.6 : 3.2);
+    if(breathAccum > breathRate){ breathAccum=0; if(inside||suffocating) breath(suffocating); }
+
+    // HUD
+    oxyBar.style.width=GAME.oxygen+"%";
+    oxyBar.style.background = GAME.oxygen<25 ? "#ff6b5a" : "#5bc8f5";
+    stamBar.style.width=GAME.stamina+"%";
+    stamBar.style.background = GAME.stamina<20 ? "#ffb14a" : "#7ed957";
+
+    // 질식 비네트
+    const choke = suffocating ? (GAME.oxygen<=0 ? 0.85 : 0.45) : 0;
+    chokeVig.style.opacity = choke;
   });
 
-  // ═══════ ✅ 세로 이동: 다중 광선 + 코요테 타임 (계단 추락 방지) ═══════
+  /* ═══════ 세로 이동: 다중 광선 + 코요테 타임 ═══════ */
   const EYE=1.7, GRAV=-0.022, JUMP=0.21;
   let velY=0, grounded=true, lastFloorY=0, coyote=0;
   window.addEventListener("keydown",e=>{
-    if(e.code==="Space"&&grounded&&!GAME.over&&GAME.phase!==2.5){velY=JUMP;grounded=false;coyote=0;}
+    if(e.code==="Space"&&grounded&&!GAME.over&&GAME.phase!==2.5&&GAME.stamina>8){
+      velY=JUMP; grounded=false; coyote=0; GAME.stamina=Math.max(0,GAME.stamina-8);
+    }
   });
   const DOWN=new BABYLON.Vector3(0,-1,0);
-  const OFFSETS=[[0,0],[0.32,0],[-0.32,0],[0,0.32],[0,-0.32]]; // 발밑 5점 샘플링
-  const pickPred = m => m.isWalkable===true;
+  const OFFSETS=[[0,0],[0.3,0],[-0.3,0],[0,0.3],[0,-0.3]];
+  const pickPred=m=>m.isWalkable===true;
 
   function sampleFloor(px,py,pz){
-    let best=-Infinity;
+    let best=-Infinity, stairs=false;
     for(const [ox,oz] of OFFSETS){
-      // ✅ 발끝보다 위(+0.5)에서 시작 → 계단 코(nose)를 놓치지 않음
-      const ray=new BABYLON.Ray(new BABYLON.Vector3(px+ox, py+0.5, pz+oz), DOWN, 22);
-      const hit=scene.pickWithRay(ray, pickPred);
-      if(hit&&hit.hit && hit.pickedPoint.y > best) best=hit.pickedPoint.y;
+      const ray=new BABYLON.Ray(new BABYLON.Vector3(px+ox,py+0.5,pz+oz),DOWN,24);
+      const hit=scene.pickWithRay(ray,pickPred);
+      if(hit&&hit.hit&&hit.pickedPoint.y>best){ best=hit.pickedPoint.y; stairs=!!hit.pickedMesh.isStairs; }
     }
+    onStairs=stairs;
     return best;
   }
 
@@ -368,15 +460,12 @@ const createScene=function(){
     if(GAME.over)return;
     const dt=engine.getDeltaTime()/1000;
     const p=camera.position;
-    let floorY=sampleFloor(p.x, p.y-EYE, p.z);
+    let floorY=sampleFloor(p.x,p.y-EYE,p.z);
 
     if(floorY===-Infinity){
-      // ✅ 코요테 타임: 바닥을 못 찾아도 0.18초는 직전 높이 유지 (계단 틈 보호)
       coyote+=dt;
       if(coyote<0.18) floorY=lastFloorY;
-    }else{
-      coyote=0; lastFloorY=floorY;
-    }
+    } else { coyote=0; lastFloorY=floorY; }
 
     if(floorY===-Infinity){
       grounded=false; velY+=GRAV; p.y+=velY;
@@ -387,13 +476,13 @@ const createScene=function(){
     const targetY=floorY+EYE;
     if(grounded){
       const d=targetY-p.y;
-      if(d>0.01) p.y+=Math.min(d,0.22);        // 계단 오르기
-      else if(d<-0.85){grounded=false;velY=0;} // 진짜 낭떠러지만 낙하
-      else if(d<-0.01) p.y+=Math.max(d,-0.22); // 계단 내려가기
+      if(d>0.01) p.y+=Math.min(d,0.22);
+      else if(d<-0.85){grounded=false;velY=0;}
+      else if(d<-0.01) p.y+=Math.max(d,-0.22);
       else p.y=targetY;
     }else{
       velY+=GRAV; p.y+=velY;
-      if(p.y<=targetY){p.y=targetY;velY=0;grounded=true;}
+      if(p.y<=targetY){ if(velY<-0.25) footstep(false); p.y=targetY;velY=0;grounded=true; }
     }
     if(p.y<-8) endGame("추락","층 사이로 떨어졌다.");
 
@@ -403,27 +492,30 @@ const createScene=function(){
     scene.fogDensity+=((inside?0.045:0.006)-scene.fogDensity)*0.02;
   });
 
-  // ═══════ 체력 + 배터리 ═══════
+  /* ═══════ 체력 / 배터리 ═══════ */
   let shakeUntil=0;
   scene.onBeforeRenderObservable.add(()=>{
     if(GAME.over)return;
     const dt=engine.getDeltaTime()/1000;
     let dps=0;
     fires.forEach(f=>{
-      if(!f.alive)return;
       const d=BABYLON.Vector3.Distance(camera.position,f.pos);
-      if(d<f.radius) dps+=(1-d/f.radius)*30;
+      if(d<f.radius) dps+=(1-d/f.radius)*30;   // 화염은 방독면과 무관
     });
     const inside=Math.abs(camera.position.x)<BX&&Math.abs(camera.position.z)<BZ;
-    if(inside) dps+=2.2;
 
-    if(dps>0.5){GAME.hp-=dps*dt;vig.style.opacity=Math.min(0.9,dps/20);}
-    else{GAME.hp=Math.min(100,GAME.hp+2.2*dt);vig.style.opacity=Math.max(0,(100-GAME.hp)/400);}
+    // ✅ 방독면 + 산소 있음 → 연기 피해 무효 / 아니면 호흡 곤란 피해
+    const protectedFromSmoke = GAME.maskOn && GAME.oxygen>0;
+    if(inside && !protectedFromSmoke) dps += 6.5;
+    if(GAME.oxygen<=0 && GAME.maskOn) dps += 3.0;   // 산소 고갈 상태
+
+    if(dps>0.5){GAME.hp-=dps*dt;vig.style.opacity=Math.min(0.9,dps/22);}
+    else{GAME.hp=Math.min(100,GAME.hp+2.0*dt);vig.style.opacity=Math.max(0,(100-GAME.hp)/400);}
     GAME.hp=Math.max(0,GAME.hp);
     hpBar.style.width=GAME.hp+"%";
     if(GAME.hp<=0) endGame("사망","화염과 연기에 쓰러졌다.");
 
-    if(torchOn){GAME.battery=Math.max(0,GAME.battery-1.6*dt);if(GAME.battery<=0)torchOn=false;}
+    if(torchOn){GAME.battery=Math.max(0,GAME.battery-1.5*dt);if(GAME.battery<=0)torchOn=false;}
     refreshTorch();
 
     if(performance.now()<shakeUntil){
@@ -432,83 +524,50 @@ const createScene=function(){
     }
   });
 
-  // ═══════ ✅ 실시간 붕괴 시스템 ═══════
-  const rubbles=[];
-  function dropRubble(x,y,z,w,h,d,delayFall=0){
+  /* ═══════ 실시간 붕괴 ═══════ */
+  function dropRubble(x,y,z,w,h,d){
     const r=BABYLON.MeshBuilder.CreateBox("rubble",{width:w,height:h,depth:d},scene);
     r.position.set(x,y+9,z); r.material=matRubble; r.checkCollisions=true;
     r.rotation.set((Math.random()-0.5)*0.5,Math.random()*Math.PI,(Math.random()-0.5)*0.5);
     r.receiveShadows=true; sg.addShadowCaster(r);
-    let vy=0, started=performance.now()+delayFall;
+    let vy=0;
     const ob=scene.onBeforeRenderObservable.add(()=>{
-      if(performance.now()<started)return;
       vy-=0.045; r.position.y+=vy;
       if(r.position.y<=y){r.position.y=y;scene.onBeforeRenderObservable.remove(ob);}
     });
-    rubbles.push(r);
     return r;
-  }
-  function collapseFloor(mesh){
-    if(!mesh)return;
-    mesh.isWalkable=false;          // 밟을 수 없게
-    mesh.material=matRubble;
-    let vy=0;
-    const ob=scene.onBeforeRenderObservable.add(()=>{
-      vy-=0.02; mesh.position.y+=vy;
-      if(mesh.position.y<-14) scene.onBeforeRenderObservable.remove(ob);
-    });
   }
   function damageIntegrity(n){
     GAME.integrity=Math.max(0,GAME.integrity-n);
     integBar.style.width=GAME.integrity+"%";
     integBar.style.background=GAME.integrity<35?"#ff6b5a":GAME.integrity<65?"#ffd76a":"#8fd6ff";
   }
-
-  // 시간(남은 초) 기반 붕괴 스케줄 — 길이 점점 막힌다
+  // 잔해로 길을 좁힌다 (바닥은 무너뜨리지 않는다 → 통행 불가 방지)
   const collapseEvents=[
-    {at:170, run(){
-      shakeUntil=performance.now()+1100; damageIntegrity(12);
-      dropRubble(-6,0.9,4, 3.0,1.8,2.4);     // 1층 서쪽 통로 부분 차단
-      showMessage("쿠구궁! 천장 일부가 무너졌다.");
-      makeFire(-6,0.2,4,0.9);
-    }},
-    {at:145, run(){
-      shakeUntil=performance.now()+1300; damageIntegrity(14);
-      dropRubble(3.6,FH+0.9,10, 3.2,1.9,2.2);  // 2층 연결 통로 좁아짐
-      showMessage("2층 통로가 무너지고 있다!");
-    }},
-    {at:118, run(){
-      shakeUntil=performance.now()+1500; damageIntegrity(16);
-      collapseFloor(floor2Link);               // ✅ 2층 연결 바닥 붕괴 → 우회 강제
-      dropRubble(3.6,0.9,4, 4.0,2.2,3.0);
-      makeFire(3.6,0.2,4,1.1);
-      showMessage("2층 연결 통로가 무너졌다! 다른 길을 찾아라.");
-    }},
-    {at:92, run(){
-      shakeUntil=performance.now()+1400; damageIntegrity(15);
-      dropRubble(-7.0,FH*2+0.9,12, 3.6,2.0,2.0); // 3층 계단 도착부 좁힘
-      makeFire(0,FH*2+0.2,-2,1.15);
-      showMessage("3층에 불길이 번졌다!");
-    }},
-    {at:68, run(){
-      shakeUntil=performance.now()+1600; damageIntegrity(18);
-      dropRubble(0,0.9,BZ-2, 3.4,2.0,1.8, 0);   // 정문 앞 부분 차단(옆으로 돌아야 함)
-      makeFire(-3,0.2,BZ-3,1.0);
-      showMessage("정문 앞이 잔해로 막히고 있다!");
-    }},
-    {at:40, run(){
-      shakeUntil=performance.now()+1800; damageIntegrity(15);
+    {at:172,run(){shakeUntil=performance.now()+1100;damageIntegrity(12);rumble();
+      dropRubble(-6,1.0,6,3.2,2.0,2.4); makeFire(-6,0.2,6,0.9);
+      showMessage("쿠구궁! 1층 서쪽 통로가 잔해로 막혔다.");}},
+    {at:146,run(){shakeUntil=performance.now()+1300;damageIntegrity(14);rumble();
+      dropRubble(1.5,FH+1.0,3,3.0,2.0,2.2);
+      showMessage("2층 통로가 좁아지고 있다!");}},
+    {at:120,run(){shakeUntil=performance.now()+1500;damageIntegrity(16);rumble();
+      dropRubble(-6.5,FH*2+1.0,-1,3.4,2.1,2.6); makeFire(0,FH*2+0.2,-4,1.1);
+      showMessage("3층 계단 입구가 무너져 내렸다!");}},
+    {at:94,run(){shakeUntil=performance.now()+1400;damageIntegrity(15);rumble();
+      dropRubble(6.0,FH+1.0,9,3.0,2.0,2.2); makeFire(4,FH+0.2,4,1.0);
+      showMessage("2층 계단실 주변에 불이 번졌다!");}},
+    {at:66,run(){shakeUntil=performance.now()+1700;damageIntegrity(18);rumble();
+      dropRubble(-3.5,1.0,BZ-3,3.2,2.0,2.0); makeFire(-3,0.2,BZ-4,1.0);
+      showMessage("정문 앞이 잔해로 좁아졌다!");}},
+    {at:38,run(){shakeUntil=performance.now()+1900;damageIntegrity(15);rumble();
       scene.fogColor=new BABYLON.Color3(0.28,0.13,0.08);
-      showMessage("건물 전체가 흔들린다. 붕괴 직전!");
-    }},
-    {at:16, run(){
-      shakeUntil=performance.now()+2500; damageIntegrity(10);
-      showMessage("나가! 지금 당장!");
-    }}
+      showMessage("건물 전체가 흔들린다. 붕괴 직전!");}},
+    {at:15,run(){shakeUntil=performance.now()+2600;damageIntegrity(10);rumble();
+      showMessage("나가! 지금 당장!");}}
   ];
 
-  // ═══════ 생존자 동행 AI ═══════
-  const FOLLOW_MIN=2.2, FOLLOW_MAX=15, SV_SPEED=3.6;
+  /* ═══════ 생존자 동행 AI ═══════ */
+  const FOLLOW_MIN=2.2, FOLLOW_MAX=15, SV_SPEED=3.7;
   scene.onBeforeRenderObservable.add(()=>{
     if(!GAME.survivorFollowing||GAME.over||GAME.phase===2.5)return;
     const dt=engine.getDeltaTime()/1000;
@@ -517,7 +576,7 @@ const createScene=function(){
     if(dist>FOLLOW_MIN){
       toP.normalize();
       const next=survivor.position.add(toP.scale(SV_SPEED*dt));
-      const ray=new BABYLON.Ray(new BABYLON.Vector3(next.x,survivor.position.y+1.4,next.z),DOWN,24);
+      const ray=new BABYLON.Ray(new BABYLON.Vector3(next.x,survivor.position.y+1.4,next.z),DOWN,26);
       const hit=scene.pickWithRay(ray,pickPred);
       if(hit&&hit.hit){
         survivor.position.x=next.x; survivor.position.z=next.z;
@@ -528,12 +587,12 @@ const createScene=function(){
     if(dist>FOLLOW_MAX) showMessage("생존자가 뒤처졌다!",1000);
   });
 
-  // ═══════ 상호작용 ═══════
+  /* ═══════ 상호작용 ═══════ */
   function tryInteract(){
     if(GAME.over||GAME.phase===2.5)return;
     const d=BABYLON.Vector3.Distance(camera.position,survivor.position);
     if(!GAME.survivorFound&&d<3.2){
-      GAME.survivorFound=true; GAME.survivorFollowing=true; GAME.phase=2;
+      GAME.survivorFound=true;GAME.survivorFollowing=true;GAME.phase=2;
       svMat.emissiveColor=new BABYLON.Color3(0.15,0.3,0.5);
       showMessage("생존자를 발견했다. 함께 정문으로 내려가자!",4000);
       objEl.innerText="목표: 생존자를 데리고 정문(남쪽)으로 탈출하라";
@@ -544,20 +603,20 @@ const createScene=function(){
   window.addEventListener("keydown",e=>{if(e.code==="KeyE")tryInteract();});
   scene.onPointerDown=(evt,pick)=>{if(pick.hit&&pick.pickedMesh===survivor)tryInteract();};
 
-  // ═══════ 컷신 ═══════
+  /* ═══════ 컷신 ═══════ */
   function playCutscene(){
-    GAME.phase=2.5; GAME.cutscenePlayed=true;
+    GAME.phase=2.5;GAME.cutscenePlayed=true;
     showMessage("거의 다 왔다... 조금만 더!",1800);
     setTimeout(()=>{
       fade.style.opacity=1;
       setTimeout(()=>{
-        arsonist.setEnabled(true); arsonist.position.set(0,1.0,BZ+5);
-        survivor.rotation.z=Math.PI/2; survivor.position.y=0.35;
+        arsonist.setEnabled(true); arsonist.position.set(0,1.0,BZ+5.5);
+        survivor.rotation.z=Math.PI/2; survivor.position.set(1.2,0.35,BZ+1.8);
         svMat.diffuseColor=new BABYLON.Color3(0.35,0.1,0.1);
         svMat.emissiveColor=new BABYLON.Color3(0.08,0,0);
         camera.position.set(0,1.7,BZ+1.2); camera.rotation.set(0,0,0);
-        // 불이 잦아듦
-        fires.forEach(f=>{ f.ps.emitRate=40; f.smoke.emitRate=70; if(f.light)f.light.intensity*=0.25; });
+        setMask(false); goggles.style.opacity=0;
+        fires.forEach(f=>{f.ps.emitRate=35;f.smoke.emitRate=70;if(f.light)f.light.intensity*=0.25;});
         scene.fogDensity=0.022;
         fade.style.opacity=0;
         showMessage("생존자가... 쓰러졌다. 저 자가 방화범이다!",4200);
@@ -573,17 +632,18 @@ const createScene=function(){
     if(nearExit&&svClose) playCutscene();
   });
 
-  // ═══════ 타이머 ═══════
+  /* ═══════ 타이머 ═══════ */
   const tick=setInterval(()=>{
     if(GAME.over){clearInterval(tick);return;}
     if(GAME.phase>=2.5)return;
     GAME.timeLeft--;
     timerEl.innerText=`${String(Math.floor(GAME.timeLeft/60)).padStart(2,"0")}:${String(GAME.timeLeft%60).padStart(2,"0")}`;
     timerEl.style.color=GAME.timeLeft<=40?"#ff5b4a":"#fff";
-    collapseEvents.forEach(ev=>{ if(!ev.done&&GAME.timeLeft===ev.at){ev.done=true;ev.run();} });
+    collapseEvents.forEach(ev=>{if(!ev.done&&GAME.timeLeft===ev.at){ev.done=true;ev.run();}});
     if(GAME.timeLeft<=0) endGame("붕괴","건물이 완전히 무너졌다.");
   },1000);
 
+  setMask(true);
   refreshTorch();
   return scene;
 };
