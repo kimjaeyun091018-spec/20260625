@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>인생네컷 | 우리만의 필름 부스</title>
+<meta name="description" content="브라우저에서 바로 찍는 인생네컷. 카메라/웹캠 촬영, 타이머, 화풍 필터, 4컷 인화까지.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Do+Hyeon&family=IBM+Plex+Mono:wght@400;500&family=Noto+Sans+KR:wght@400;500;700;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- ============ 0. 권한 게이트 화면 ============ -->
+<section id="gate" class="screen gate">
+  <div class="gate-card">
+    <p class="eyebrow">FILM BOOTH · SELF STUDIO</p>
+    <h1 class="neon">인생네컷</h1>
+    <p class="gate-desc">부스에 들어가려면 카메라 권한이 필요해요.<br>내장 카메라든 외부 웹캠이든 다 괜찮아요.</p>
+
+    <button id="askPermissionBtn" class="btn btn-primary btn-lg">
+      <span class="btn-dot"></span> 카메라 켜고 입장하기
+    </button>
+
+    <p id="gateStatus" class="gate-status" aria-live="polite"></p>
+
+    <details class="gate-help">
+      <summary>권한을 거절했다면?</summary>
+      <p>브라우저 주소창 왼쪽의 자물쇠(사이트 정보) 아이콘을 눌러 카메라 권한을 "허용"으로 바꾼 뒤,
+      이 버튼을 다시 눌러주세요. 여러 대의 카메라가 연결되어 있다면 다음 화면에서 사용할 카메라를 고를 수 있어요.</p>
+    </details>
+  </div>
+</section>
+
+<!-- ============ 1. 부스(촬영) 화면 ============ -->
+<section id="booth" class="screen booth hidden">
+  <header class="booth-topbar">
+    <h1 class="neon neon-sm">인생네컷</h1>
+    <div class="topbar-actions">
+      <label class="device-select">
+        <span>카메라</span>
+        <select id="deviceSelect"></select>
+      </label>
+      <button id="settingsBtn" class="icon-btn" title="AI 화풍 설정" aria-label="설정 열기">⚙</button>
+    </div>
+  </header>
+
+  <div class="stage">
+    <!-- 커튼 프레임 안의 라이브 미리보기 -->
+    <div class="stage-frame">
+      <div class="curtain curtain-left"></div>
+      <div class="curtain curtain-right"></div>
+      <div class="viewport">
+        <video id="video" autoplay playsinline muted></video>
+        <canvas id="captureCanvas" class="hidden"></canvas>
+        <div id="flash" class="flash"></div>
+        <div id="countdownNum" class="countdown-num"></div>
+        <div class="shot-progress" id="shotProgress">
+          <span class="dot" data-idx="0"></span>
+          <span class="dot" data-idx="1"></span>
+          <span class="dot" data-idx="2"></span>
+          <span class="dot" data-idx="3"></span>
+        </div>
+        <p id="stageHint" class="stage-hint">촬영 버튼을 누르면 4컷이 자동으로 이어서 찍혀요</p>
+      </div>
+    </div>
+
+    <!-- 방금 찍은 컷 썸네일 -->
+    <div class="thumb-rail" id="thumbRail" aria-hidden="true"></div>
+  </div>
+
+  <!-- 화풍(필터) 선택 -->
+  <div class="filter-row" role="radiogroup" aria-label="화풍 선택">
+    <p class="control-label">화풍 선택</p>
+    <div class="filter-scroll" id="filterScroll"></div>
+  </div>
+
+  <!-- 타이머 + 촬영 버튼 -->
+  <div class="control-row">
+    <fieldset class="timer-group" id="timerGroup">
+      <legend class="control-label">타이머 <span class="req">· 필수</span></legend>
+      <div class="timer-options">
+        <label class="timer-opt"><input type="radio" name="timer" value="3"><span>3초</span></label>
+        <label class="timer-opt"><input type="radio" name="timer" value="5" checked><span>5초</span></label>
+        <label class="timer-opt"><input type="radio" name="timer" value="10"><span>10초</span></label>
+      </div>
+    </fieldset>
+
+    <button id="captureBtn" class="shutter-btn" aria-label="촬영 시작">
+      <span class="shutter-ring"></span>
+    </button>
+
+    <button id="resetShotsBtn" class="btn btn-ghost" hidden>처음부터 다시</button>
+  </div>
+</section>
+
+<!-- ============ 2. 결과(필름 스트립) 화면 ============ -->
+<section id="result" class="screen result hidden">
+  <header class="booth-topbar">
+    <h1 class="neon neon-sm">완성됐어요!</h1>
+  </header>
+
+  <div class="result-body">
+    <div class="strip-wrap">
+      <canvas id="stripCanvas"></canvas>
+    </div>
+
+    <div class="result-panel">
+      <label class="field">
+        <span>브랜드 문구 (스트립 하단)</span>
+        <input id="brandText" type="text" maxlength="24" value="LIFE 4 CUT · SELF STUDIO">
+      </label>
+
+      <label class="field">
+        <span>프레임 색</span>
+        <div class="swatches" id="frameSwatches"></div>
+      </label>
+
+      <div class="result-actions">
+        <button id="downloadBtn" class="btn btn-primary">이미지 저장</button>
+        <button id="printBtn" class="btn btn-secondary">폴라로이드처럼 인쇄</button>
+        <button id="retakeBtn" class="btn btn-ghost">다시 찍기</button>
+      </div>
+
+      <p class="print-note">※ 프린터가 "2×6인치(스트립)" 또는 "포토" 용지를 지원해야 실제 인생네컷처럼 잘려 나와요.
+      즉석 폴라로이드형 블루투스 프린터(인스탁스 링크 등)는 브라우저에서 직접 제어할 수 없어,
+      OS에 "프린터"로 등록된 기기만 인쇄할 수 있어요. 자세한 내용은 README를 확인해주세요.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 설정(AI 화풍) 모달 ============ -->
+<div id="settingsModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+  <div class="modal-card">
+    <h2 id="settingsTitle">지브리풍 · AI 화풍 설정</h2>
+    <p class="modal-desc">
+      캔버스 필터만으로는 진짜 AI 화풍 변환(지브리풍 등)을 만들 수 없어요.
+      이 사이트는 정적 페이지라 API 키를 서버에 숨길 수 없으니,
+      <b>본인만 쓰는 브라우저에서 개인 API 키를 임시로</b> 넣어 사용하는 방식이에요.
+      키는 이 브라우저의 로컬 저장소에만 저장되고, 깃허브 저장소나 다른 사람에게 전송되지 않아요.
+    </p>
+    <label class="field">
+      <span>이미지 변환 API 엔드포인트 (자신의 프록시/서버 URL)</span>
+      <input id="aiEndpoint" type="url" placeholder="https://your-proxy.example.com/ghibli">
+    </label>
+    <label class="field">
+      <span>API 키 (선택, 프록시가 요구할 때만)</span>
+      <input id="aiKey" type="password" placeholder="sk-...">
+    </label>
+    <p class="modal-hint">엔드포인트 규격: POST로 <code>{ "image": "data:image/jpeg;base64,..." }</code> 전송 →
+      <code>{ "image": "data:image/jpeg;base64,..." }</code> 형식으로 변환된 이미지를 응답해야 해요.
+      README의 "AI 화풍 연동" 절에 Replicate/fal.ai 예시가 있어요.</p>
+    <div class="modal-actions">
+      <button id="saveSettingsBtn" class="btn btn-primary">저장</button>
+      <button id="closeSettingsBtn" class="btn btn-ghost">닫기</button>
+    </div>
+  </div>
+</div>
+
+<script src="script.js"></script>
+</body>
+</html>
