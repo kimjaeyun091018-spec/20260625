@@ -1,0 +1,3 @@
+name = "insaeng4cut-ai-proxy"
+main = "worker-gemini.js"
+compatibility_date = "2026-01-01"
