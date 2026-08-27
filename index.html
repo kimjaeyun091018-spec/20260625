@@ -1007,7 +1007,7 @@ async function convertWithAI(dataURL, style = 'ghibli') {
    컷마다 따로 AI를 호출하면 대기시간이 4배로 늘어난다. 4장을 2x2 정사각형
    타일 하나로 합쳐서 AI에는 딱 한 번만 보내고, 돌아온 결과를 다시 4조각으로
    잘라 세로 스트립에 배치한다.                                            */
-const AI_TILE_CELL = 384; // 2x2 타일 한 칸 크기 (전체 768x768)
+const AI_TILE_CELL = 256; // 2x2 타일 한 칸 크기 (전체 512x512 — 모델이 이 크기로 처리하면 훨씬 빠름)
 
 async function buildAiTile() {
   const c = document.createElement('canvas');
