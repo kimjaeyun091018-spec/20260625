@@ -941,7 +941,10 @@ async function takeSingleShot(filter) {
   if (filter.ai && state.aiEndpoint) {
     stageHint.textContent = 'AI 화풍으로 변환하는 중...';
     try {
-      const aiResult = await convertWithAI(dataURL, filter.aiStyle || 'ghibli');
+      // 512px 기준으로 학습된 img2img 모델이 많아, 웹캠 원본 해상도를 그대로
+      // 보내면 화질이 뭉개지기 쉽다. AI 변환용으로만 축소본을 만들어 전송한다.
+      const smallDataURL = await resizeDataURL(dataURL, 512);
+      const aiResult = await convertWithAI(smallDataURL, filter.aiStyle || 'ghibli');
       if (aiResult) dataURL = aiResult;
     } catch (err) {
       console.warn('AI 변환 실패, 근사 필터로 대체합니다.', err);
@@ -962,10 +965,23 @@ async function takeSingleShot(filter) {
    사용자가 본인 브라우저에만 저장하는 개인 프록시 엔드포인트를 호출한다.
    요청: POST { image: dataURL }
    응답: { image: dataURL } (변환된 이미지)                                */
-async function convertWithAI(dataURL, style = 'ghibli') {
-  if (!state.aiEndpoint) return null;
+/* ---------- AI 변환용 이미지 축소 ----------
+   많은 img2img 모델이 512x512 기준으로 학습되어 있어, 웹캠 원본 해상도를
+   그대로 보내면 오히려 화질이 뭉개진다. 긴 변을 maxDim으로 줄여서 보낸다. */
+async function resizeDataURL(dataURL, maxDim) {
+  const img = await loadImage(dataURL);
+  const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+  const w = Math.round(img.width * scale);
+  const h = Math.round(img.height * scale);
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  c.getContext('2d').drawImage(img, 0, 0, w, h);
+  return c.toDataURL('image/jpeg', 0.92);
+}
+
+async function convertWithAI(dataURL, style = 'ghibli') {  if (!state.aiEndpoint) return null;
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 20000);
+  const timeout = setTimeout(() => controller.abort(), 45000); // HF 무료 API 콜드 스타트 감안해 여유있게
   try {
     const headers = { 'Content-Type': 'application/json' };
     if (state.aiKey) headers['Authorization'] = `Bearer ${state.aiKey}`;
