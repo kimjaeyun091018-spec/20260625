@@ -551,6 +551,7 @@ const FILTERS = [
     postProcess: (ctx, w, h) => addComicEffect(ctx, w, h),
   },
   { id: 'toon-ai', label: '만화풍 (AI, 설정 필요)', css: 'contrast(1.1) saturate(1.2)', gradient: 'linear-gradient(135deg,#ffd166,#ef476f)', ai: true, aiStyle: 'webtoon' },
+  { id: 'anime-ai', label: '일본 애니메이션풍 (AI, 설정 필요)', css: 'saturate(1.3) contrast(1.05)', gradient: 'linear-gradient(135deg,#ff966b,#845ec2)', ai: true, aiStyle: 'anime' },
 ];
 
 /* ---------- 캔버스 후처리(오버레이) 헬퍼: 비네트 / 그레인 / 빛샘 ----------
@@ -983,7 +984,7 @@ async function convertWithAI(dataURL, style = 'ghibli') {  if (!state.aiEndpoint
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 45000); // HF 무료 API 콜드 스타트 감안해 여유있게
   try {
-    const headers = { 'Content-Type': 'application/json' };
+    const headers = { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true' };
     if (state.aiKey) headers['Authorization'] = `Bearer ${state.aiKey}`;
     const res = await fetch(state.aiEndpoint, {
       method: 'POST',
