@@ -985,7 +985,7 @@ async function resizeDataURL(dataURL, maxDim) {
 async function convertWithAI(dataURL, style = 'ghibli') {
   if (!state.aiEndpoint) return null;
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 45000); // HF 무료 API 콜드 스타트 감안해 여유있게
+  const timeout = setTimeout(() => controller.abort(), 120000); // 4컷을 한 번에 변환하니 넉넉하게 2분까지 대기
   try {
     const headers = { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true' };
     if (state.aiKey) headers['Authorization'] = `Bearer ${state.aiKey}`;
@@ -1025,7 +1025,7 @@ async function buildAiTile() {
 
 async function runAiConversion(filter) {
   aiStatus.hidden = false;
-  aiStatus.textContent = 'AI 화풍으로 변환하는 중... (최대 1분 정도 걸릴 수 있어요)';
+  aiStatus.textContent = 'AI 화풍으로 변환하는 중... (최대 2분 정도 걸릴 수 있어요)';
   try {
     const tileDataURL = await buildAiTile();
     const resultDataURL = await convertWithAI(tileDataURL, filter.aiStyle || 'ghibli');
