@@ -3,7 +3,8 @@
  * ------------------------------------------------------------
  * 인생네컷 앱의 "AI 화풍" 엔드포인트 규격에 맞춘 Cloudflare Worker 프록시.
  * Gemini(유료 전환 필요)와 달리, Hugging Face의 무료 서버리스 추론 API를
- * 사용해서 카드 등록 없이 쓸 수 있다.
+ * 사용해서 카드 등록 없이 쓸 수 있다. Stable Diffusion img2img 방식으로,
+ * 원본 사진을 얼마나 남길지(strength)를 직접 조절해 화풍만 바꾼다.
  *
  * 요청  : POST { "image": "data:image/jpeg;base64,....", "style": "ghibli" | "webtoon" }
  * 응답  : { "image": "data:image/jpeg;base64,...." }
@@ -28,11 +29,16 @@
  *   페이지에서 현재 API 규격을 다시 확인하자.
  * ------------------------------------------------------------ */
 
-const HF_MODEL = 'timbrooks/instruct-pix2pix';
+const HF_MODEL = 'runwayml/stable-diffusion-v1-5';
+
+// strength: 원본을 얼마나 남길지(0에 가까울수록 원본 유지, 1에 가까울수록 완전히 새로 그림)
+// 얼굴 형태를 어느 정도 유지하면서 화풍만 바꾸려면 0.45~0.6 사이가 무난하다.
+// 결과가 너무 원본 그대로면 값을 올리고, 너무 다른 사람처럼 나오면 값을 내려서 조절하자.
+const STRENGTH = 0.5;
 
 const PROMPTS = {
-  ghibli: 'turn this into a Studio Ghibli anime illustration, soft painterly colors, hand-drawn look, keep the same person, pose and background layout',
-  webtoon: 'turn this into a Korean webtoon comic illustration, bold black outlines, flat cel-shaded colors, keep the same person, pose and background layout',
+  ghibli: 'anime illustration in the style of Studio Ghibli, soft pastel watercolor colors, hand-painted background, gentle warm lighting, detailed face, portrait of a person, masterpiece, high quality',
+  webtoon: 'Korean webtoon comic illustration, bold clean black outlines, flat cel-shaded colors, vibrant saturated colors, detailed face, portrait of a person, masterpiece, high quality',
 };
 
 export default {
@@ -68,7 +74,13 @@ export default {
       },
       body: JSON.stringify({
         inputs: base64Data,
-        parameters: { prompt, guidance_scale: 7.5, image_guidance_scale: 1.5 },
+        parameters: {
+          prompt,
+          negative_prompt: 'blurry, low quality, distorted face, deformed, extra limbs, watermark, text',
+          strength: STRENGTH,
+          guidance_scale: 7.5,
+          num_inference_steps: 30,
+        },
         options: { wait_for_model: true },
       }),
     });
