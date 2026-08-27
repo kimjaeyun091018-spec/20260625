@@ -298,6 +298,10 @@ canvas.hidden{display:none;}
   box-shadow: var(--shadow-deep);
 }
 #stripCanvas{ width: 240px; height:auto; display:block; border-radius:6px; }
+.ai-status{
+  margin-top:10px; text-align:center; font-family: var(--font-mono); font-size:0.78rem;
+  color: var(--film-amber);
+}
 
 .result-panel{ width: min(360px, 90vw); display:flex; flex-direction:column; gap:18px; }
 .field{ display:flex; flex-direction:column; gap:6px; font-size:0.82rem; color:var(--ink-dim); }
@@ -447,6 +451,7 @@ canvas.hidden{display:none;}
   <div class="result-body">
     <div class="strip-wrap">
       <canvas id="stripCanvas"></canvas>
+      <p id="aiStatus" class="ai-status" hidden></p>
     </div>
 
     <div class="result-panel">
@@ -515,6 +520,7 @@ const state = {
   aiKey: '',
   capturing: false,
   autoRetouch: true,
+  aiComposite: null, // 4컷을 합쳐 AI로 변환한 결과(성공 시)
 };
 
 /* ======================= 필터(화풍) 정의 =======================
@@ -748,6 +754,7 @@ const shotProgress = $('#shotProgress');
 const thumbRail = $('#thumbRail');
 const stageHint = $('#stageHint');
 const stripCanvas = $('#stripCanvas');
+const aiStatus = $('#aiStatus');
 const brandText = $('#brandText');
 const frameSwatches = $('#frameSwatches');
 const downloadBtn = $('#downloadBtn');
@@ -842,10 +849,12 @@ autoRetouchToggle.addEventListener('change', (e) => {
 
 function resetShots() {
   state.shots = [];
+  state.aiComposite = null;
   thumbRail.innerHTML = '';
   shotProgress.querySelectorAll('.dot').forEach((d) => d.classList.remove('done', 'active'));
   resetShotsBtn.hidden = true;
   stageHint.textContent = '촬영 버튼을 누르면 4컷이 자동으로 이어서 찍혀요';
+  if (aiStatus) { aiStatus.textContent = ''; aiStatus.hidden = true; }
 }
 
 async function runCaptureSequence() {
@@ -877,6 +886,12 @@ async function runCaptureSequence() {
 
   state.capturing = false;
   captureBtn.disabled = false;
+
+  // 4장을 한 장씩 AI로 보내던 방식 대신, 2x2로 합친 한 장만 AI에 보낸다
+  // (대기시간이 대략 1/4로 줄고, Colab/서버 GPU 부담도 그만큼 줄어든다).
+  if (filter.ai && state.aiEndpoint) {
+    runAiConversion(filter);
+  }
 }
 
 function markActiveDot(i) {
@@ -939,19 +954,6 @@ async function takeSingleShot(filter) {
 
   let dataURL = captureCanvas.toDataURL('image/jpeg', 0.92);
 
-  if (filter.ai && state.aiEndpoint) {
-    stageHint.textContent = 'AI 화풍으로 변환하는 중...';
-    try {
-      // 512px 기준으로 학습된 img2img 모델이 많아, 웹캠 원본 해상도를 그대로
-      // 보내면 화질이 뭉개지기 쉽다. AI 변환용으로만 축소본을 만들어 전송한다.
-      const smallDataURL = await resizeDataURL(dataURL, 512);
-      const aiResult = await convertWithAI(smallDataURL, filter.aiStyle || 'ghibli');
-      if (aiResult) dataURL = aiResult;
-    } catch (err) {
-      console.warn('AI 변환 실패, 근사 필터로 대체합니다.', err);
-    }
-  }
-
   state.shots.push(dataURL);
   const thumb = document.createElement('img');
   thumb.src = dataURL;
@@ -980,7 +982,8 @@ async function resizeDataURL(dataURL, maxDim) {
   return c.toDataURL('image/jpeg', 0.92);
 }
 
-async function convertWithAI(dataURL, style = 'ghibli') {  if (!state.aiEndpoint) return null;
+async function convertWithAI(dataURL, style = 'ghibli') {
+  if (!state.aiEndpoint) return null;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 45000); // HF 무료 API 콜드 스타트 감안해 여유있게
   try {
@@ -1000,7 +1003,48 @@ async function convertWithAI(dataURL, style = 'ghibli') {  if (!state.aiEndpoint
   }
 }
 
-/* ======================= 결과: 필름 스트립 합성 ======================= */
+/* ---------- 4컷을 한 번에 AI로 변환 ----------
+   컷마다 따로 AI를 호출하면 대기시간이 4배로 늘어난다. 4장을 2x2 정사각형
+   타일 하나로 합쳐서 AI에는 딱 한 번만 보내고, 돌아온 결과를 다시 4조각으로
+   잘라 세로 스트립에 배치한다.                                            */
+const AI_TILE_CELL = 384; // 2x2 타일 한 칸 크기 (전체 768x768)
+
+async function buildAiTile() {
+  const c = document.createElement('canvas');
+  c.width = AI_TILE_CELL * 2;
+  c.height = AI_TILE_CELL * 2;
+  const ctx = c.getContext('2d');
+  for (let i = 0; i < 4; i++) {
+    const img = await loadImage(state.shots[i]);
+    const x = (i % 2) * AI_TILE_CELL;
+    const y = Math.floor(i / 2) * AI_TILE_CELL;
+    drawCover(ctx, img, x, y, AI_TILE_CELL, AI_TILE_CELL);
+  }
+  return c.toDataURL('image/jpeg', 0.92);
+}
+
+async function runAiConversion(filter) {
+  aiStatus.hidden = false;
+  aiStatus.textContent = 'AI 화풍으로 변환하는 중... (최대 1분 정도 걸릴 수 있어요)';
+  try {
+    const tileDataURL = await buildAiTile();
+    const resultDataURL = await convertWithAI(tileDataURL, filter.aiStyle || 'ghibli');
+    if (resultDataURL) {
+      state.aiComposite = resultDataURL;
+      await composeStrip();
+      aiStatus.textContent = 'AI 화풍 적용 완료!';
+      setTimeout(() => { aiStatus.hidden = true; }, 2500);
+    } else {
+      throw new Error('빈 응답');
+    }
+  } catch (err) {
+    console.warn('AI 변환 실패, 기본 화풍으로 유지합니다.', err);
+    aiStatus.textContent = 'AI 변환에 실패해서 기본 화풍으로 표시했어요.';
+    setTimeout(() => { aiStatus.hidden = true; }, 3500);
+  }
+}
+
+
 function showResultScreen() {
   booth.classList.add('hidden');
   result.classList.remove('hidden');
@@ -1034,13 +1078,27 @@ async function composeStrip() {
   const isDark = isColorDark(state.frameColor);
   ctx.strokeStyle = isDark ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.08)';
 
-  for (let i = 0; i < 4; i++) {
-    const y = PAD + i * (CELL_H + GAP);
-    if (!state.shots[i]) continue;
-    const img = await loadImage(state.shots[i]);
-    drawCover(ctx, img, PAD, y, CELL_W, CELL_H);
-    ctx.lineWidth = 2;
-    ctx.strokeRect(PAD, y, CELL_W, CELL_H);
+  if (state.aiComposite) {
+    // AI가 2x2 타일 하나로 변환해준 결과를 다시 4조각으로 잘라 세로 스트립에 배치
+    const composite = await loadImage(state.aiComposite);
+    const half = Math.min(composite.width, composite.height) / 2;
+    for (let i = 0; i < 4; i++) {
+      const y = PAD + i * (CELL_H + GAP);
+      const sx = (i % 2) * half;
+      const sy = Math.floor(i / 2) * half;
+      ctx.drawImage(composite, sx, sy, half, half, PAD, y, CELL_W, CELL_H);
+      ctx.lineWidth = 2;
+      ctx.strokeRect(PAD, y, CELL_W, CELL_H);
+    }
+  } else {
+    for (let i = 0; i < 4; i++) {
+      const y = PAD + i * (CELL_H + GAP);
+      if (!state.shots[i]) continue;
+      const img = await loadImage(state.shots[i]);
+      drawCover(ctx, img, PAD, y, CELL_W, CELL_H);
+      ctx.lineWidth = 2;
+      ctx.strokeRect(PAD, y, CELL_W, CELL_H);
+    }
   }
 
   // 하단 브랜드 문구 + 날짜
