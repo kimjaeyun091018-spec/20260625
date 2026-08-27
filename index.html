@@ -687,7 +687,7 @@ function applyAutoRetouch(ctx, w, h, strength = 0.78) {
   // 1) 피부색 마스크 계산 (범위를 넉넉히 잡아 인식 누락을 줄인다)
   const maskCanvas = document.createElement('canvas');
   maskCanvas.width = w; maskCanvas.height = h;
-  const mctx = maskCanvas.getContext('2d');
+  const mctx = maskCanvas.getContext('2d', { willReadFrequently: true });
   const maskImg = mctx.createImageData(w, h);
   const md = maskImg.data;
   for (let i = 0; i < od.length; i += 4) {
@@ -704,7 +704,7 @@ function applyAutoRetouch(ctx, w, h, strength = 0.78) {
   // 2) 마스크 경계 페더링
   const featherCanvas = document.createElement('canvas');
   featherCanvas.width = w; featherCanvas.height = h;
-  const fctx = featherCanvas.getContext('2d');
+  const fctx = featherCanvas.getContext('2d', { willReadFrequently: true });
   fctx.filter = `blur(${Math.max(3, Math.round(w / 130))}px)`;
   fctx.drawImage(maskCanvas, 0, 0);
   const featherData = fctx.getImageData(0, 0, w, h).data;
@@ -712,7 +712,7 @@ function applyAutoRetouch(ctx, w, h, strength = 0.78) {
   // 3) 전체 블러 버전 (피부 매끈 처리용 소스) — 블러를 더 세게
   const blurCanvas = document.createElement('canvas');
   blurCanvas.width = w; blurCanvas.height = h;
-  const bctx = blurCanvas.getContext('2d');
+  const bctx = blurCanvas.getContext('2d', { willReadFrequently: true });
   bctx.filter = `blur(${Math.max(5, Math.round(w / 65))}px)`;
   bctx.drawImage(ctx.canvas, 0, 0);
   const bd = bctx.getImageData(0, 0, w, h).data;
@@ -924,7 +924,7 @@ async function takeSingleShot(filter) {
   const h = video.videoHeight || 960;
   captureCanvas.width = w;
   captureCanvas.height = h;
-  const ctx = captureCanvas.getContext('2d');
+  const ctx = captureCanvas.getContext('2d', { willReadFrequently: true });
 
   // 1) 원본(무필터) 프레임을 먼저 그린다 — 미리보기와 동일하게 좌우 반전
   ctx.save();
