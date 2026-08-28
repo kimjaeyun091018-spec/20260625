@@ -228,19 +228,6 @@ canvas.hidden{display:none;}
 .req{ color: var(--neon-pink); }
 
 .filter-row{ max-width: 640px; margin: 28px auto 0; padding: 0 20px; }
-.filter-row-head{
-  display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px;
-  margin-bottom: 10px;
-}
-.filter-row-head .control-label{ margin:0; }
-.retouch-toggle{
-  display:flex; align-items:center; gap:7px;
-  font-family: var(--font-mono); font-size:0.75rem; color: var(--ink-dim);
-  cursor:pointer;
-}
-.retouch-toggle input{
-  width:16px; height:16px; accent-color: var(--neon-pink); cursor:pointer;
-}
 .filter-scroll{
   display:flex; gap:12px; overflow-x:auto; padding-bottom:6px;
   scrollbar-width: thin;
@@ -414,13 +401,7 @@ canvas.hidden{display:none;}
 
   <!-- 화풍(필터) 선택 -->
   <div class="filter-row" role="radiogroup" aria-label="화풍 선택">
-    <div class="filter-row-head">
-      <p class="control-label">화풍 선택</p>
-      <label class="retouch-toggle">
-        <input type="checkbox" id="autoRetouchToggle" checked>
-        <span>자동보정 (피부 보정)</span>
-      </label>
-    </div>
+    <p class="control-label">화풍 선택</p>
     <div class="filter-scroll" id="filterScroll"></div>
   </div>
 
@@ -525,7 +506,6 @@ const state = {
   aiEndpoint: '',
   aiKey: '',
   capturing: false,
-  autoRetouch: true,
   aiComposite: null, // 4컷을 합쳐 AI로 변환한 결과(성공 시)
 };
 
@@ -678,67 +658,6 @@ function addComicEffect(ctx, w, h) {
   ctx.putImageData(imgData, 0, 0);
 }
 
-/* ---------- 자동보정: 피부 매끈 + 화사하게 ----------
-   1) YCbCr 색공간에서 "피부색 범위"에 드는 픽셀을 골라 마스크를 만든다.
-      (완벽한 얼굴 인식이 아니라 색상 기반 근사치라, 피부톤/조명에 따라
-       정확도 편차가 있을 수 있다.)
-   2) 마스크 경계를 블러로 부드럽게 풀어(feather) 경계가 티 나지 않게 한다.
-   3) 원본과, 전체를 블러 처리한 버전을 마스크 비율만큼 섞어서
-      피부만 매끈해지고 눈/입/배경/옷은 원래 선명함을 유지하게 한다.
-   4) 피부 영역만 살짝 밝게 올려 화사한 느낌을 더한다.                   */
-function applyAutoRetouch(ctx, w, h, strength = 0.78) {
-  const original = ctx.getImageData(0, 0, w, h);
-  const od = original.data;
-
-  // 1) 피부색 마스크 계산 (범위를 넉넉히 잡아 인식 누락을 줄인다)
-  const maskCanvas = document.createElement('canvas');
-  maskCanvas.width = w; maskCanvas.height = h;
-  const mctx = maskCanvas.getContext('2d', { willReadFrequently: true });
-  const maskImg = mctx.createImageData(w, h);
-  const md = maskImg.data;
-  for (let i = 0; i < od.length; i += 4) {
-    const r = od[i], g = od[i + 1], b = od[i + 2];
-    const y = 0.299 * r + 0.587 * g + 0.114 * b;
-    const cb = 128 - 0.168736 * r - 0.331264 * g + 0.5 * b;
-    const cr = 128 + 0.5 * r - 0.418688 * g - 0.081312 * b;
-    const isSkin = (cb >= 72 && cb <= 140 && cr >= 128 && cr <= 190 && y > 30) ? 255 : 0;
-    md[i] = md[i + 1] = md[i + 2] = isSkin;
-    md[i + 3] = 255;
-  }
-  mctx.putImageData(maskImg, 0, 0);
-
-  // 2) 마스크 경계 페더링
-  const featherCanvas = document.createElement('canvas');
-  featherCanvas.width = w; featherCanvas.height = h;
-  const fctx = featherCanvas.getContext('2d', { willReadFrequently: true });
-  fctx.filter = `blur(${Math.max(3, Math.round(w / 130))}px)`;
-  fctx.drawImage(maskCanvas, 0, 0);
-  const featherData = fctx.getImageData(0, 0, w, h).data;
-
-  // 3) 전체 블러 버전 (피부 매끈 처리용 소스) — 블러를 더 세게
-  const blurCanvas = document.createElement('canvas');
-  blurCanvas.width = w; blurCanvas.height = h;
-  const bctx = blurCanvas.getContext('2d', { willReadFrequently: true });
-  bctx.filter = `blur(${Math.max(5, Math.round(w / 65))}px)`;
-  bctx.drawImage(ctx.canvas, 0, 0);
-  const bd = bctx.getImageData(0, 0, w, h).data;
-
-  const out = ctx.createImageData(w, h);
-  const outD = out.data;
-  for (let i = 0; i < od.length; i += 4) {
-    const skinAlpha = (featherData[i] / 255) * strength;
-    let nr = od[i] * (1 - skinAlpha) + bd[i] * skinAlpha;
-    let ng = od[i + 1] * (1 - skinAlpha) + bd[i + 1] * skinAlpha;
-    let nb = od[i + 2] * (1 - skinAlpha) + bd[i + 2] * skinAlpha;
-    // 4) 피부 영역만 화사하게 톤업
-    const brighten = 26 * skinAlpha;
-    nr = Math.min(255, nr + brighten);
-    ng = Math.min(255, ng + brighten * 0.88);
-    nb = Math.min(255, nb + brighten * 0.7);
-    outD[i] = nr; outD[i + 1] = ng; outD[i + 2] = nb; outD[i + 3] = od[i + 3];
-  }
-  ctx.putImageData(out, 0, 0);
-}
 
 const FRAME_COLORS = ['#fff7ea', '#151220', '#ffd6e8', '#d9f2e6', '#e8d9c2'];
 
@@ -752,7 +671,6 @@ const captureCanvas = $('#captureCanvas');
 const deviceSelect = $('#deviceSelect');
 const filterScroll = $('#filterScroll');
 const captureBtn = $('#captureBtn');
-const autoRetouchToggle = $('#autoRetouchToggle');
 const resetShotsBtn = $('#resetShotsBtn');
 const flashEl = $('#flash');
 const countdownNum = $('#countdownNum');
@@ -850,9 +768,6 @@ function selectFilter(id) {
 /* ======================= 촬영 시퀀스 (자동 4컷) ======================= */
 captureBtn.addEventListener('click', runCaptureSequence);
 resetShotsBtn.addEventListener('click', resetShots);
-autoRetouchToggle.addEventListener('change', (e) => {
-  state.autoRetouch = e.target.checked;
-});
 
 function resetShots() {
   state.shots = [];
@@ -940,11 +855,7 @@ async function takeSingleShot(filter) {
   ctx.drawImage(video, 0, 0, w, h);
   ctx.restore();
 
-  // 2) 자동보정: 색보정 필터를 입히기 전, 자연스러운 색상 상태에서
-  //    피부색을 판별해야 마스크가 정확하게 잡힌다.
-  if (state.autoRetouch) applyAutoRetouch(ctx, w, h);
-
-  // 3) 화풍(색감) 필터를 별도 패스로 입힌다
+  // 2) 화풍(색감) 필터를 별도 패스로 입힌다
   if (filter.css && filter.css !== 'none') {
     const tmp = document.createElement('canvas');
     tmp.width = w;
@@ -956,7 +867,7 @@ async function takeSingleShot(filter) {
     ctx.filter = 'none';
   }
 
-  // 4) 질감 오버레이(그레인/비네트/빛샘 등)
+  // 3) 질감 오버레이(그레인/비네트/빛샘 등)
   if (filter.postProcess) filter.postProcess(ctx, w, h);
 
   let dataURL = captureCanvas.toDataURL('image/jpeg', 0.92);
