@@ -985,7 +985,7 @@ async function resizeDataURL(dataURL, maxDim) {
 async function convertWithAI(dataURL, style = 'ghibli') {
   if (!state.aiEndpoint) return null;
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 120000); // 4컷을 한 번에 변환하니 넉넉하게 2분까지 대기
+  const timeout = setTimeout(() => controller.abort(), 180000); // offload 모드는 느려서 3분까지 대기
   try {
     const headers = { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true' };
     if (state.aiKey) headers['Authorization'] = `Bearer ${state.aiKey}`;
@@ -1007,7 +1007,7 @@ async function convertWithAI(dataURL, style = 'ghibli') {
    컷마다 따로 AI를 호출하면 대기시간이 4배로 늘어난다. 4장을 2x2 정사각형
    타일 하나로 합쳐서 AI에는 딱 한 번만 보내고, 돌아온 결과를 다시 4조각으로
    잘라 세로 스트립에 배치한다.                                            */
-const AI_TILE_CELL = 256; // 2x2 타일 한 칸 크기 (전체 512x512 — 모델이 이 크기로 처리하면 훨씬 빠름)
+const AI_TILE_CELL = 192; // 2x2 타일 한 칸 (전체 384x384) — 속도 우선
 
 async function buildAiTile() {
   const c = document.createElement('canvas');
@@ -1025,7 +1025,7 @@ async function buildAiTile() {
 
 async function runAiConversion(filter) {
   aiStatus.hidden = false;
-  aiStatus.textContent = 'AI 화풍으로 변환하는 중... (최대 2분 정도 걸릴 수 있어요)';
+  aiStatus.textContent = 'AI 화풍으로 변환하는 중... (1~2분 정도 걸려요, 잠시만요)';
   try {
     const tileDataURL = await buildAiTile();
     const resultDataURL = await convertWithAI(tileDataURL, filter.aiStyle || 'ghibli');
