@@ -468,24 +468,24 @@ canvas.hidden{display:none;}
 <!-- ============ 설정(AI 화풍) 모달 ============ -->
 <div id="settingsModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
   <div class="modal-card">
-    <h2 id="settingsTitle">지브리풍 · AI 화풍 설정</h2>
+    <h2 id="settingsTitle">AI 화풍 서버 설정</h2>
     <p class="modal-desc">
-      캔버스 필터만으로는 진짜 AI 화풍 변환(지브리풍 등)을 만들 수 없어요.
-      이 사이트는 정적 페이지라 API 키를 서버에 숨길 수 없으니,
-      <b>본인만 쓰는 브라우저에서 개인 API 키를 임시로</b> 넣어 사용하는 방식이에요.
-      키는 이 브라우저의 로컬 저장소에만 저장되고, 깃허브 저장소나 다른 사람에게 전송되지 않아요.
+      "피카소 스타일 (AI)" 화풍을 쓰려면 이미지 변환 서버 주소가 필요해요.
+      Colab에서 <code>colab-ai-server.py</code>를 실행하면 나오는 주소를 아래에 붙여넣어 주세요.
+      Colab을 다시 시작할 때마다 주소가 바뀌니, 그때마다 갱신해야 해요.
+      입력한 값은 이 브라우저에만 저장되고 다른 곳으로 전송되지 않아요.
     </p>
     <label class="field">
       <span>이미지 변환 API 엔드포인트 (자신의 프록시/서버 URL)</span>
-      <input id="aiEndpoint" type="url" placeholder="https://your-proxy.example.com/ghibli">
+      <input id="aiEndpoint" type="url" placeholder="https://xxxx.ngrok-free.dev">
     </label>
     <label class="field">
       <span>API 키 (선택, 프록시가 요구할 때만)</span>
       <input id="aiKey" type="password" placeholder="sk-...">
     </label>
-    <p class="modal-hint">엔드포인트 규격: POST로 <code>{ "image": "data:image/jpeg;base64,...", "style": "ghibli" | "webtoon" }</code> 전송 →
+    <p class="modal-hint">엔드포인트 규격: POST로 <code>{ "image": "data:image/jpeg;base64,...", "style": "picasso" }</code> 전송 →
       <code>{ "image": "data:image/jpeg;base64,..." }</code> 형식으로 변환된 이미지를 응답해야 해요.
-      README의 "AI 화풍 연동" 절에 Replicate/fal.ai/Gemini 예시가 있어요.</p>
+      API 키 칸은 Colab 서버를 쓸 때는 비워두면 돼요.</p>
     <div class="modal-actions">
       <button id="saveSettingsBtn" class="btn btn-primary">저장</button>
       <button id="closeSettingsBtn" class="btn btn-ghost">닫기</button>
@@ -535,15 +535,7 @@ const FILTERS = [
     gradient: 'linear-gradient(135deg,#ffb37a,#ff5f7e)',
     postProcess: (ctx, w, h) => { addLightLeak(ctx, w, h); addVignette(ctx, w, h, 0.45); },
   },
-  { id: 'ghibli-approx', label: '지브리풍 (근사)', css: 'saturate(1.55) contrast(0.85) brightness(1.14) blur(0.7px)', gradient: 'linear-gradient(135deg,#a8e6a1,#6ec6ff)' },
-  { id: 'ghibli-ai', label: '지브리풍 (AI, 설정 필요)', css: 'saturate(1.55) contrast(0.85) brightness(1.14) blur(0.7px)', gradient: 'linear-gradient(135deg,#c9a8ff,#6ec6ff)', ai: true, aiStyle: 'ghibli' },
-  {
-    id: 'toon-approx', label: '만화풍 (근사)', css: 'contrast(1.05)',
-    gradient: 'linear-gradient(135deg,#ffe066,#ff5f7e)',
-    postProcess: (ctx, w, h) => addComicEffect(ctx, w, h),
-  },
-  { id: 'toon-ai', label: '만화풍 (AI, 설정 필요)', css: 'contrast(1.1) saturate(1.2)', gradient: 'linear-gradient(135deg,#ffd166,#ef476f)', ai: true, aiStyle: 'webtoon' },
-  { id: 'anime-ai', label: '일본 애니메이션풍 (AI, 설정 필요)', css: 'saturate(1.3) contrast(1.05)', gradient: 'linear-gradient(135deg,#ff966b,#845ec2)', ai: true, aiStyle: 'anime' },
+  { id: 'picasso-ai', label: '피카소 스타일 (AI)', css: 'saturate(1.25) contrast(1.1)', gradient: 'linear-gradient(135deg,#f4a259,#5b8e7d)', ai: true, aiStyle: 'picasso' },
 ];
 
 /* ---------- 캔버스 후처리(오버레이) 헬퍼: 비네트 / 그레인 / 빛샘 ----------
@@ -596,68 +588,6 @@ function addLightLeak(ctx, w, h) {
   ctx.fillRect(0, 0, w, h);
   ctx.restore();
 }
-
-/* ---------- 만화풍 (근사): 포스터화 + 윤곽선 검출 ----------
-   진짜 AI 없이도 웹툰/만화 느낌을 내기 위해:
-   1) 밝기 정보로 소벨(Sobel) 엣지 검출 → 인물/사물 윤곽선을 찾는다.
-   2) 색상을 몇 단계로만 뭉뚱그려(posterize) 만화 특유의 평면적인 색감을 낸다.
-   3) 채도를 올려 쨍한 색감을 더한다.
-   4) 검출된 윤곽선을 검은 선으로 덧그려 마무리한다.                      */
-function clamp255(v) { return v < 0 ? 0 : v > 255 ? 255 : v; }
-
-function addComicEffect(ctx, w, h) {
-  const imgData = ctx.getImageData(0, 0, w, h);
-  const d = imgData.data;
-
-  // 1) 그레이스케일 + 소벨 엣지 검출
-  const gray = new Float32Array(w * h);
-  for (let p = 0, i = 0; i < d.length; i += 4, p++) {
-    gray[p] = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
-  }
-  const edge = new Uint8Array(w * h);
-  for (let y = 1; y < h - 1; y++) {
-    for (let x = 1; x < w - 1; x++) {
-      const idx = y * w + x;
-      const gx = -gray[idx - w - 1] - 2 * gray[idx - 1] - gray[idx + w - 1]
-        + gray[idx - w + 1] + 2 * gray[idx + 1] + gray[idx + w + 1];
-      const gy = -gray[idx - w - 1] - 2 * gray[idx - w] - gray[idx - w + 1]
-        + gray[idx + w - 1] + 2 * gray[idx + w] + gray[idx + w + 1];
-      const mag = Math.sqrt(gx * gx + gy * gy);
-      edge[idx] = mag > 85 ? 1 : 0;
-    }
-  }
-
-  // 2) 색상 포스터화(단계별로 뭉뚱그리기)
-  const levels = 5;
-  const step = 255 / (levels - 1);
-  for (let i = 0; i < d.length; i += 4) {
-    d[i] = Math.round(Math.round(d[i] / step) * step);
-    d[i + 1] = Math.round(Math.round(d[i + 1] / step) * step);
-    d[i + 2] = Math.round(Math.round(d[i + 2] / step) * step);
-  }
-
-  // 3) 채도 업
-  for (let i = 0; i < d.length; i += 4) {
-    const avg = (d[i] + d[i + 1] + d[i + 2]) / 3;
-    d[i] = clamp255(avg + (d[i] - avg) * 1.35);
-    d[i + 1] = clamp255(avg + (d[i + 1] - avg) * 1.35);
-    d[i + 2] = clamp255(avg + (d[i + 2] - avg) * 1.35);
-  }
-
-  // 4) 윤곽선 합성 (두께감을 위해 3x3 이웃 중 하나라도 엣지면 검게)
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      const p = y * w + x;
-      if (edge[p]) {
-        const i = p * 4;
-        d[i] = d[i + 1] = d[i + 2] = 18;
-      }
-    }
-  }
-
-  ctx.putImageData(imgData, 0, 0);
-}
-
 
 const FRAME_COLORS = ['#fff7ea', '#151220', '#ffd6e8', '#d9f2e6', '#e8d9c2'];
 
@@ -900,7 +830,7 @@ async function resizeDataURL(dataURL, maxDim) {
   return c.toDataURL('image/jpeg', 0.92);
 }
 
-async function convertWithAI(dataURL, style = 'ghibli') {
+async function convertWithAI(dataURL, style = 'picasso') {
   if (!state.aiEndpoint) return null;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 180000); // offload 모드는 느려서 3분까지 대기
@@ -946,7 +876,7 @@ async function runAiConversion(filter) {
   aiStatus.textContent = 'AI 화풍으로 변환하는 중... (10~30초 정도 걸려요)';
   try {
     const tileDataURL = await buildAiTile();
-    const resultDataURL = await convertWithAI(tileDataURL, filter.aiStyle || 'ghibli');
+    const resultDataURL = await convertWithAI(tileDataURL, filter.aiStyle || 'picasso');
     if (resultDataURL) {
       state.aiComposite = resultDataURL;
       await composeStrip();
