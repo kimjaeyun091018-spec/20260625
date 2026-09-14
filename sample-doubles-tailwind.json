@@ -1,0 +1,53 @@
+{
+  "id": "sample-doubles-tailwind",
+  "title": "질풍 더블 오펜스",
+  "format": "doubles",
+  "author": "Team Vault",
+  "description": "질풍으로 속도 우위를 가져간 뒤 페이크아웃과 메가진화로 밀어붙이는 더블 배틀 팀",
+  "pokemon": [
+    {
+      "species": "whimsicott",
+      "nickname": "",
+      "ability": "prankster",
+      "item": "mental-herb",
+      "nature": "timid",
+      "mega": false,
+      "evs": { "hp": 252, "atk": 0, "def": 4, "spa": 0, "spd": 0, "spe": 252 },
+      "ivs": { "hp": 31, "atk": 31, "def": 31, "spa": 31, "spd": 31, "spe": 31 },
+      "moves": ["tailwind", "taunt", "moonblast", "encore"]
+    },
+    {
+      "species": "rillaboom",
+      "nickname": "",
+      "ability": "grassy-surge",
+      "item": "assault-vest",
+      "nature": "adamant",
+      "mega": false,
+      "evs": { "hp": 252, "atk": 252, "def": 0, "spa": 0, "spd": 4, "spe": 0 },
+      "ivs": { "hp": 31, "atk": 31, "def": 31, "spa": 31, "spd": 31, "spe": 31 },
+      "moves": ["wood-hammer", "grassy-glide", "u-turn", "fake-out"]
+    },
+    {
+      "species": "charizard",
+      "nickname": "",
+      "ability": "blaze",
+      "item": "charizardite-y",
+      "nature": "timid",
+      "mega": true,
+      "evs": { "hp": 4, "atk": 0, "def": 0, "spa": 252, "spd": 0, "spe": 252 },
+      "ivs": { "hp": 31, "atk": 31, "def": 31, "spa": 31, "spd": 31, "spe": 31 },
+      "moves": ["heat-wave", "air-slash", "solar-beam", "protect"]
+    },
+    {
+      "species": "incineroar",
+      "nickname": "",
+      "ability": "intimidate",
+      "item": "sitrus-berry",
+      "nature": "careful",
+      "mega": false,
+      "evs": { "hp": 252, "atk": 4, "def": 0, "spa": 0, "spd": 252, "spe": 0 },
+      "ivs": { "hp": 31, "atk": 31, "def": 31, "spa": 31, "spd": 31, "spe": 31 },
+      "moves": ["fake-out", "knock-off", "flare-blitz", "parting-shot"]
+    }
+  ]
+}

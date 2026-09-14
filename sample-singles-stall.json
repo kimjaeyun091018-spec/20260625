@@ -1,0 +1,42 @@
+{
+  "id": "sample-singles-stall",
+  "title": "스톨 코어 (싱글)",
+  "format": "singles",
+  "author": "Team Vault",
+  "description": "포이즌힐과 리커버리기로 오래 버티며 상태이상으로 조여가는 방어적인 싱글 배틀 코어",
+  "pokemon": [
+    {
+      "species": "toxapex",
+      "nickname": "",
+      "ability": "regenerator",
+      "item": "black-sludge",
+      "nature": "bold",
+      "mega": false,
+      "evs": { "hp": 252, "atk": 0, "def": 252, "spa": 0, "spd": 4, "spe": 0 },
+      "ivs": { "hp": 31, "atk": 31, "def": 31, "spa": 31, "spd": 31, "spe": 31 },
+      "moves": ["toxic", "scald", "recover", "haze"]
+    },
+    {
+      "species": "corviknight",
+      "nickname": "",
+      "ability": "pressure",
+      "item": "leftovers",
+      "nature": "impish",
+      "mega": false,
+      "evs": { "hp": 252, "atk": 0, "def": 252, "spa": 0, "spd": 0, "spe": 4 },
+      "ivs": { "hp": 31, "atk": 31, "def": 31, "spa": 31, "spd": 31, "spe": 31 },
+      "moves": ["roost", "defog", "body-press", "u-turn"]
+    },
+    {
+      "species": "blissey",
+      "nickname": "",
+      "ability": "natural-cure",
+      "item": "leftovers",
+      "nature": "calm",
+      "mega": false,
+      "evs": { "hp": 252, "atk": 0, "def": 4, "spa": 0, "spd": 252, "spe": 0 },
+      "ivs": { "hp": 31, "atk": 31, "def": 31, "spa": 31, "spd": 31, "spe": 31 },
+      "moves": ["soft-boiled", "seismic-toss", "toxic", "teleport"]
+    }
+  ]
+}

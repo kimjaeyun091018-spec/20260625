@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>팀 빌더 — Team Vault</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Work+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+
+<header class="topbar">
+  <a class="brand" href="index.html">
+    <span class="mark"></span>
+    <span class="brand-name">TEAM VAULT</span>
+    <span class="brand-sub">포켓몬 챔피언스 빌드 저장소</span>
+  </a>
+  <nav class="nav-links">
+    <a href="index.html">갤러리</a>
+    <a href="builder.html" class="active">팀 빌더</a>
+  </nav>
+</header>
+
+<main>
+  <div class="page-head">
+    <h1 id="pageTitle">새 팀 만들기</h1>
+    <p>종족·특성·기술 데이터는 PokeAPI에서 실시간으로 불러옵니다. 슬롯을 선택해 세부 정보를 편집하세요.</p>
+  </div>
+
+  <div class="team-meta-bar">
+    <div class="field">
+      <label for="teamTitle">팀 이름</label>
+      <input type="text" id="teamTitle" placeholder="예: 트릭룸 더블 밸런스" />
+    </div>
+    <div class="field" style="max-width:160px;">
+      <label for="teamFormat">포맷</label>
+      <select id="teamFormat">
+        <option value="singles">싱글 (6마리 중 3)</option>
+        <option value="doubles">더블 (6마리 중 4)</option>
+      </select>
+    </div>
+    <div class="field" style="max-width:200px;">
+      <label for="teamAuthor">제작자 (선택)</label>
+      <input type="text" id="teamAuthor" placeholder="닉네임" />
+    </div>
+  </div>
+  <div class="field-grid full">
+    <div class="field">
+      <label for="teamDesc">설명 (선택)</label>
+      <input type="text" id="teamDesc" placeholder="이 팀의 전략을 한 줄로 설명해보세요" />
+    </div>
+  </div>
+
+  <div class="builder-shell">
+    <aside class="roster-panel">
+      <h4>로스터 (최대 6)</h4>
+      <div id="rosterList"></div>
+      <button class="btn secondary" id="addSlotBtn" style="width:100%;margin-top:8px;">+ 포켓몬 추가</button>
+    </aside>
+
+    <section class="editor-panel" id="editorPanel">
+      <div class="empty-state">
+        <h3>포켓몬을 추가해보세요</h3>
+        <p>왼쪽의 "포켓몬 추가" 버튼으로 로스터에 슬롯을 만들 수 있습니다.</p>
+      </div>
+    </section>
+  </div>
+
+  <div class="action-row">
+    <button class="btn" id="saveLocalBtn">내 브라우저에 저장</button>
+    <button class="btn secondary" id="exportBtn">JSON으로 내보내기</button>
+    <label class="btn secondary" style="cursor:pointer;">
+      JSON 불러오기
+      <input type="file" id="importInput" accept="application/json" style="display:none;" />
+    </label>
+    <div class="spacer"></div>
+    <span class="status-msg" id="statusMsg"></span>
+  </div>
+
+  <p class="hint" style="margin-top:20px;">
+    💡 이 팀을 사이트의 <b>공개 샘플 갤러리</b>에 올리려면: "JSON으로 내보내기"로 파일을 받은 뒤,
+    저장소의 <code>data/teams/</code> 폴더에 추가하고 <code>data/index.json</code>에 파일명을 등록해서 커밋 &amp; 푸시하면 됩니다.
+  </p>
+</main>
+
+<footer>
+  Team Vault는 PokeAPI의 공개 데이터를 사용하는 팬 제작 도구입니다. Pokémon, Pokémon Champions는 각 상표권자의 자산입니다.
+</footer>
+
+<script src="js/pokeapi.js"></script>
+<script src="js/storage.js"></script>
+<script src="js/builder.js"></script>
+</body>
+</html>
