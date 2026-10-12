@@ -1,6 +1,6 @@
 {
   "name": "abyss-8 (pygame + 브라우저 VNC 화면)",
-  "image": "mcr.microsoft.com/devcontainers/python:1-3.11-bookworm",
+  "build": { "dockerfile": "Dockerfile" },
   "features": {
     "ghcr.io/devcontainers/features/desktop-lite:1": {
       "password": "abyss",
