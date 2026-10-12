@@ -58,7 +58,11 @@ except Exception as e:
     except Exception:
         pass
 
-WIN_W, WIN_H = 1000, 700
+# 가상 화면(VNC)으로 볼 때는 창이 작을수록, 프레임 수가 낮을수록 훨씬 부드럽다.
+# 필요하면 환경변수로 조절: ABYSS_W=1000 ABYSS_H=700 ABYSS_FPS=60 python3 abyss_topdown.py
+WIN_W = int(os.environ.get('ABYSS_W', 800))
+WIN_H = int(os.environ.get('ABYSS_H', 560))
+TARGET_FPS = int(os.environ.get('ABYSS_FPS', 30))
 screen = pygame.display.set_mode((WIN_W, WIN_H), pygame.RESIZABLE)
 pygame.display.set_caption('ABYSS — 심연')
 clock = pygame.time.Clock()
@@ -633,6 +637,34 @@ def get_tile_color(t, x, y, t_ms):
     return base
 
 
+_SHADE_CACHE = {}
+_LOS_CACHE = {'key': None, 'time': -9999, 'data': {}}
+
+
+def _shade_surface(alpha):
+    """타일 어둠 오버레이: 알파를 8단계로 양자화해서 한 번만 만들고 재사용."""
+    alpha = min(255, (alpha + 4) // 8 * 8)
+    s = _SHADE_CACHE.get(alpha)
+    if s is None:
+        s = pygame.Surface((TS, TS), pygame.SRCALPHA)
+        s.fill((0, 0, 0, alpha))
+        _SHADE_CACHE[alpha] = s
+    return s
+
+
+def _visible(tx, ty, px, py, t_ms):
+    """시야 판정 캐시: 플레이어가 한 칸의 1/4 이상 움직이거나 120ms가 지나야 다시 계산."""
+    c = _LOS_CACHE
+    key = (round(px * 4), round(py * 4))
+    if c['key'] != key or t_ms - c['time'] > 120:
+        c['key'], c['time'], c['data'] = key, t_ms, {}
+    v = c['data'].get((tx, ty))
+    if v is None:
+        v = GL.has_line_of_sight(GAME.map, px, py, tx + 0.5, ty + 0.5)
+        c['data'][(tx, ty)] = v
+    return v
+
+
 def draw_tiles(surf, cam_x, cam_y):
     start_x = int(math.floor(cam_x)) - 1
     start_y = int(math.floor(cam_y)) - 1
@@ -641,24 +673,35 @@ def draw_tiles(surf, cam_x, cam_y):
     t_ms = GAME.time_ms
     px, py = GAME.player['x'], GAME.player['y']
     light_r = 5 + (GAME.sanity / 100.0) * 3
+    # 빛이 닿지 않는 칸은 어차피 완전히 검게 덮이므로 그리지 않는다(핵심 최적화).
+    reach = light_r * 1.5
+    x_lo = max(0, start_x, int(px - reach) - 1)
+    x_hi = min(MAP_W, end_x, int(px + reach) + 2)
+    y_lo = max(0, start_y, int(py - reach) - 1)
+    y_hi = min(MAP_H, end_y, int(py + reach) + 2)
+    rect = pygame.draw.rect
+    game_map = GAME.map
 
-    for ty in range(max(0, start_y), min(MAP_H, end_y)):
-        for tx in range(max(0, start_x), min(MAP_W, end_x)):
-            tile = GAME.map[ty][tx]
-            sx, sy = (tx - cam_x) * TS, (ty - cam_y) * TS
-            color = get_tile_color(tile, tx, ty, t_ms)
-            pygame.draw.rect(surf, color, (sx, sy, TS, TS))
-            draw_tile_decor(surf, tx, ty, tile, sx, sy, t_ms)
-
+    for ty in range(y_lo, y_hi):
+        row = game_map[ty]
+        for tx in range(x_lo, x_hi):
             dist = math.hypot(tx - px, ty - py)
-            darkness = min(1.0, max(0.0, (dist - light_r * 0.5) / light_r))
-            if darkness < 1.0 and not GL.has_line_of_sight(GAME.map, px, py, tx + 0.5, ty + 0.5):
-                darkness = 1.0
+            darkness = (dist - light_r * 0.5) / light_r
+            if darkness >= 1.0:
+                continue
+            darkness = max(0.0, darkness)
+            if darkness > 0 and not _visible(tx, ty, px, py, t_ms):
+                continue
+            tile = row[tx]
+            sx, sy = (tx - cam_x) * TS, (ty - cam_y) * TS
+            rect(surf, get_tile_color(tile, tx, ty, t_ms), (sx, sy, TS, TS))
+            draw_tile_decor(surf, tx, ty, tile, sx, sy, t_ms)
             if darkness > 0:
-                a = int((darkness ** 2) * 255)
-                shade = pygame.Surface((TS, TS), pygame.SRCALPHA)
-                shade.fill((0, 0, 0, a))
-                surf.blit(shade, (sx, sy))
+                surf.blit(_shade_surface(int((darkness ** 2) * 255)), (sx, sy))
+
+
+_CRACK_CACHE = {}
+_SEARCHED_SURF = []
 
 
 def draw_tile_decor(surf, tx, ty, tile, sx, sy, t_ms):
@@ -679,10 +722,12 @@ def draw_tile_decor(surf, tx, ty, tile, sx, sy, t_ms):
                 pygame.draw.circle(s, (*c, int(eye_a * 255)), (int(TS / 2 + 5), int(TS / 2)), 4)
                 surf.blit(s, (sx, sy))
     elif tile == GL.CRACK:
-        a = int((0.4 + math.sin(t_ms * 0.003) * 0.2) * 255)
-        col = (13, 50, 70, a)
-        s = pygame.Surface((TS, TS), pygame.SRCALPHA)
-        pygame.draw.lines(s, col, False, [(TS * 0.2, TS * 0.3), (TS * 0.5, TS * 0.5), (TS * 0.4, TS * 0.7), (TS * 0.7, TS * 0.9)], 1)
+        a = int((0.4 + math.sin(t_ms * 0.003) * 0.2) * 255) // 16 * 16
+        s = _CRACK_CACHE.get(a)
+        if s is None:
+            s = pygame.Surface((TS, TS), pygame.SRCALPHA)
+            pygame.draw.lines(s, (13, 50, 70, a), False, [(TS * 0.2, TS * 0.3), (TS * 0.5, TS * 0.5), (TS * 0.4, TS * 0.7), (TS * 0.7, TS * 0.9)], 1)
+            _CRACK_CACHE[a] = s
         surf.blit(s, (sx, sy))
     elif tile == GL.VENT:
         pygame.draw.rect(surf, (4, 10, 18), (sx + 4, sy + 4, TS - 8, TS - 8))
@@ -733,44 +778,78 @@ def draw_tile_decor(surf, tx, ty, tile, sx, sy, t_ms):
                 pygame.draw.lines(surf, (80, 20, 20), False, [(sx + 10, sy + 8), (sx + 20, sy + 18), (sx + 15, sy + 28)], 1)
         else:
             pygame.draw.rect(surf, (10, 30, 40), (sx + 5, sy + 4, TS - 10, TS - 8), 1)
-            s = pygame.Surface((TS - 12, (TS - 12) // 2), pygame.SRCALPHA)
-            s.fill((4, 12, 18, 180))
-            surf.blit(s, (sx + 6, sy + 5))
+            if not _SEARCHED_SURF:
+                _s = pygame.Surface((TS - 12, (TS - 12) // 2), pygame.SRCALPHA)
+                _s.fill((4, 12, 18, 180))
+                _SEARCHED_SURF.append(_s)
+            surf.blit(_SEARCHED_SURF[0], (sx + 6, sy + 5))
+
+
+_PLAYER_CACHE = {}
+
+
+def _player_body(facing_left):
+    key = ('body', facing_left)
+    body = _PLAYER_CACHE.get(key)
+    if body is None:
+        cx = TS / 2
+        top, bottom = TS * 0.18, TS * 0.92
+        w = TS * 0.5
+        body = pygame.Surface((TS, TS), pygame.SRCALPHA)
+        pts = [(w * 0.25, bottom), (w * 0.25, top + TS * 0.14), (w * 0.75, top + TS * 0.14), (w * 0.75, bottom)]
+        pygame.draw.polygon(body, (8, 36, 46, 235), pts)
+        pygame.draw.polygon(body, (143, 240, 255, 255), pts, 2)
+        eye_y = top + TS * 0.3
+        eye_dx = -TS * 0.06 if facing_left else TS * 0.06
+        pygame.draw.circle(body, (234, 252, 255), (int(TS / 2 - TS * 0.1 + eye_dx), int(eye_y)), 3)
+        pygame.draw.circle(body, (234, 252, 255), (int(TS / 2 + TS * 0.1 + eye_dx), int(eye_y)), 3)
+        _PLAYER_CACHE[key] = body
+    return body
+
+
+def _player_sprite(frame, facing_left):
+    key = ('spr', frame, facing_left)
+    img = _PLAYER_CACHE.get(key)
+    if img is None:
+        scale = (TS * 0.98) / bh
+        dw, dh = int(bw * scale), int(bh * scale)
+        img = pygame.transform.scale(SPRITE_FRAMES[frame], (dw, dh))
+        if facing_left:
+            img = pygame.transform.flip(img, True, False)
+        _PLAYER_CACHE[key] = img
+    return img
+
+
+def _player_halo(hallu, alpha):
+    alpha = alpha // 4 * 4
+    key = ('halo', hallu, alpha)
+    s = _PLAYER_CACHE.get(key)
+    if s is None:
+        color = (0, 255, 180) if hallu else (70, 190, 220)
+        r = int(TS * (0.6 if hallu else 0.48))
+        s = pygame.Surface((r * 3, r * 3), pygame.SRCALPHA)
+        pygame.draw.circle(s, (*color, alpha), (r * 3 // 2, r * 3 // 2), r)
+        _PLAYER_CACHE[key] = s
+    return s
 
 
 def draw_player(surf, sx, sy, t_ms):
-    halo_color = (0, 255, 180) if GAME.hallucinating else (70, 190, 220)
-    halo_base = 0.16 if GAME.hallucinating else 0.10
+    hallu = bool(GAME.hallucinating)
+    halo_base = 0.16 if hallu else 0.10
     halo_pulse = 0.05 + math.sin(t_ms * 0.004) * 0.03
-    r = int(TS * (0.6 if GAME.hallucinating else 0.48))
-    s = pygame.Surface((r * 3, r * 3), pygame.SRCALPHA)
-    pygame.draw.circle(s, (*halo_color, int((halo_base + halo_pulse) * 0.6 * 255)), (r * 3 // 2, r * 3 // 2), r)
-    surf.blit(s, (sx + TS / 2 - r * 1.5, sy + TS / 2 - r * 1.5))
+    halo = _player_halo(hallu, int((halo_base + halo_pulse) * 0.6 * 255))
+    surf.blit(halo, (sx + TS / 2 - halo.get_width() / 2, sy + TS / 2 - halo.get_height() / 2))
 
-    # 보장된 벡터 마커 (스프라이트 로드 실패해도 항상 보이는 기준선)
-    cx = sx + TS / 2
-    top, bottom = sy + TS * 0.18, sy + TS * 0.92
-    w = TS * 0.5
-    body = pygame.Surface((TS, TS), pygame.SRCALPHA)
-    pts = [(w * 0.25, bottom - sy), (w * 0.25, top - sy + TS * 0.14), (w * 0.75, top - sy + TS * 0.14), (w * 0.75, bottom - sy)]
-    pygame.draw.polygon(body, (8, 36, 46, 235), pts)
-    pygame.draw.polygon(body, (143, 240, 255, 255), pts, 2)
-    eye_y = top - sy + TS * 0.3
-    eye_dx = -TS * 0.06 if GAME.sprite.facing_left else TS * 0.06
-    pygame.draw.circle(body, (234, 252, 255), (int(TS / 2 - TS * 0.1 + eye_dx), int(eye_y)), 3)
-    pygame.draw.circle(body, (234, 252, 255), (int(TS / 2 + TS * 0.1 + eye_dx), int(eye_y)), 3)
-    surf.blit(body, (sx, sy))
+    facing_left = bool(GAME.sprite.facing_left)
+    surf.blit(_player_body(facing_left), (sx, sy))
 
     # 스프라이트 디테일 (있으면 덧그림)
-    frame_img = SPRITE_FRAMES[GAME.sprite.frame]
-    scale = (TS * 0.98) / bh
-    dw, dh = int(bw * scale), int(bh * scale)
-    scaled = pygame.transform.scale(frame_img, (dw, dh))
-    if GAME.sprite.facing_left:
-        scaled = pygame.transform.flip(scaled, True, False)
-    dx = sx + (TS - dw) / 2
-    dy = sy + TS - dh - 1
-    surf.blit(scaled, (dx, dy))
+    img = _player_sprite(GAME.sprite.frame, facing_left)
+    dw, dh = img.get_size()
+    surf.blit(img, (sx + (TS - dw) / 2, sy + TS - dh - 1))
+
+
+_FLOOD_BUF = {}
 
 
 def draw_flood_overlay(surf, t_ms):
@@ -781,15 +860,26 @@ def draw_flood_overlay(surf, t_ms):
     water_h = h * 0.38 * fl
     water_top = h - water_h
     wave_amp = 4 + fl * 5
+    # 물이 차지하는 아래쪽 띠 영역만 그린다(전체 화면 크기 서피스를 매 프레임 만들지 않음)
+    top_y = max(0, int(water_top - wave_amp - 2))
+    band_h = h - top_y
+    buf = _FLOOD_BUF.get('buf')
+    if buf is None or buf.get_width() != w or buf.get_height() < band_h:
+        buf = pygame.Surface((w, h), pygame.SRCALPHA)
+        _FLOOD_BUF['buf'] = buf
+    band = buf.subsurface((0, 0, w, band_h))
+    band.fill((0, 0, 0, 0))
     pts = []
     xx = 0
     while xx <= w:
-        pts.append((xx, water_top + math.sin(t_ms * 0.002 + xx * 0.04) * wave_amp))
+        pts.append((xx, water_top + math.sin(t_ms * 0.002 + xx * 0.04) * wave_amp - top_y))
         xx += 20
-    pts += [(w, h), (0, h)]
-    s = pygame.Surface((w, h), pygame.SRCALPHA)
-    pygame.draw.polygon(s, (10, 60, 80, int((0.45 + fl * 0.25) * 255)), pts)
-    surf.blit(s, (0, 0))
+    pts += [(w, band_h), (0, band_h)]
+    pygame.draw.polygon(band, (10, 60, 80, int((0.45 + fl * 0.25) * 255)), pts)
+    surf.blit(band, (0, top_y))
+
+
+_VIGNETTE_CACHE = {}
 
 
 def draw_vignette(surf, sanity):
@@ -797,14 +887,24 @@ def draw_vignette(surf, sanity):
     if strength <= 0:
         return
     w, h = surf.get_size()
-    s = pygame.Surface((w, h), pygame.SRCALPHA)
-    cx, cy = w / 2, h / 2
-    max_r = math.hypot(w, h) * 0.55
-    steps = 10
-    for i in range(steps, 0, -1):
-        frac = i / steps
-        a = int(strength * frac * 70)
-        pygame.draw.circle(s, (0, 0, 10, a), (int(cx), int(cy)), int(max_r * frac), width=int(max_r / steps) + 2)
+    q = int(strength * 40)  # 강도를 구간별로 양자화해서 캐시
+    if q <= 0:
+        return
+    key = (w, h, q)
+    s = _VIGNETTE_CACHE.get(key)
+    if s is None:
+        if len(_VIGNETTE_CACHE) > 48:
+            _VIGNETTE_CACHE.clear()
+        s = pygame.Surface((w, h), pygame.SRCALPHA)
+        st = q / 40.0
+        cx, cy = w / 2, h / 2
+        max_r = math.hypot(w, h) * 0.55
+        steps = 10
+        for i in range(steps, 0, -1):
+            frac = i / steps
+            a = int(st * frac * 70)
+            pygame.draw.circle(s, (0, 0, 10, a), (int(cx), int(cy)), int(max_r * frac), width=int(max_r / steps) + 2)
+        _VIGNETTE_CACHE[key] = s
     surf.blit(s, (0, 0))
 
 
@@ -942,10 +1042,13 @@ def start_game():
     app_state = STATE_PLAYING
 
 
+_FLICKER = {'s': None}
+
+
 def main():
     global app_state, WIN_W, WIN_H, screen
     while True:
-        dt = clock.tick(60)
+        dt = clock.tick(TARGET_FPS)
         dt = min(dt, 50)
 
         for event in pygame.event.get():
@@ -979,8 +1082,7 @@ def main():
                 shake_y = (random.random() - 0.5) * 4 * (GAME.cam_shake / 60)
 
             screen.fill((0, 3, 5))
-            world = pygame.Surface((WIN_W, WIN_H))
-            world.fill((0, 3, 5))
+            world = screen
             cam_x_shook = cam_x - shake_x / TS
             cam_y_shook = cam_y - shake_y / TS
             draw_tiles(world, cam_x_shook, cam_y_shook)
@@ -988,16 +1090,17 @@ def main():
             # 화면 전체가 함께 흔들리는 '카메라 쉐이크'가 된다(JS판의 ctx.translate와 동일 효과)
             psx, psy = (GAME.player['x'] - cam_x_shook) * TS, (GAME.player['y'] - cam_y_shook) * TS
             draw_player(world, psx, psy, GAME.time_ms)
-            screen.blit(world, (0, 0))
 
             draw_vignette(screen, GAME.sanity)
             draw_flood_overlay(screen, GAME.time_ms)
 
             if GAME.flicker > 0:
                 a = int((0.3 + random.random() * 0.5) * 255)
-                s = pygame.Surface((WIN_W, WIN_H), pygame.SRCALPHA)
-                s.fill((0, 0, 0, a))
-                screen.blit(s, (0, 0))
+                if _FLICKER['s'] is None or _FLICKER['s'].get_size() != (WIN_W, WIN_H):
+                    _FLICKER['s'] = pygame.Surface((WIN_W, WIN_H))
+                    _FLICKER['s'].fill((0, 0, 0))
+                _FLICKER['s'].set_alpha(a)
+                screen.blit(_FLICKER['s'], (0, 0))
 
             if GAME.hal_text and GAME.hal_text_timer > 0:
                 t = FONT_LG.render(GAME.hal_text, True, (0, 220, 180))
