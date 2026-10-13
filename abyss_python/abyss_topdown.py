@@ -15,8 +15,8 @@ game_logic.py 에, 효과음 합성은 sound_synth.py 에 있고, 이 파일은 
 조작:
     WASD / 방향키  이동
     Space          달리기
-    E              조사 / 잠긴 문에 열쇠 사용
-    Esc            종료
+    E              조사 / 잠긴 문에 열쇠 사용 / 계단 오르내리기
+    Esc            메뉴(일시정지 · 설정)
 """
 import os
 import sys
@@ -30,6 +30,8 @@ import pygame
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import game_logic as GL
 import sound_synth as SS
+import settings as ST
+import menu as MN
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ASSET_DIR = os.path.join(BASE_DIR, 'assets')
@@ -58,12 +60,27 @@ except Exception as e:
     except Exception:
         pass
 
-# 가상 화면(VNC)으로 볼 때는 창이 작을수록, 프레임 수가 낮을수록 훨씬 부드럽다.
-# 필요하면 환경변수로 조절: ABYSS_W=1000 ABYSS_H=700 ABYSS_FPS=60 python3 abyss_topdown.py
-WIN_W = int(os.environ.get('ABYSS_W', 800))
-WIN_H = int(os.environ.get('ABYSS_H', 560))
-TARGET_FPS = int(os.environ.get('ABYSS_FPS', 30))
-screen = pygame.display.set_mode((WIN_W, WIN_H), pygame.RESIZABLE)
+# 설정은 파일(~/.abyss_settings.json)에서 읽는다. 메뉴의 '설정'에서 바꾸면 즉시 적용·저장된다.
+# 파일이 없을 때만 환경변수가 기본값이 된다: ABYSS_W=1000 ABYSS_FPS=60 python3 abyss_topdown.py
+SETTINGS = ST.Settings.load()
+MENU = MN.Menu(SETTINGS)
+WIN_W, WIN_H = ST.WINDOW_SIZES[0]
+TARGET_FPS = SETTINGS.fps
+screen = None
+
+
+def apply_window():
+    """설정의 창 크기(또는 전체화면)를 실제 창에 적용한다."""
+    global screen, WIN_W, WIN_H
+    size = SETTINGS.window_size
+    if size is None:
+        screen = pygame.display.set_mode((0, 0), pygame.FULLSCREEN)
+    else:
+        screen = pygame.display.set_mode(size, pygame.RESIZABLE)
+    WIN_W, WIN_H = screen.get_size()
+
+
+apply_window()
 pygame.display.set_caption('ABYSS — 심연')
 clock = pygame.time.Clock()
 
@@ -124,15 +141,18 @@ if AUDIO_OK:
 
 
 def sfx(name):
-    if not AUDIO_OK or name not in SOUNDS:
+    if not AUDIO_OK or name not in SOUNDS or SETTINGS.sfx == 0:
         return
-    random.choice(SOUNDS[name]).play()
+    snd = random.choice(SOUNDS[name])
+    snd.set_volume(SETTINGS.sfx_volume)
+    snd.play()
 
 
 def sfx_panned(name, pan):
-    if not AUDIO_OK or name not in SOUNDS:
+    if not AUDIO_OK or name not in SOUNDS or SETTINGS.sfx == 0:
         return
     snd = random.choice(SOUNDS[name])
+    snd.set_volume(SETTINGS.sfx_volume)
     ch = snd.play()
     if ch:
         left = min(1.0, 1.0 - max(0.0, pan))
@@ -270,6 +290,7 @@ class Game:
         self.ending = None
         self.ending_at = None
         self.oxy_accum = 0.0
+        self.run_on = False   # '토글' 달리기 방식에서의 현재 상태
 
     @property
     def map(self):
@@ -565,7 +586,7 @@ def update(dt):
     GAME.tick_timers()
 
     keys = pygame.key.get_pressed()
-    running_key = keys[pygame.K_SPACE]
+    running_key = GAME.run_on if SETTINGS.run_mode == 'toggle' else keys[pygame.K_SPACE]
     base_tiles_per_sec = 3.6
     run_mult = 1.7 if running_key else 1.0
     spd = base_tiles_per_sec * run_mult * (dt / 1000.0)
@@ -657,7 +678,7 @@ def update(dt):
     if AUDIO_OK:
         if not AMBIENCE_CHANNEL.get_busy() and intensity > 0:
             AMBIENCE_CHANNEL.play(WHISPER_AMBIENCE, loops=-1)
-        AMBIENCE_CHANNEL.set_volume(min(0.6, intensity * 0.6))
+        AMBIENCE_CHANNEL.set_volume(min(0.6, intensity * 0.6) * SETTINGS.ambience_volume)
 
     # 정신력 낮을 때 확률적 속삭임 버스트 + 환청 발소리
     if GAME.sanity < 85:
@@ -749,6 +770,7 @@ def draw_tiles(surf, cam_x, cam_y):
     px, py = GAME.player['x'], GAME.player['y']
     light_r = 5 + (GAME.sanity / 100.0) * 3
     vis = _visible_tiles(px, py, t_ms)
+    shade_scale = SETTINGS.shade_scale   # 설정의 '밝기'
     rect = pygame.draw.rect
     game_map = GAME.map
 
@@ -766,9 +788,9 @@ def draw_tiles(surf, cam_x, cam_y):
             # 방 안은 전부 보이되, 멀수록 은은하게 어두워진다(최대 약 60%).
             dist = math.hypot(tx + 0.5 - px, ty + 0.5 - py)   # 타일 중심 기준 거리
             d = min(1.0, max(0.0, (dist - light_r) / (light_r * 1.5)))
-            alpha = int((d ** 1.5) * 150)
+            alpha = int((d ** 1.5) * 150 * shade_scale)
             if kind == 'window':
-                alpha = min(215, 95 + alpha)   # 유리 너머는 한 단계 더 어둡고 흐리게
+                alpha = min(215, int(95 * shade_scale) + alpha)   # 유리 너머는 한 단계 더 어둡고 흐리게
             if alpha > 0:
                 surf.blit(_shade_surface(alpha), (sx, sy))
 
@@ -1089,8 +1111,11 @@ def draw_hud(surf):
 
     draw_captions(surf, h)
 
-    hint = FONT_SM.render('WASD / 방향키 · 이동  |  Space · 달리기  |  E · 조사 / 열쇠 / 계단', True, (10, 37, 53))
+    hint = FONT_SM.render('WASD / 방향키 · 이동  |  Space · 달리기  |  E · 조사 / 열쇠 / 계단  |  Esc · 메뉴', True, (10, 37, 53))
     surf.blit(hint, (center_x - hint.get_width() / 2, h - 22))
+
+    if SETTINGS.run_mode == 'toggle' and GAME.run_on:
+        surf.blit(FONT_SM.render('● 달리기', True, (74, 154, 176)), (16, h - 22))
 
     if GAME.interact_prompt:
         label = {'unlock': '[ E ]  열쇠 사용', 'stairs_up': '[ E ]  계단 올라가기',
@@ -1153,27 +1178,89 @@ def draw_ending(surf):
         surf.blit(rt, (w / 2 - rt.get_width() / 2, h / 2 + 140))
 
 
+MENU_RECTS = []   # 마우스용: 마지막으로 그린 항목 영역 [(Rect, 항목 번호)]
+_DIM = {'s': None}
+
+
+def draw_menu(surf, top=None):
+    """현재 메뉴 화면(MENU)을 그린다. 일시정지 화면이면 게임 위에 어둡게 덮는다."""
+    global MENU_RECTS
+    w, h = surf.get_size()
+    items = MENU.items
+    row_h, row_w = 38, 440
+    screen_name = MENU.screen
+    heading = [] if screen_name == 'title' else MENU.title.split('\n')
+    head_font = FONT_XL if screen_name in ('pause', 'settings') else FONT_LG
+    head_h = len(heading) * (44 if head_font is FONT_XL else 26) + (14 if heading else 0)
+    block_h = head_h + len(items) * row_h
+    y = top if top is not None else max(10, h / 2 - block_h / 2 - 10)
+
+    MENU_RECTS = []
+    for line in heading:
+        t = head_font.render(line, True, (13, 122, 156))
+        surf.blit(t, (w / 2 - t.get_width() / 2, y))
+        y += 44 if head_font is FONT_XL else 26
+    y += 14 if heading else 0
+
+    x0 = w / 2 - row_w / 2
+    for i, item in enumerate(items):
+        rect = pygame.Rect(x0, y, row_w, row_h - 6)
+        MENU_RECTS.append((rect, i))
+        selected = i == MENU.index
+        border = (13, 122, 156) if selected else (10, 37, 53)
+        col = (143, 240, 255) if selected else (74, 154, 176)
+        pygame.draw.rect(surf, (0, 12, 20), rect)
+        pygame.draw.rect(surf, border, rect, 1)
+        if item.kind in ('choice', 'slider'):
+            surf.blit(FONT_MD.render(item.label, True, col), (rect.x + 16, rect.centery - 8))
+            value = MENU.value_text(item)
+            if item.kind == 'choice':
+                values = [v for v, _ in item.options]
+                idx = values.index(getattr(SETTINGS, item.key))
+                left = '◀ ' if idx > 0 else '   '
+                right = ' ▶' if idx < len(values) - 1 else '   '
+                value = left + value + right
+            vt = FONT_MD.render(value, True, col)
+            surf.blit(vt, (rect.right - 16 - vt.get_width(), rect.centery - 8))
+        else:
+            t = FONT_MD.render(item.label, True, col)
+            surf.blit(t, (rect.centerx - t.get_width() / 2, rect.centery - 8))
+        y += row_h
+
+    hint = FONT_SM.render('↑↓ 선택    ←→ 변경    Enter 확인    Esc 뒤로', True, (10, 37, 53))
+    surf.blit(hint, (w / 2 - hint.get_width() / 2, h - 28))
+
+
+def draw_dim(surf, alpha=185):
+    w, h = surf.get_size()
+    d = _DIM['s']
+    if d is None or d.get_size() != (w, h):
+        d = pygame.Surface((w, h))
+        d.fill((0, 0, 0))
+        _DIM['s'] = d
+    d.set_alpha(alpha)
+    surf.blit(d, (0, 0))
+
+
 def draw_title_screen(surf):
     w, h = surf.get_size()
     surf.fill((0, 5, 8))
-    t = FONT_XL.render('ABYSS', True, (13, 122, 156))
-    surf.blit(t, (w / 2 - t.get_width() / 2, h / 2 - 120))
-    sub = FONT_SM.render('수심 5,980m · 가라앉은 여객선', True, (10, 48, 64))
-    surf.blit(sub, (w / 2 - sub.get_width() / 2, h / 2 - 60))
-    btn_rect = pygame.Rect(w / 2 - 110, h / 2, 220, 48)
-    mouse = pygame.mouse.get_pos()
-    hover = btn_rect.collidepoint(mouse)
-    pygame.draw.rect(surf, (13, 122, 156) if hover else (13, 74, 92), btn_rect, 1)
-    bt = FONT_MD.render('▶  탑승', True, (90, 175, 204))
-    surf.blit(bt, (btn_rect.centerx - bt.get_width() / 2, btn_rect.centery - bt.get_height() / 2))
-    return btn_rect
+    if MENU.screen == 'title':
+        t = FONT_XL.render('ABYSS', True, (13, 122, 156))
+        surf.blit(t, (w / 2 - t.get_width() / 2, h / 2 - 150))
+        sub = FONT_SM.render('수심 5,980m · 가라앉은 여객선', True, (10, 48, 64))
+        surf.blit(sub, (w / 2 - sub.get_width() / 2, h / 2 - 90))
+        draw_menu(surf, top=h / 2 - 50)
+    else:
+        draw_menu(surf)
 
 
 # ══════════════════════════════════════════════════════════
-# 상태 머신: TITLE / PLAYING / ENDED
+# 상태 머신: TITLE / PLAYING / PAUSED / ENDED
 # ══════════════════════════════════════════════════════════
-STATE_TITLE, STATE_PLAYING, STATE_ENDED = 'title', 'playing', 'ended'
+STATE_TITLE, STATE_PLAYING, STATE_PAUSED, STATE_ENDED = 'title', 'playing', 'paused', 'ended'
 app_state = STATE_TITLE
+MENU.open(MN.ROOT_TITLE)
 
 
 def start_game():
@@ -1183,7 +1270,100 @@ def start_game():
     app_state = STATE_PLAYING
 
 
+def apply_setting(key):
+    """메뉴에서 바뀐 설정을 즉시 반영하고 파일에 저장한다."""
+    global TARGET_FPS
+    if key == 'window':
+        apply_window()
+    elif key == 'fps':
+        TARGET_FPS = SETTINGS.fps
+    elif key == 'run_mode':
+        GAME.run_on = False
+    SETTINGS.save()
+
+
+def handle_menu_event(ev):
+    """MENU.handle()이 돌려준 이벤트를 처리한다."""
+    global app_state, TARGET_FPS
+    if not ev:
+        return
+    kind = ev[0]
+    if kind == 'changed':
+        apply_setting(ev[1])
+    elif kind == 'reset':
+        apply_window()
+        TARGET_FPS = SETTINGS.fps
+        GAME.run_on = False
+        SETTINGS.save()
+    elif kind == 'resume':
+        app_state = STATE_PLAYING
+    elif kind == 'start':
+        start_game()
+    elif kind == 'title':
+        app_state = STATE_TITLE
+        MENU.open(MN.ROOT_TITLE)
+    elif kind == 'quit':
+        pygame.quit(); sys.exit(0)
+
+
+MENU_KEYS = {
+    pygame.K_UP: 'up', pygame.K_w: 'up', pygame.K_DOWN: 'down', pygame.K_s: 'down',
+    pygame.K_LEFT: 'left', pygame.K_a: 'left', pygame.K_RIGHT: 'right', pygame.K_d: 'right',
+    pygame.K_RETURN: 'confirm', pygame.K_KP_ENTER: 'confirm', pygame.K_SPACE: 'confirm',
+    pygame.K_ESCAPE: 'back',
+}
+
+
+def menu_mouse(pos, click):
+    """마우스: 가리킨 항목 선택, 클릭하면 실행(값 항목은 왼쪽 절반=감소, 오른쪽 절반=증가)."""
+    for rect, i in MENU_RECTS:
+        if rect.collidepoint(pos):
+            MENU.select(i)
+            if click:
+                item = MENU.items[i]
+                if item.kind in ('choice', 'slider'):
+                    handle_menu_event(MENU.handle('left' if pos[0] < rect.centerx else 'right'))
+                else:
+                    handle_menu_event(MENU.handle('confirm'))
+            return
+
+
 _FLICKER = {'s': None}
+
+
+def draw_playing_scene():
+    """게임 화면 한 프레임(월드 + 효과 + HUD). 일시정지 중에도 이 함수로 정지 화면을 다시 그린다."""
+    cam_x, cam_y = GL.camera_origin(GAME.player['x'], GAME.player['y'], WIN_W, WIN_H)
+    shake_x = shake_y = 0
+    if GAME.cam_shake > 0:
+        shake_x = (random.random() - 0.5) * 6 * (GAME.cam_shake / 60)
+        shake_y = (random.random() - 0.5) * 4 * (GAME.cam_shake / 60)
+
+    screen.fill((0, 3, 5))
+    cam_x_shook = cam_x - shake_x / TS
+    cam_y_shook = cam_y - shake_y / TS
+    draw_tiles(screen, cam_x_shook, cam_y_shook)
+    # 플레이어도 타일과 같은(흔들린) 카메라 기준으로 그려야
+    # 화면 전체가 함께 흔들리는 '카메라 쉐이크'가 된다(JS판의 ctx.translate와 동일 효과)
+    psx, psy = GL.sprite_origin(GAME.player['x'], GAME.player['y'], cam_x_shook, cam_y_shook)
+    draw_player(screen, psx, psy, GAME.time_ms)
+
+    draw_vignette(screen, GAME.sanity)
+    draw_flood_overlay(screen, GAME.time_ms)
+
+    if GAME.flicker > 0:
+        a = int((0.3 + random.random() * 0.5) * 255)
+        if _FLICKER['s'] is None or _FLICKER['s'].get_size() != (WIN_W, WIN_H):
+            _FLICKER['s'] = pygame.Surface((WIN_W, WIN_H))
+            _FLICKER['s'].fill((0, 0, 0))
+        _FLICKER['s'].set_alpha(a)
+        screen.blit(_FLICKER['s'], (0, 0))
+
+    if GAME.hal_text and GAME.hal_text_timer > 0:
+        t = FONT_LG.render(GAME.hal_text, True, (0, 220, 180))
+        screen.blit(t, (WIN_W / 2 - t.get_width() / 2, WIN_H * 0.3))
+
+    draw_hud(screen)
 
 
 def main():
@@ -1199,15 +1379,28 @@ def main():
                 WIN_W, WIN_H = event.w, event.h
                 screen = pygame.display.set_mode((WIN_W, WIN_H), pygame.RESIZABLE)
             elif event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_ESCAPE:
-                    pygame.quit(); sys.exit(0)
-                if app_state == STATE_ENDED and event.key == pygame.K_SPACE:
-                    start_game()
-            elif event.type == pygame.MOUSEBUTTONDOWN:
-                if app_state == STATE_TITLE:
-                    btn_rect = pygame.Rect(WIN_W / 2 - 110, WIN_H / 2, 220, 48)
-                    if btn_rect.collidepoint(event.pos):
+                if app_state in (STATE_TITLE, STATE_PAUSED):
+                    action = MENU_KEYS.get(event.key)
+                    if action:
+                        handle_menu_event(MENU.handle(action))
+                elif app_state == STATE_PLAYING:
+                    if event.key == pygame.K_ESCAPE:
+                        app_state = STATE_PAUSED
+                        MENU.open(MN.ROOT_PAUSE)
+                    elif event.key == pygame.K_SPACE and SETTINGS.run_mode == 'toggle':
+                        GAME.run_on = not GAME.run_on
+                elif app_state == STATE_ENDED:
+                    if event.key == pygame.K_SPACE:
                         start_game()
+                    elif event.key == pygame.K_ESCAPE:
+                        app_state = STATE_TITLE
+                        MENU.open(MN.ROOT_TITLE)
+            elif event.type == pygame.MOUSEMOTION:
+                if app_state in (STATE_TITLE, STATE_PAUSED):
+                    menu_mouse(event.pos, click=False)
+            elif event.type == pygame.MOUSEBUTTONDOWN:
+                if app_state in (STATE_TITLE, STATE_PAUSED):
+                    menu_mouse(event.pos, click=True)
                 elif app_state == STATE_ENDED:
                     start_game()
 
@@ -1215,41 +1408,13 @@ def main():
             draw_title_screen(screen)
         elif app_state == STATE_PLAYING:
             update(dt)
-            cam_x, cam_y = GL.camera_origin(GAME.player['x'], GAME.player['y'], WIN_W, WIN_H)
-            shake_x = shake_y = 0
-            if GAME.cam_shake > 0:
-                shake_x = (random.random() - 0.5) * 6 * (GAME.cam_shake / 60)
-                shake_y = (random.random() - 0.5) * 4 * (GAME.cam_shake / 60)
-
-            screen.fill((0, 3, 5))
-            world = screen
-            cam_x_shook = cam_x - shake_x / TS
-            cam_y_shook = cam_y - shake_y / TS
-            draw_tiles(world, cam_x_shook, cam_y_shook)
-            # 플레이어도 타일과 같은(흔들린) 카메라 기준으로 그려야
-            # 화면 전체가 함께 흔들리는 '카메라 쉐이크'가 된다(JS판의 ctx.translate와 동일 효과)
-            psx, psy = GL.sprite_origin(GAME.player['x'], GAME.player['y'], cam_x_shook, cam_y_shook)
-            draw_player(world, psx, psy, GAME.time_ms)
-
-            draw_vignette(screen, GAME.sanity)
-            draw_flood_overlay(screen, GAME.time_ms)
-
-            if GAME.flicker > 0:
-                a = int((0.3 + random.random() * 0.5) * 255)
-                if _FLICKER['s'] is None or _FLICKER['s'].get_size() != (WIN_W, WIN_H):
-                    _FLICKER['s'] = pygame.Surface((WIN_W, WIN_H))
-                    _FLICKER['s'].fill((0, 0, 0))
-                _FLICKER['s'].set_alpha(a)
-                screen.blit(_FLICKER['s'], (0, 0))
-
-            if GAME.hal_text and GAME.hal_text_timer > 0:
-                t = FONT_LG.render(GAME.hal_text, True, (0, 220, 180))
-                screen.blit(t, (WIN_W / 2 - t.get_width() / 2, WIN_H * 0.3))
-
-            draw_hud(screen)
-
+            draw_playing_scene()
             if not GAME.running:
                 app_state = STATE_ENDED
+        elif app_state == STATE_PAUSED:
+            draw_playing_scene()
+            draw_dim(screen)
+            draw_menu(screen)
         elif app_state == STATE_ENDED:
             draw_ending(screen)
 
