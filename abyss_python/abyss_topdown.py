@@ -778,12 +778,7 @@ _RUBBLE_CACHE = {}
 
 
 def _door_in_horizontal_wall(tx, ty):
-    """문이 좌우로 뻗은 벽 안에 있는가(통로는 위아래). 아니면 위아래로 뻗은 벽 안(통로는 좌우)."""
-    solid = (GL.WALL, GL.WINDOW, GL.RUBBLE, GL.DOOR, GL.LOCKED)
-    m = GAME.map
-    left = m[ty][tx - 1] if tx > 0 else GL.WALL
-    right = m[ty][tx + 1] if tx < MAP_W - 1 else GL.WALL
-    return left in solid and right in solid
+    return GL.door_in_horizontal_wall(GAME.map, tx, ty)
 
 
 def _draw_door_panel(surf, tx, ty, sx, sy, closed_len, fill, edge):

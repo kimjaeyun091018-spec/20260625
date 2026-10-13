@@ -103,20 +103,54 @@ st = G.get_nearby_stairs(maps[1], 4.5, 15.5)
 check('stairs detected next to S1 on B1', st == (3, 15, 'up'))
 check('no stairs detected in open floor', G.get_nearby_stairs(m, 8.5, 19.5) is None)
 
-# 10. 문 통과 판정: 문짝이 충분히 열리기 전에는 지나갈 수 없다 (그림과 판정 일치)
-d2 = G.Doors(maps[1])
-door_pos = next(iter(d2.states))
+# 10. 문 통과 판정: 문짝이 실제로 가리는 영역만 막는다 (그림의 열린 틈 = 지나갈 수 있는 틈)
+mp1 = maps[1]
+d2 = G.Doors(mp1)
+door_pos = next((p for p in d2.states if G.door_in_horizontal_wall(mp1, *p)), None)   # 좌우로 뻗은 벽의 문
 dpx, dpy = door_pos
-check('closed door is not passable', d2.passable(dpx, dpy) is False)
-d2.update(40, px=dpx + 0.5, py=dpy + 0.5)   # 열리기 시작 (anim 0.125)
-check('barely-open door is not passable yet', d2.passable(dpx, dpy) is False)
-for _ in range(10):
-    d2.update(40, px=dpx + 0.5, py=dpy + 0.5)
-check('fully opened door is passable', d2.passable(dpx, dpy) is True)
-d3 = G.Doors(maps[1]); d3.update(160, px=dpx + 0.5, py=dpy + 0.5)   # anim 0.5
-check('half-open door (anim 0.5) not passable', d3.states[door_pos]['anim'] < G.DOOR_PASS_ANIM and not d3.passable(dpx, dpy))
-d3.update(100, px=dpx + 0.5, py=dpy + 0.5)   # anim > 0.7
-check('door becomes passable once leaf is open enough', d3.passable(dpx, dpy) is True)
+check('closed door blocks every point of its tile', all(G.tile_blocks(mp1, d2, dpx + fx, dpy + 0.5) for fx in (0.05, 0.5, 0.95)))
+d2.states[door_pos]['anim'] = 0.5
+d2.states[door_pos]['state'] = 'opening'
+check('half-open: leaf-covered side (left) still blocks', G.tile_blocks(mp1, d2, dpx + 0.25, dpy + 0.5) is True)
+check('half-open: open side (right) is passable', G.tile_blocks(mp1, d2, dpx + 0.75, dpy + 0.5) is False)
+check('half-open: but body (width 0.6) cannot pass through the middle', not G.can_move(mp1, d2, dpx + 0.5, dpy + 0.5))
+d2.states[door_pos]['anim'] = 0.85
+check('85% open: player centered in the doorway fits', G.can_move(mp1, d2, dpx + 0.6, dpy + 0.5))
+d2.states[door_pos]['anim'] = 1.0; d2.states[door_pos]['state'] = 'open'
+check('fully open: any point passable', all(not G.tile_blocks(mp1, d2, dpx + fx, dpy + 0.5) for fx in (0.05, 0.5, 0.95)))
+check('fully open: centered body fits', G.can_move(mp1, d2, dpx + 0.5, dpy + 0.5))
+# 위아래로 뻗은 벽의 문(통로 좌우): 문짝이 위쪽 벽으로 밀려 들어간다
+v_pos = next((p for p in d2.states if not G.door_in_horizontal_wall(mp1, *p)), None)
+vx, vy = v_pos
+d2.states[v_pos]['anim'] = 0.5; d2.states[v_pos]['state'] = 'opening'
+check('vertical-wall door: covered side (top) blocks', G.tile_blocks(mp1, d2, vx + 0.5, vy + 0.25) is True)
+check('vertical-wall door: open side (bottom) passable', G.tile_blocks(mp1, d2, vx + 0.5, vy + 0.75) is False)
+# 접근하면 충분히 일찍 열려서 걷거나 달려도 문에 부딪혀 멈추지 않는다 (시험용 작은 맵)
+def approach_stall_frames(speed):
+    m = [[G.WALL] * G.MAP_W for _ in range(G.MAP_H)]
+    for y in range(3, 18):
+        for x in range(8, 13):
+            m[y][x] = G.FLOOR
+    for x in range(8, 13):
+        m[10][x] = G.WALL
+    m[10][10] = G.DOOR
+    d = G.Doors(m)
+    py, blocked = 15.5, 0
+    for _ in range(300):
+        d.update(33, px=10.5, py=py)
+        nxt = py - speed * 0.033
+        if G.can_move(m, d, 10.5, nxt):
+            py = nxt
+        else:
+            blocked += 1
+        if py < 8:
+            break
+    return blocked, py
+
+blocked, end_y = approach_stall_frames(3.6)
+check('walking into a door: never stalls and passes through', blocked == 0 and end_y < 8)
+blocked, end_y = approach_stall_frames(6.12)
+check('running into a door: at most one frame of delay and passes through', blocked <= 1 and end_y < 8)
 
 print()
 print('TOTAL FAILURES:', failures)

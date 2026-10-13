@@ -66,10 +66,9 @@ VENT_TRIGGER_RADIUS = 1.6
 VENT_FILL_RATE_PER_MS = 100 / 90000.0  # 벤트 하나당 90초에 100% (맵이 커져서 완화)
 FLOOD_GURGLE_INTERVAL = (2200, 4200)
 
-DOOR_OPEN_RADIUS = 1.35
+DOOR_OPEN_RADIUS = 2.0   # 문이 지나갈 폭만큼 열릴 시간을 벌도록 조금 멀리서부터 열린다
 DOOR_CLOSE_DELAY = 1100.0
-DOOR_ANIM_MS = 320.0
-DOOR_PASS_ANIM = 0.7  # 문이 이만큼 열려야 통과 가능
+DOOR_ANIM_MS = 280.0
 
 # ── 계단통 ─────────────────────────────────────────────
 # up/down: 계단 타일 좌표(층 공통), arrive: 계단 타일에서 도착 지점까지의 오프셋,
@@ -356,8 +355,8 @@ class Doors:
         d = self.states.get((x, y))
         if d is None:
             return True
-        # 문짝이 어느 정도 열리기 전에는 지나갈 수 없다(그림과 판정이 어긋나 옆 틈으로 빠지는 문제 방지)
-        return d['state'] == 'open' or d['anim'] >= DOOR_PASS_ANIM
+        # 대략적인 통과 가능 여부(몸 폭 0.6 + 여유). 실제 충돌은 tile_blocks가 문짝 영역으로 정밀하게 판정한다.
+        return d['anim'] >= 0.85
 
     def update(self, dt, px, py, on_open=None, on_close=None):
         """dt(ms) 경과, 플레이어 좌표를 받아 모든 문의 상태를 갱신.
@@ -426,10 +425,20 @@ class FloodVents:
         return any_active
 
 
+def door_in_horizontal_wall(game_map, x, y):
+    """문이 좌우로 뻗은 벽 안에 있는가(통로는 위아래). 아니면 위아래로 뻗은 벽 안(통로는 좌우).
+    문짝은 이 벽 방향으로 미끄러지며 열린다."""
+    solid = (WALL, WINDOW, RUBBLE, DOOR, LOCKED)
+    left = game_map[y][x - 1] if x > 0 else WALL
+    right = game_map[y][x + 1] if x < MAP_W - 1 else WALL
+    return left in solid and right in solid
+
+
 def tile_blocks(game_map, doors, tx, ty):
     """주의: LOCKED는 '아직 잠긴 문'을 의미하며 항상 막힌다 — 열쇠로 열리면
     (main 쪽에서) game_map의 해당 칸이 DOOR로 바뀌므로 더 이상 LOCKED로 매치되지 않는다.
     즉 unlocked_doors 세트는 이 함수의 판정에 필요 없다(원본 JS와 동일한 방식)."""
+    rx, ry = tx, ty   # 타일 안에서의 정확한 위치(문짝 판정에 사용)
     x, y = int(math.floor(tx)), int(math.floor(ty))
     if x < 0 or x >= MAP_W or y < 0 or y >= MAP_H:
         return True
@@ -441,7 +450,15 @@ def tile_blocks(game_map, doors, tx, ty):
     if t == LOCKED or t == RUBBLE or t == WINDOW:
         return True
     if t == DOOR:
-        return not doors.passable(x, y)
+        # 문짝이 '실제로 가리고 있는 영역'만 막는다 → 화면에 보이는 열린 틈 = 지나갈 수 있는 틈
+        d = doors.states.get((x, y))
+        anim = 1.0 if d is None else d['anim']
+        if anim >= 1.0:
+            return False
+        covered = 1.0 - anim
+        if door_in_horizontal_wall(game_map, x, y):
+            return (rx - x) < covered   # 문짝이 왼쪽 벽 속으로 밀려 들어감
+        return (ry - y) < covered       # 문짝이 위쪽 벽 속으로 밀려 들어감
     return False
 
 
