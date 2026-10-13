@@ -363,14 +363,14 @@ def show_msg(text, duration=3000):
 # ══════════════════════════════════════════════════════════
 def do_search(tk):
     if tk in GAME.searched_tiles:
-        show_msg('이미 조사했습니다', 1500)
+        show_msg('이미 조사함', 1500)
         return
     GAME.searched_tiles.add(tk)
     GAME.flicker = 8
     GAME.cam_shake = 14
     if tk in GL.KEY_HIDDEN_AT:
         GAME.key_count += 1
-        lore = GL.SEARCH_LORE.get(tk, '열쇠를 발견했습니다.')
+        lore = GL.SEARCH_LORE.get(tk, '열쇠를 발견함.')
         show_msg(f'{lore}\n\n보유 열쇠: {GAME.key_count}개', 3500)
         sfx('glass_crack')
         GAME.add_caption('유리가 쨍그랑 깨짐')
@@ -383,7 +383,7 @@ def do_search(tk):
 def try_unlock(door_key):
     if GAME.key_count <= 0:
         GAME.locked_door_blink[door_key] = 1
-        show_msg('열쇠가 없습니다 — 이 구역 어딘가를 조사해 보세요', 2800)
+        show_msg('열쇠 없음 — 이 구역 어딘가를 조사할 것', 2800)
         GAME.cam_shake = 10
         sfx('door_thud')
         GAME.add_caption('잠긴 철문이 덜컹거림')
@@ -391,7 +391,7 @@ def try_unlock(door_key):
         GAME.key_count -= 1
         GAME.cam_shake = 8
         GAME.flicker = 10
-        show_msg('열쇠 사용 · 문이 열렸습니다', 2000)
+        show_msg('열쇠 사용 · 문이 열림', 2000)
         sfx('door_open')
         GAME.add_caption('녹슨 철문이 삐걱대며 열림')
         dx, dy = door_key
@@ -413,7 +413,7 @@ def check_locked_bump(nx, ny):
                 GAME.locked_door_blink[dk] = 1
                 GAME.cam_shake = 6
                 sfx('door_thud')
-                show_msg('잠겨 있습니다 — 가까이 가서 [ E ]로 열쇠 사용', 2400)
+                show_msg('잠겨 있음 — 가까이 가서 [ E ]로 열쇠 사용', 2400)
             return
 
 
@@ -480,7 +480,7 @@ def handle_door_close_cb(dx, dy):
 def handle_vent_trigger_cb(vx, vy):
     sfx('vent_burst')
     GAME.add_caption('배관이 터지며 물이 쏟아져 나옴')
-    show_msg('바닥 벤트가 터졌습니다 — 침수가 시작됩니다', 3000)
+    show_msg('바닥 벤트 파열 — 침수 시작', 3000)
 
 
 def handle_flood_gurgle_cb(intensity):
@@ -953,7 +953,7 @@ def draw_hud(surf):
     surf.blit(hint, (center_x - hint.get_width() / 2, h - 22))
 
     if GAME.interact_prompt:
-        label = '[ E ]  열쇠 사용' if GAME.interact_prompt == 'unlock' else '[ E ]  조사하다'
+        label = '[ E ]  열쇠 사용' if GAME.interact_prompt == 'unlock' else '[ E ]  조사'
         pw, ph = 190, 28
         px, py = center_x - pw / 2, h * 0.62
         col = (204, 122, 90) if GAME.interact_prompt == 'unlock' else (74, 154, 176)
@@ -1038,7 +1038,7 @@ app_state = STATE_TITLE
 def start_game():
     global app_state
     GAME.reset()
-    show_msg('선원실 · WASD 이동  /  E 조사\n주변을 살펴 열쇠를 찾으세요', 4500)
+    show_msg('선원실 · WASD 이동  /  E 조사\n주변을 살펴 열쇠를 찾을 것', 4500)
     app_state = STATE_PLAYING
 
 
