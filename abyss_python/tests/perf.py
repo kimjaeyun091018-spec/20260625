@@ -35,7 +35,7 @@ def main():
     screen = A.screen
     G = A.GAME
     TS = A.TS
-    cam = lambda: (G.player['x'] - (A.WIN_W / 2) / TS + 0.5, G.player['y'] - (A.WIN_H / 2) / TS + 0.5)
+    cam = lambda: A.GL.camera_origin(G.player['x'], G.player['y'], A.WIN_W, A.WIN_H)
 
     def tiles():
         cx, cy = cam()
@@ -43,7 +43,7 @@ def main():
 
     def player():
         cx, cy = cam()
-        A.draw_player(screen, (G.player['x'] - cx) * TS, (G.player['y'] - cy) * TS, G.time_ms)
+        A.draw_player(screen, *A.GL.sprite_origin(G.player['x'], G.player['y'], cx, cy), G.time_ms)
 
     G.sanity = 40
     G.flood.flood_level = 30

@@ -41,15 +41,14 @@ def render_playing_frame():
     TS = A.TS
     GAME = A.GAME
 
-    cam_x = GAME.player['x'] - (WIN_W / 2) / TS + 0.5
-    cam_y = GAME.player['y'] - (WIN_H / 2) / TS + 0.5
+    cam_x, cam_y = A.GL.camera_origin(GAME.player['x'], GAME.player['y'], WIN_W, WIN_H)
 
     screen = pygame.display.get_surface()
     screen.fill((0, 3, 5))
     world = pygame.Surface((WIN_W, WIN_H))
     world.fill((0, 3, 5))
     A.draw_tiles(world, cam_x, cam_y)
-    psx, psy = (GAME.player['x'] - cam_x) * TS, (GAME.player['y'] - cam_y) * TS
+    psx, psy = A.GL.sprite_origin(GAME.player['x'], GAME.player['y'], cam_x, cam_y)
     A.draw_player(world, psx, psy, GAME.time_ms)
     screen.blit(world, (0, 0))
     A.draw_vignette(screen, GAME.sanity)

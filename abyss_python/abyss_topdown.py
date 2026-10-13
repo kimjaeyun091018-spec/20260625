@@ -764,7 +764,7 @@ def draw_tiles(surf, cam_x, cam_y):
             draw_tile_decor(surf, tx, ty, tile, sx, sy, t_ms)
 
             # 방 안은 전부 보이되, 멀수록 은은하게 어두워진다(최대 약 60%).
-            dist = math.hypot(tx - px, ty - py)
+            dist = math.hypot(tx + 0.5 - px, ty + 0.5 - py)   # 타일 중심 기준 거리
             d = min(1.0, max(0.0, (dist - light_r) / (light_r * 1.5)))
             alpha = int((d ** 1.5) * 150)
             if kind == 'window':
@@ -1215,8 +1215,7 @@ def main():
             draw_title_screen(screen)
         elif app_state == STATE_PLAYING:
             update(dt)
-            cam_x = GAME.player['x'] - (WIN_W / 2) / TS + 0.5
-            cam_y = GAME.player['y'] - (WIN_H / 2) / TS + 0.5
+            cam_x, cam_y = GL.camera_origin(GAME.player['x'], GAME.player['y'], WIN_W, WIN_H)
             shake_x = shake_y = 0
             if GAME.cam_shake > 0:
                 shake_x = (random.random() - 0.5) * 6 * (GAME.cam_shake / 60)
@@ -1229,7 +1228,7 @@ def main():
             draw_tiles(world, cam_x_shook, cam_y_shook)
             # 플레이어도 타일과 같은(흔들린) 카메라 기준으로 그려야
             # 화면 전체가 함께 흔들리는 '카메라 쉐이크'가 된다(JS판의 ctx.translate와 동일 효과)
-            psx, psy = (GAME.player['x'] - cam_x_shook) * TS, (GAME.player['y'] - cam_y_shook) * TS
+            psx, psy = GL.sprite_origin(GAME.player['x'], GAME.player['y'], cam_x_shook, cam_y_shook)
             draw_player(world, psx, psy, GAME.time_ms)
 
             draw_vignette(screen, GAME.sanity)

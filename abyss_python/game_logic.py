@@ -305,6 +305,18 @@ ROOM_NAMES_KR = {
 }
 
 
+def camera_origin(px, py, win_w, win_h):
+    """플레이어가 화면 정중앙에 오는 카메라 좌상단(타일 단위).
+    플레이어 좌표 (px, py)는 '칸의 중심'이다(예: 6.5 = 6번째 칸의 한가운데)."""
+    return px - (win_w / 2) / TS, py - (win_h / 2) / TS
+
+
+def sprite_origin(px, py, cam_x, cam_y):
+    """플레이어 스프라이트 상자(TS x TS)의 화면 좌상단 픽셀.
+    상자의 '중심'이 플레이어의 실제(충돌) 위치와 일치해야 그림과 충돌 판정이 맞는다."""
+    return (px - cam_x) * TS - TS / 2, (py - cam_y) * TS - TS / 2
+
+
 def floor_depth(floor):
     """HUD용 수심: 층이 내려갈수록 조금씩 깊어진다."""
     return 5980 + floor * 6

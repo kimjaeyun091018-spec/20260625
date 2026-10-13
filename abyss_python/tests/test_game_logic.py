@@ -152,6 +152,26 @@ check('walking into a door: never stalls and passes through', blocked == 0 and e
 blocked, end_y = approach_stall_frames(6.12)
 check('running into a door: at most one frame of delay and passes through', blocked <= 1 and end_y < 8)
 
+# 11. 그림과 충돌 위치 일치 (스프라이트가 실제 위치에서 반 칸 어긋나 문 옆 벽을 지나는 것처럼 보이던 버그의 회귀 테스트)
+TSZ = G.TS
+for (ppx, ppy) in [(10.5, 14.5), (8.5, 19.5), (33.2, 7.9)]:
+    cx, cy = G.camera_origin(ppx, ppy, 800, 560)
+    ox, oy = G.sprite_origin(ppx, ppy, cx, cy)
+    check(f'player ({ppx},{ppy}) is drawn at the exact screen center', abs((ox + TSZ / 2) - 400) < 1e-6 and abs((oy + TSZ / 2) - 280) < 1e-6)
+# 문 칸 한가운데에 서 있으면, 스프라이트 상자는 정확히 그 문 타일 위에 겹쳐 그려진다
+dtx, dty = 10, 14
+cx, cy = G.camera_origin(dtx + 0.5, dty + 0.5, 800, 560)
+tile_px = ((dtx - cx) * TSZ, (dty - cy) * TSZ)
+sprite_px = G.sprite_origin(dtx + 0.5, dty + 0.5, cx, cy)
+check('standing in a tile: sprite box coincides with that tile on screen',
+      abs(tile_px[0] - sprite_px[0]) < 1e-6 and abs(tile_px[1] - sprite_px[1]) < 1e-6)
+# 한 칸 오른쪽으로 가면 정확히 한 칸(TS px)만큼 타일 격자 위에서 움직인다
+cx2, cy2 = G.camera_origin(dtx + 1.5, dty + 0.5, 800, 560)
+t_next = ((dtx + 1 - cx2) * TSZ, (dty - cy2) * TSZ)
+s_next = G.sprite_origin(dtx + 1.5, dty + 0.5, cx2, cy2)
+check('one tile to the right: still aligned with the tile grid',
+      abs(t_next[0] - s_next[0]) < 1e-6 and abs(t_next[1] - s_next[1]) < 1e-6)
+
 print()
 print('TOTAL FAILURES:', failures)
 sys.exit(1 if failures else 0)
