@@ -241,6 +241,7 @@ class Game:
         self.links = GL.default_links()          # 계단통 연결 상태(무너지면 갱신)
         self.maps, self.room_bounds = GL.build_floors(self.links)
         self.door_sets = [GL.Doors(m) for m in self.maps]
+        self.visions = [GL.Vision(m) for m in self.maps]
         self.floor = GL.START_FLOOR
         self.flood = GL.FloodVents()
         self.sprite = Sprite()
@@ -277,6 +278,10 @@ class Game:
     @property
     def doors(self):
         return self.door_sets[self.floor]
+
+    @property
+    def vision(self):
+        return self.visions[self.floor]
 
     def add_caption(self, text, kind='sound'):
         self.captions.append(Caption(text, kind, self.time_ms))
@@ -685,12 +690,13 @@ def update(dt):
 # 렌더링
 # ══════════════════════════════════════════════════════════
 TILE_BASE_COLOR = {
-    GL.WALL: (10, 16, 22), GL.FLOOR: (14, 26, 36), GL.DOOR: (10, 32, 48),
+    GL.WALL: (10, 16, 22), GL.FLOOR: (14, 26, 36), GL.DOOR: (12, 24, 34),
     GL.CONSOLE: (8, 40, 50), GL.BED: (6, 24, 37), GL.PIPE: (8, 32, 44),
     GL.PORTHOLE: (0, 15, 25), GL.VENT: (4, 15, 24), GL.CRACK: (3, 8, 15),
     GL.LOCKED: (26, 8, 8), GL.LOCKER: (14, 28, 40), GL.CABINET: (14, 28, 40),
     GL.PANEL: (12, 24, 36),
     GL.STAIR_UP: (10, 28, 42), GL.STAIR_DOWN: (10, 28, 42), GL.RUBBLE: (16, 14, 12),
+    GL.WINDOW: (8, 30, 44),
 }
 
 
@@ -709,7 +715,7 @@ def get_tile_color(t, x, y, t_ms):
 
 
 _SHADE_CACHE = {}
-_LOS_CACHE = {'key': None, 'time': -9999, 'data': {}}
+_VIS_CACHE = {'key': None, 'time': -9999.0, 'data': {}}
 
 
 def _shade_surface(alpha):
@@ -723,17 +729,15 @@ def _shade_surface(alpha):
     return s
 
 
-def _visible(tx, ty, px, py, t_ms):
-    """시야 판정 캐시: 플레이어가 한 칸의 1/4 이상 움직이거나 120ms가 지나야 다시 계산."""
-    c = _LOS_CACHE
+def _visible_tiles(px, py, t_ms):
+    """플레이어에게 보이는 타일 {(x,y): 'own'|'edge'|'window'}.
+    들어간 방(영역) 전체 + 창문 너머. 창문 시야는 플레이어가 조금 움직이거나 120ms 지나면 갱신."""
+    c = _VIS_CACHE
     key = (GAME.floor, round(px * 4), round(py * 4))
     if c['key'] != key or t_ms - c['time'] > 120:
-        c['key'], c['time'], c['data'] = key, t_ms, {}
-    v = c['data'].get((tx, ty))
-    if v is None:
-        v = GL.has_line_of_sight(GAME.map, px, py, tx + 0.5, ty + 0.5)
-        c['data'][(tx, ty)] = v
-    return v
+        c['key'], c['time'] = key, t_ms
+        c['data'] = GAME.vision.visible(px, py)
+    return c['data']
 
 
 def draw_tiles(surf, cam_x, cam_y):
@@ -744,35 +748,64 @@ def draw_tiles(surf, cam_x, cam_y):
     t_ms = GAME.time_ms
     px, py = GAME.player['x'], GAME.player['y']
     light_r = 5 + (GAME.sanity / 100.0) * 3
-    # 빛이 닿지 않는 칸은 어차피 완전히 검게 덮이므로 그리지 않는다(핵심 최적화).
-    reach = light_r * 1.5
-    x_lo = max(0, start_x, int(px - reach) - 1)
-    x_hi = min(MAP_W, end_x, int(px + reach) + 2)
-    y_lo = max(0, start_y, int(py - reach) - 1)
-    y_hi = min(MAP_H, end_y, int(py + reach) + 2)
+    vis = _visible_tiles(px, py, t_ms)
     rect = pygame.draw.rect
     game_map = GAME.map
 
-    for ty in range(y_lo, y_hi):
+    for ty in range(max(0, start_y), min(MAP_H, end_y)):
         row = game_map[ty]
-        for tx in range(x_lo, x_hi):
-            dist = math.hypot(tx - px, ty - py)
-            darkness = (dist - light_r * 0.5) / light_r
-            if darkness >= 1.0:
-                continue
-            darkness = max(0.0, darkness)
-            if darkness > 0 and not _visible(tx, ty, px, py, t_ms):
-                continue
+        for tx in range(max(0, start_x), min(MAP_W, end_x)):
+            kind = vis.get((tx, ty))
+            if kind is None:
+                continue   # 지금 있는 방/창문 너머가 아니면 그리지 않는다(검은 배경)
             tile = row[tx]
             sx, sy = (tx - cam_x) * TS, (ty - cam_y) * TS
             rect(surf, get_tile_color(tile, tx, ty, t_ms), (sx, sy, TS, TS))
             draw_tile_decor(surf, tx, ty, tile, sx, sy, t_ms)
-            if darkness > 0:
-                surf.blit(_shade_surface(int((darkness ** 2) * 255)), (sx, sy))
+
+            # 방 안은 전부 보이되, 멀수록 은은하게 어두워진다(최대 약 60%).
+            dist = math.hypot(tx - px, ty - py)
+            d = min(1.0, max(0.0, (dist - light_r) / (light_r * 1.5)))
+            alpha = int((d ** 1.5) * 150)
+            if kind == 'window':
+                alpha = min(215, 95 + alpha)   # 유리 너머는 한 단계 더 어둡고 흐리게
+            if alpha > 0:
+                surf.blit(_shade_surface(alpha), (sx, sy))
 
 
 _CRACK_CACHE = {}
 _RUBBLE_CACHE = {}
+
+
+def _door_in_horizontal_wall(tx, ty):
+    """문이 좌우로 뻗은 벽 안에 있는가(통로는 위아래). 아니면 위아래로 뻗은 벽 안(통로는 좌우)."""
+    solid = (GL.WALL, GL.WINDOW, GL.RUBBLE, GL.DOOR, GL.LOCKED)
+    m = GAME.map
+    left = m[ty][tx - 1] if tx > 0 else GL.WALL
+    right = m[ty][tx + 1] if tx < MAP_W - 1 else GL.WALL
+    return left in solid and right in solid
+
+
+def _draw_door_panel(surf, tx, ty, sx, sy, closed_len, fill, edge):
+    """문짝을 타일 '전체 폭'으로 그린다(옆에 틈이 보이지 않게).
+    closed_len: 문짝이 가리고 있는 길이(0=활짝 열림, TS=완전히 닫힘). 문짝은 벽 쪽으로 밀려 들어간다."""
+    jamb = (12, 44, 62)
+    if _door_in_horizontal_wall(tx, ty):
+        if closed_len > 0.5:
+            r = (sx, sy, closed_len, TS)
+            pygame.draw.rect(surf, fill, r)
+            pygame.draw.rect(surf, edge, r, 1)
+            pygame.draw.line(surf, edge, (sx + closed_len - 5, sy + 6), (sx + closed_len - 5, sy + TS - 6), 1)
+        pygame.draw.rect(surf, jamb, (sx, sy, 3, TS))
+        pygame.draw.rect(surf, jamb, (sx + TS - 3, sy, 3, TS))
+    else:
+        if closed_len > 0.5:
+            r = (sx, sy, TS, closed_len)
+            pygame.draw.rect(surf, fill, r)
+            pygame.draw.rect(surf, edge, r, 1)
+            pygame.draw.line(surf, edge, (sx + 6, sy + closed_len - 5), (sx + TS - 6, sy + closed_len - 5), 1)
+        pygame.draw.rect(surf, jamb, (sx, sy, TS, 3))
+        pygame.draw.rect(surf, jamb, (sx, sy + TS - 3, TS, 3))
 
 
 def _rubble_surface(tx, ty):
@@ -858,20 +891,22 @@ def draw_tile_decor(surf, tx, ty, tile, sx, sy, t_ms):
     elif tile == GL.DOOR:
         d = GAME.doors.states.get((tx, ty))
         anim = d['anim'] if d else 1.0
-        pygame.draw.rect(surf, (13, 58, 80), (sx + 2, sy, TS - 4, TS), 1)
-        leaf_w = (TS - 8) * (1 - anim * 0.92)
-        if leaf_w > 0.5:
-            pygame.draw.rect(surf, (10, 32, 48), (sx + 4, sy, leaf_w, TS))
-            pygame.draw.rect(surf, (13, 58, 80), (sx + 4, sy, leaf_w, TS), 1)
+        _draw_door_panel(surf, tx, ty, sx, sy, TS * (1 - anim), (10, 32, 48), (13, 58, 80))
     elif tile == GL.LOCKED:
         is_bumped = GAME.locked_door_blink.get((tx, ty))
-        pulse = math.sin(t_ms * 0.005) * 0.5 + 0.5
         col = (220, 60, 60) if is_bumped else (140, 30, 30)
-        pygame.draw.rect(surf, (30, 6, 6), (sx + 4, sy, TS - 8, TS))
-        pygame.draw.rect(surf, col, (sx + 4, sy, TS - 8, TS), 2)
+        _draw_door_panel(surf, tx, ty, sx, sy, TS, (30, 6, 6), col)
         lx, ly = sx + TS / 2, sy + TS / 2
         pygame.draw.rect(surf, col, (lx - 6, ly - 2, 12, 10))
         pygame.draw.arc(surf, col, (lx - 5, ly - 10, 10, 10), 0, math.pi, 2)
+    elif tile == GL.WINDOW:
+        pygame.draw.rect(surf, (12, 44, 62), (sx, sy, TS, TS))
+        inner = (sx + 4, sy + 4, TS - 8, TS - 8)
+        glow = int(10 + 6 * math.sin(t_ms * 0.002 + tx + ty))
+        pygame.draw.rect(surf, (14 + glow // 2, 58 + glow, 78 + glow), inner)
+        pygame.draw.rect(surf, (70, 130, 150), inner, 2)
+        pygame.draw.line(surf, (110, 170, 190), (sx + 9, sy + TS - 12), (sx + TS - 14, sy + 9), 1)
+        pygame.draw.line(surf, (90, 150, 170), (sx + 13, sy + TS - 8), (sx + TS - 10, sy + 14), 1)
     elif tile in (GL.LOCKER, GL.CABINET, GL.PANEL):
         pulse = math.sin(t_ms * 0.002 + tx * 1.3 + ty * 2.1) * 0.5 + 0.5
         searched = (GAME.floor, tx, ty) in GAME.searched_tiles

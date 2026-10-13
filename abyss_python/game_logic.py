@@ -27,13 +27,13 @@ TS = 40  # 타일 픽셀 크기 (렌더링에서 사용)
 
 # ── 타일 종류 ──────────────────────────────────────────
 (WALL, FLOOR, DOOR, CONSOLE, BED, PIPE, PORTHOLE, VENT, CRACK, LOCKED,
- LOCKER, CABINET, PANEL, STAIR_UP, STAIR_DOWN, RUBBLE) = range(16)
+ LOCKER, CABINET, PANEL, STAIR_UP, STAIR_DOWN, RUBBLE, WINDOW) = range(17)
 
 TILE_NAMES = {
     WALL: 'WALL', FLOOR: 'FLOOR', DOOR: 'DOOR', CONSOLE: 'CONSOLE', BED: 'BED',
     PIPE: 'PIPE', PORTHOLE: 'PORTHOLE', VENT: 'VENT', CRACK: 'CRACK', LOCKED: 'LOCKED',
     LOCKER: 'LOCKER', CABINET: 'CABINET', PANEL: 'PANEL',
-    STAIR_UP: 'STAIR_UP', STAIR_DOWN: 'STAIR_DOWN', RUBBLE: 'RUBBLE',
+    STAIR_UP: 'STAIR_UP', STAIR_DOWN: 'STAIR_DOWN', RUBBLE: 'RUBBLE', WINDOW: 'WINDOW',
 }
 
 SEARCHABLE = {LOCKER, CABINET, PANEL}
@@ -46,11 +46,11 @@ START_FLOOR = 2
 START_POS = (8.5, 19.5)  # B2 객실
 
 # 열쇠 / 조사 ─ 좌표는 (floor, x, y)
-KEY_HIDDEN_AT = {(2, 6, 19), (1, 38, 11), (3, 7, 11), (2, 29, 4)}
+KEY_HIDDEN_AT = {(2, 6, 19), (1, 45, 11), (3, 7, 11), (2, 29, 4)}
 
 SEARCH_LORE = {
     (2, 6, 19): '객실 사물함 안쪽에서 열쇠를 찾음.\n이름표에는 \'승객 14번\'이라고 적혀 있음.',
-    (1, 38, 11): '식당 사물함 바닥에서 열쇠 발견.\n접시 위에는 먹다 만 음식이 그대로 남아 있음.\n예비 열쇠로 쓸 만함.',
+    (1, 45, 11): '식당 사물함 바닥에서 열쇠 발견.\n접시 위에는 먹다 만 음식이 그대로 남아 있음.\n예비 열쇠로 쓸 만함.',
     (3, 7, 11): '보일러실 사물함을 뒤짐.\n기름 묻은 열쇠가 공구 밑에 깔려 있었음.',
     (2, 29, 4): '실험실 패널 뒤에서 열쇠 발견.\n손잡이에 말라붙은 손자국이 남아 있음.',
 }
@@ -69,6 +69,7 @@ FLOOD_GURGLE_INTERVAL = (2200, 4200)
 DOOR_OPEN_RADIUS = 1.35
 DOOR_CLOSE_DELAY = 1100.0
 DOOR_ANIM_MS = 320.0
+DOOR_PASS_ANIM = 0.7  # 문이 이만큼 열려야 통과 가능
 
 # ── 계단통 ─────────────────────────────────────────────
 # up/down: 계단 타일 좌표(층 공통), arrive: 계단 타일에서 도착 지점까지의 오프셋,
@@ -195,22 +196,29 @@ def build_floors(links=None):
     for y in range(14, 18):
         set_(f, 45, y, CONSOLE)
     bounds[f].append(('junction', 19, 30, 10, 21))
+    for (x, y) in [(11, 18), (13, 18), (39, 13), (39, 14), (39, 16), (39, 17)]:
+        set_(f, x, y, WINDOW)       # 로비 / 부이 발사실 유리창
 
     # ══ B1 ═════════════════════════════════════════════
     f = 1
     passenger_corridor(f); cargo_corridor(f); junction(f)
-    pn(f, 'power', 6, 11); pn(f, 'special', 13, 17); pn(f, 'dining', 37, 46)
+    pn(f, 'power', 6, 11); pn(f, 'special', 13, 17)
+    room(f, 'kitchen', 37, 10, 40, 13, (38, 14)); room(f, 'dining', 42, 10, 46, 13, (44, 14))
     ps(f, 'laundry', 3, 9); ps(f, 'storage', 11, 17)
     ps(f, 'lounge', 32, 39); ps(f, 'restroom', 41, 46)
-    cw(f, 'chem', 2, 5); cw(f, 'hold_a', 6, 9); ce(f, 'powder', 2, 5); ce(f, 'hold_b', 6, 9)
-    cw(f, 'hold_c', 22, 25); cw(f, 'hold_d', 26, 29); ce(f, 'hold_e', 22, 25); ce(f, 'hold_f', 26, 29)
+    cw(f, 'chem', 2, 4); cw(f, 'hold_a', 6, 9); ce(f, 'powder', 2, 4); ce(f, 'hold_b', 6, 9)
+    cw(f, 'hold_c', 22, 25); cw(f, 'hold_d', 27, 29); ce(f, 'hold_e', 22, 25); ce(f, 'hold_f', 27, 29)
     bulkheads(f)
     # 가구/수색 대상
-    set_(f, 38, 11, LOCKER); set_(f, 40, 11, CABINET)
+    set_(f, 45, 11, LOCKER); set_(f, 40, 11, CABINET); set_(f, 38, 12, PIPE)
     set_(f, 7, 11, PANEL); set_(f, 14, 11, BED); set_(f, 15, 11, BED)
     set_(f, 34, 20, BED); set_(f, 35, 20, BED)
     set_(f, 20, 3, CABINET); set_(f, 29, 3, PANEL)
     set_(f, 24, 12, CRACK)
+    for (x, y) in [(41, 11), (41, 12),      # 조리실 ↔ 식당 배식창
+                   (13, 14), (17, 14),      # 특실 복도 쪽 창
+                   (33, 17), (37, 17)]:     # 휴게실 복도 쪽 창
+        set_(f, x, y, WINDOW)
 
     # ══ B2 ═════════════════════════════════════════════
     f = 2
@@ -218,10 +226,10 @@ def build_floors(links=None):
     pn(f, 'cabin_n1', 6, 11); pn(f, 'cabin_n2', 13, 17); pn(f, 'cabin_n3', 37, 46)
     ps(f, 'cabin', 6, 11); ps(f, 'cabin_s2', 13, 17)
     ps(f, 'cabin_s3', 32, 38); ps(f, 'cabin_s4', 40, 46)
-    room(f, 'cctv', 19, 2, 22, 5, (23, 3)); room(f, 'isolation', 19, 6, 22, 9, (23, 7))
+    room(f, 'cctv', 19, 2, 22, 4, (23, 3)); room(f, 'isolation', 19, 6, 22, 9, (23, 7))
     room(f, 'lab', 27, 2, 30, 9, (26, 5))
     room(f, 'drug', 19, 22, 22, 25, (23, 23)); room(f, 'lab_south', 27, 22, 30, 29, (26, 25))
-    cw(f, 'storage_c', 26, 29)
+    cw(f, 'storage_c', 27, 29)
     bulkheads(f)
     crush(f, [(19, 10, 22, 12), (26, 10, 30, 13), (19, 18, 21, 21), (26, 18, 30, 20)])
     set_(f, 6, 19, LOCKER)
@@ -234,6 +242,10 @@ def build_floors(links=None):
     set_(f, 20, 23, CABINET); set_(f, 20, 8, PANEL)
     set_(f, 29, 8, VENT)
     set_(f, 24, 14, CRACK); set_(f, 25, 19, CRACK)
+    for (x, y) in [(26, 7), (26, 8),        # 실험체 보관실 관찰창
+                   (23, 8), (23, 9),        # 격리실 관찰창
+                   (23, 2), (23, 4)]:       # CCTV실 창
+        set_(f, x, y, WINDOW)
 
     # ══ B3 ═════════════════════════════════════════════
     f = 3
@@ -254,6 +266,9 @@ def build_floors(links=None):
     for x in range(34, 45):
         set_(f, x, 19, PIPE)
     set_(f, 24, 12, CRACK); set_(f, 25, 18, CRACK)
+    for (x, y) in [(14, 14), (16, 14),      # 제어실 문 옆 창
+                   (6, 17), (14, 17)]:      # 배수 펌프실 창
+        set_(f, x, y, WINDOW)
 
     # ── 계단 타일 ───────────────────────────────────────
     for sid, s in STAIRWELLS.items():
@@ -277,7 +292,7 @@ def build_floors(links=None):
 
 ROOM_NAMES_KR = {
     'corridor': '통로', 'junction': '합체 구간', 'lobby': '로비', 'buoy': '비상 부이 발사실',
-    'power': '배전실', 'special': '특실', 'dining': '식당', 'laundry': '세탁실', 'storage': '창고',
+    'power': '배전실', 'special': '특실', 'dining': '식당', 'kitchen': '조리실', 'laundry': '세탁실', 'storage': '창고',
     'lounge': '휴게실', 'restroom': '화장실',
     'chem': '약품 창고', 'powder': '화약고',
     'hold_a': '화물칸', 'hold_b': '화물칸', 'hold_c': '화물칸', 'hold_d': '화물칸',
@@ -341,7 +356,8 @@ class Doors:
         d = self.states.get((x, y))
         if d is None:
             return True
-        return d['state'] != 'closed'
+        # 문짝이 어느 정도 열리기 전에는 지나갈 수 없다(그림과 판정이 어긋나 옆 틈으로 빠지는 문제 방지)
+        return d['state'] == 'open' or d['anim'] >= DOOR_PASS_ANIM
 
     def update(self, dt, px, py, on_open=None, on_close=None):
         """dt(ms) 경과, 플레이어 좌표를 받아 모든 문의 상태를 갱신.
@@ -422,7 +438,7 @@ def tile_blocks(game_map, doors, tx, ty):
         return True
     if t in (LOCKER, CABINET, PANEL):
         return True
-    if t == LOCKED or t == RUBBLE:
+    if t == LOCKED or t == RUBBLE or t == WINDOW:
         return True
     if t == DOOR:
         return not doors.passable(x, y)
@@ -506,3 +522,102 @@ def get_nearby_stairs(game_map, px, py):
             if dist < 1.5 and (best is None or dist < best[0]):
                 best = (dist, tx, ty, 'up' if t == STAIR_UP else 'down')
     return best[1:] if best else None
+
+
+# ══════════════════════════════════════════════════════════
+# 시야 — '들어간 방만 보인다' (아오오니 방식) + 창문으로 들여다보기
+# ══════════════════════════════════════════════════════════
+REGION_SEPARATORS = {WALL, RUBBLE, WINDOW, DOOR, LOCKED}
+WINDOW_VIEW_RANGE = 11.0  # 창문 너머로 보이는 최대 거리(타일)
+
+
+class Vision:
+    """한 층의 '영역(방/복도)'을 미리 나누고, 플레이어에게 보이는 타일을 계산한다.
+
+    - 영역: 벽/문/창문/잔해로 끊기는 연결된 바닥 덩어리. 방 하나, 복도 하나가 각각 영역이다.
+    - 플레이어가 있는 영역은 전부 보인다(+ 그 영역을 둘러싼 벽/문/창문 타일).
+    - 문 타일 위에 서 있으면 문 양쪽 영역이 모두 보인다.
+    - 창문은 시선을 막지 않는다. 다른 영역의 타일은 창문을 통과하는 직선이 닿을 때만 보이므로,
+      플레이어와 창문의 위치/각도에 따라 보이는 범위가 달라진다. (문은 열려 있어도 시선을 막는다)
+    """
+
+    def __init__(self, game_map):
+        self.map = game_map
+        self.rid = [[-1] * MAP_W for _ in range(MAP_H)]
+        self.region_tiles = []   # 영역별 {타일: 'own'|'edge'}
+        self._merge_cache = {}
+        n = 0
+        for y in range(MAP_H):
+            for x in range(MAP_W):
+                if self.rid[y][x] != -1 or game_map[y][x] in REGION_SEPARATORS:
+                    continue
+                stack = [(x, y)]
+                self.rid[y][x] = n
+                tiles = {}
+                while stack:
+                    cx, cy = stack.pop()
+                    tiles[(cx, cy)] = 'own'
+                    for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                        nx, ny = cx + dx, cy + dy
+                        if (0 <= nx < MAP_W and 0 <= ny < MAP_H and self.rid[ny][nx] == -1
+                                and game_map[ny][nx] not in REGION_SEPARATORS):
+                            self.rid[ny][nx] = n
+                            stack.append((nx, ny))
+                # 경계: 영역 타일의 8방향 이웃 중 벽/문/창문/잔해 (다른 영역의 바닥은 제외)
+                for (cx, cy) in list(tiles):
+                    for dy in (-1, 0, 1):
+                        for dx in (-1, 0, 1):
+                            nx, ny = cx + dx, cy + dy
+                            if (0 <= nx < MAP_W and 0 <= ny < MAP_H and (nx, ny) not in tiles
+                                    and game_map[ny][nx] in REGION_SEPARATORS):
+                                tiles[(nx, ny)] = 'edge'
+                self.region_tiles.append(tiles)
+                n += 1
+
+    def region_ids(self, px, py):
+        x, y = int(math.floor(px)), int(math.floor(py))
+        if not (0 <= x < MAP_W and 0 <= y < MAP_H):
+            return ()
+        r = self.rid[y][x]
+        if r >= 0:
+            return (r,)
+        # 문/창문 등 영역 밖 타일 위: 4방향 이웃 영역을 모두 포함(문 위에 서 있으면 양쪽이 보임)
+        out = set()
+        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            nx, ny = x + dx, y + dy
+            if 0 <= nx < MAP_W and 0 <= ny < MAP_H and self.rid[ny][nx] >= 0:
+                out.add(self.rid[ny][nx])
+        return tuple(sorted(out))
+
+    def own_tiles(self, px, py):
+        ids = self.region_ids(px, py)
+        merged = self._merge_cache.get(ids)
+        if merged is None:
+            merged = {}
+            for r in ids:
+                for t, kind in self.region_tiles[r].items():
+                    if merged.get(t) != 'own':
+                        merged[t] = kind
+            self._merge_cache[ids] = merged
+        return merged
+
+    def visible(self, px, py):
+        """{(tx, ty): 'own' | 'edge' | 'window'} — 'window'는 창문 너머로만 보이는 타일."""
+        own = self.own_tiles(px, py)
+        windows = [t for t, k in own.items()
+                   if k == 'edge' and self.map[t[1]][t[0]] == WINDOW
+                   and math.hypot(px - (t[0] + 0.5), py - (t[1] + 0.5)) <= WINDOW_VIEW_RANGE]
+        if not windows:
+            return own
+        out = dict(own)
+        r = int(WINDOW_VIEW_RANGE) + 1
+        cx, cy = int(math.floor(px)), int(math.floor(py))
+        for ty in range(max(0, cy - r), min(MAP_H, cy + r + 1)):
+            for tx in range(max(0, cx - r), min(MAP_W, cx + r + 1)):
+                if (tx, ty) in out:
+                    continue
+                if math.hypot(px - (tx + 0.5), py - (ty + 0.5)) > WINDOW_VIEW_RANGE:
+                    continue
+                if has_line_of_sight(self.map, px, py, tx + 0.5, ty + 0.5):
+                    out[(tx, ty)] = 'window'
+        return out

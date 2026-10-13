@@ -103,6 +103,21 @@ st = G.get_nearby_stairs(maps[1], 4.5, 15.5)
 check('stairs detected next to S1 on B1', st == (3, 15, 'up'))
 check('no stairs detected in open floor', G.get_nearby_stairs(m, 8.5, 19.5) is None)
 
+# 10. 문 통과 판정: 문짝이 충분히 열리기 전에는 지나갈 수 없다 (그림과 판정 일치)
+d2 = G.Doors(maps[1])
+door_pos = next(iter(d2.states))
+dpx, dpy = door_pos
+check('closed door is not passable', d2.passable(dpx, dpy) is False)
+d2.update(40, px=dpx + 0.5, py=dpy + 0.5)   # 열리기 시작 (anim 0.125)
+check('barely-open door is not passable yet', d2.passable(dpx, dpy) is False)
+for _ in range(10):
+    d2.update(40, px=dpx + 0.5, py=dpy + 0.5)
+check('fully opened door is passable', d2.passable(dpx, dpy) is True)
+d3 = G.Doors(maps[1]); d3.update(160, px=dpx + 0.5, py=dpy + 0.5)   # anim 0.5
+check('half-open door (anim 0.5) not passable', d3.states[door_pos]['anim'] < G.DOOR_PASS_ANIM and not d3.passable(dpx, dpy))
+d3.update(100, px=dpx + 0.5, py=dpy + 0.5)   # anim > 0.7
+check('door becomes passable once leaf is open enough', d3.passable(dpx, dpy) is True)
+
 print()
 print('TOTAL FAILURES:', failures)
 sys.exit(1 if failures else 0)

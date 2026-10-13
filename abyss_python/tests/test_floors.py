@@ -53,7 +53,7 @@ START = (G.START_FLOOR, int(G.START_POS[0]), int(G.START_POS[1]))
 
 def passable(f, x, y, opened):
     t = maps[f][y][x]
-    if t in (G.WALL, G.RUBBLE) or t in (G.LOCKER, G.CABINET, G.PANEL):
+    if t in (G.WALL, G.RUBBLE, G.WINDOW) or t in (G.LOCKER, G.CABINET, G.PANEL):
         return False
     if t == G.LOCKED:
         return (f, x, y) in opened
@@ -70,7 +70,7 @@ def explore(links, opened, start):
             nx, ny = x + dx, y + dy
             if 0 <= nx < G.MAP_W and 0 <= ny < G.MAP_H:
                 t = mp[f][ny][nx]
-                ok = t not in (G.WALL, G.RUBBLE, G.LOCKER, G.CABINET, G.PANEL) and (t != G.LOCKED or (f, nx, ny) in opened)
+                ok = t not in (G.WALL, G.RUBBLE, G.WINDOW, G.LOCKER, G.CABINET, G.PANEL) and (t != G.LOCKED or (f, nx, ny) in opened)
                 if ok and (f, nx, ny) not in seen:
                     seen.add((f, nx, ny)); q.append((f, nx, ny))
         t = mp[f][y][x]
