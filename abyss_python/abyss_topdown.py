@@ -238,16 +238,18 @@ class Game:
         self.reset()
 
     def reset(self):
-        self.map = GL.build_map()
-        self.doors = GL.Doors(self.map)
+        self.links = GL.default_links()          # 계단통 연결 상태(무너지면 갱신)
+        self.maps, self.room_bounds = GL.build_floors(self.links)
+        self.door_sets = [GL.Doors(m) for m in self.maps]
+        self.floor = GL.START_FLOOR
         self.flood = GL.FloodVents()
         self.sprite = Sprite()
 
         self.running = True
-        self.player = {'x': 6.5, 'y': 6.5}
+        self.player = {'x': GL.START_POS[0], 'y': GL.START_POS[1]}
         self.oxygen = 100.0
         self.sanity = 100.0
-        self.depth = 1200
+        self.depth = GL.floor_depth(self.floor)
         self.hallucinating = False
         self.visited_rooms = set()
         self.events_done = set()
@@ -267,6 +269,14 @@ class Game:
         self.ending = None
         self.ending_at = None
         self.oxy_accum = 0.0
+
+    @property
+    def map(self):
+        return self.maps[self.floor]
+
+    @property
+    def doors(self):
+        return self.door_sets[self.floor]
 
     def add_caption(self, text, kind='sound'):
         self.captions.append(Caption(text, kind, self.time_ms))
@@ -314,38 +324,48 @@ def trigger_hallucination(event_id, messages, sanity_drain):
 
 
 def check_room_events():
-    room = GL.get_room(GAME.player['x'], GAME.player['y'])
-    if room not in GAME.visited_rooms:
-        GAME.visited_rooms.add(room)
-        if room in GL.ROOM_DEPTHS:
-            GAME.depth = GL.ROOM_DEPTHS[room]
+    room = GL.get_room(GAME.room_bounds, GAME.floor, GAME.player['x'], GAME.player['y'])
+    visit_key = (GAME.floor, room)
+    if visit_key not in GAME.visited_rooms:
+        GAME.visited_rooms.add(visit_key)
         evt = next((e for e in GL.HAL_EVENTS if e['trigger_room'] == room), None)
         if evt:
             GAME.schedule(1500, lambda e=evt: trigger_hallucination(e['id'], e['messages'], e['sanity_drain']))
         name = GL.ROOM_NAMES_KR.get(room)
-        if name:
-            show_msg(f'[ {name} ]', 2000)
+        if name and room != 'corridor':
+            show_msg(f'[ {GL.FLOOR_NAMES[GAME.floor]} · {name} ]', 2000)
 
     tx, ty = int(GAME.player['x']), int(GAME.player['y'])
     if 0 <= ty < MAP_H and 0 <= tx < MAP_W and GAME.map[ty][tx] == GL.CRACK:
-        crack_id = f'crack_{tx}_{ty}'
+        crack_id = f'crack_{GAME.floor}_{tx}_{ty}'
         if crack_id not in GAME.events_done:
             GAME.events_done.add(crack_id)
             trigger_hallucination(crack_id, GL.CRACK_EVENT['messages'], GL.CRACK_EVENT['sanity_drain'])
 
-    if room == 'observation' and 'obs_air' not in GAME.events_done:
-        GAME.events_done.add('obs_air')
+    if room == 'dining' and 'dining_air' not in GAME.events_done:
+        GAME.events_done.add('dining_air')
 
         def refill():
             GAME.oxygen = min(100, GAME.oxygen + 20)
             show_msg('비상 산소통 발견 · +20%', 2500)
 
-        GAME.schedule(4000, refill)
+        GAME.schedule(3000, refill)
 
-    if room == 'observation' and len(GAME.visited_rooms) >= 4 and 'escaped' not in GAME.events_done:
-        GAME.events_done.add('escaped')
-        show_msg('비상 부이 발사 시퀀스 가동 중...', 5000)
-        GAME.schedule(5000, lambda: end_game('escape'))
+    if room == 'control' and 'power_on' not in GAME.events_done:
+        GAME.events_done.add('power_on')
+        show_msg('비상 전원 복구 · 제어실 가동\n선수 쪽 비상 부이 발사 장치 사용 가능', 4500)
+        GAME.add_caption('낮은 모터음과 함께 전등이 들어옴')
+        GAME.flicker = 12
+
+    if room == 'buoy':
+        if 'power_on' in GAME.events_done:
+            if 'escaped' not in GAME.events_done:
+                GAME.events_done.add('escaped')
+                show_msg('비상 부이 발사 시퀀스 가동 중...', 5000)
+                GAME.schedule(5000, lambda: end_game('escape'))
+        elif 'buoy_warn' not in GAME.events_done:
+            GAME.events_done.add('buoy_warn')
+            show_msg('발사 장치 전원 없음 — 제어실에서 비상 전원 복구 필요', 3500)
 
 
 MSG_TEXT = ''
@@ -362,6 +382,7 @@ def show_msg(text, duration=3000):
 # 상호작용: 조사 / 잠긴 문
 # ══════════════════════════════════════════════════════════
 def do_search(tk):
+    tk = (GAME.floor, tk[0], tk[1])   # 층 정보를 붙여서 층별로 구분
     if tk in GAME.searched_tiles:
         show_msg('이미 조사함', 1500)
         return
@@ -407,6 +428,13 @@ def check_locked_bump(nx, ny):
         tx, ty = int(math.floor(cx)), int(math.floor(cy))
         if tx < 0 or tx >= MAP_W or ty < 0 or ty >= MAP_H:
             continue
+        if GAME.map[ty][tx] == GL.RUBBLE:
+            dk = ('rubble', tx, ty)
+            if not GAME.locked_door_blink.get(dk):
+                GAME.locked_door_blink[dk] = 1
+                GAME.cam_shake = 4
+                show_msg('찌그러진 계단 — 잔해로 막혀 통과 불가', 2200)
+            return
         if GAME.map[ty][tx] == GL.LOCKED:
             dk = (tx, ty)
             if not GAME.locked_door_blink.get(dk):
@@ -435,9 +463,47 @@ def try_move(dx, dy):
             check_locked_bump(p['x'], ny)
 
 
+def use_stairs(stair):
+    """계단 이용. stair = (tx, ty, 'up'|'down'). 연결 상태에 따라 이동/막힘/붕괴 처리."""
+    tx, ty, direction = stair
+    sid, _ = GL.STAIR_AT[(tx, ty)]
+    dest = GL.stair_destination(sid, direction, GAME.floor)
+    if dest is None:
+        return
+    new_floor, link_idx, ax, ay = dest
+    state = GAME.links[sid][link_idx]
+    if state == 'blocked':
+        show_msg('계단이 찌그러져 막혀 있음', 2000)
+        return
+    old_floor = GAME.floor
+    GAME.floor = new_floor
+    GAME.player['x'], GAME.player['y'] = ax, ay
+    GAME.depth = GL.floor_depth(new_floor)
+    GAME.locked_door_blink.clear()
+    GAME.flicker = 6
+    sfx('door_thud')
+    GAME.add_caption('철제 계단에 발소리가 울림')
+    show_msg(f'[ {GL.FLOOR_NAMES[new_floor]} ]', 1800)
+    if state == 'collapse':
+        # 지나간 직후 무너진다 — 양쪽 층의 계단 타일을 잔해로 바꾼다
+        GAME.links[sid][link_idx] = 'blocked'
+        s = GL.STAIRWELLS[sid]
+        upper, lower = min(old_floor, new_floor), max(old_floor, new_floor)
+        GAME.maps[upper][s['down'][1]][s['down'][0]] = GL.RUBBLE
+        GAME.maps[lower][s['up'][1]][s['up'][0]] = GL.RUBBLE
+        GAME.cam_shake = 20
+        GAME.flicker = 14
+        GAME.schedule(700, lambda: (sfx('door_thud'),
+                                    GAME.add_caption('뒤에서 계단이 무너짐'),
+                                    show_msg('계단이 무너짐 — 되돌아갈 수 없음', 3000)))
+
+
 def get_interact_action():
     if GL.get_nearby_locked_door(GAME.map, GAME.player['x'], GAME.player['y']):
         return 'unlock'
+    st = GL.get_nearby_stairs(GAME.map, GAME.player['x'], GAME.player['y'])
+    if st:
+        return 'stairs_up' if st[2] == 'up' else 'stairs_down'
     if GL.get_nearby_searchable(GAME.map, GAME.player['x'], GAME.player['y'], GAME.searched_tiles):
         return 'search'
     return None
@@ -447,8 +513,8 @@ def get_interact_action():
 # 엔딩
 # ══════════════════════════════════════════════════════════
 ENDING_MSGS = {
-    'oxygen': ('질식', '산소 잔량 0%.\n호흡이 점점 얕아짐.\n\n마지막까지 송신 버튼을 눌렀으나\n응답 없음.\n\n심해8호의 신호는 아무에게도 닿지 않았음.'),
-    'insanity': ('광기', '벽 너머에서 누군가 이름을 부름.\n대답한 순간 모든 것이 조용해짐.\n\n수심 6,000m.\n그것을 본 이후 돌아온 사람은 없음.\n\n선원 명단에 한 줄이 늘어남.'),
+    'oxygen': ('질식', '산소 잔량 0%.\n호흡이 점점 얕아짐.\n\n마지막까지 송신 버튼을 눌렀으나\n응답 없음.\n\n이 배의 신호는 아무에게도 닿지 않았음.'),
+    'insanity': ('광기', '벽 너머에서 누군가 이름을 부름.\n대답한 순간 모든 것이 조용해짐.\n\n수심 5,980m.\n그것을 본 이후 돌아온 사람은 없음.\n\n선원 명단에 한 줄이 늘어남.'),
     'flood': ('침수', '마지막 격벽이 무너짐.\n\n차가운 물이 복도를 따라 밀려들고\n불빛이 하나씩 꺼짐.\n\n수압에 눌린 선체의 비명.\n그리고 정적.'),
     'escape': ('탈출', '비상 부이 발사 성공.\n\n14시간 뒤 구조선 도착.\n담요와 따뜻한 차 한 잔.\n\n생존자 1명.\n그날 이후 바다 근처에는 다시 가지 않음.'),
 }
@@ -543,10 +609,15 @@ def update(dt):
             try_unlock(dk)
             GAME.interact_cooldown = 500
         else:
-            tk = GL.get_nearby_searchable(GAME.map, GAME.player['x'], GAME.player['y'], GAME.searched_tiles)
-            if tk:
-                do_search(tk)
-                GAME.interact_cooldown = 500
+            st = GL.get_nearby_stairs(GAME.map, GAME.player['x'], GAME.player['y'])
+            if st:
+                use_stairs(st)
+                GAME.interact_cooldown = 700
+            else:
+                tk = GL.get_nearby_searchable(GAME.map, GAME.player['x'], GAME.player['y'], GAME.searched_tiles)
+                if tk:
+                    do_search(tk)
+                    GAME.interact_cooldown = 500
     GAME.interact_prompt = get_interact_action()
 
     for k in list(GAME.locked_door_blink.keys()):
@@ -557,7 +628,7 @@ def update(dt):
     GAME.doors.update(dt, GAME.player['x'], GAME.player['y'],
                        on_open=handle_door_open_cb, on_close=handle_door_close_cb)
 
-    any_flood_active = GAME.flood.update(dt, GAME.player['x'], GAME.player['y'],
+    any_flood_active = GAME.flood.update(dt, GAME.player['x'], GAME.player['y'], floor=GAME.floor,
                                           on_trigger=handle_vent_trigger_cb,
                                           on_gurgle=handle_flood_gurgle_cb)
     if any_flood_active and GAME.flood.flood_level > 0:
@@ -571,10 +642,9 @@ def update(dt):
     GAME.oxy_accum += dt
     while GAME.oxy_accum >= 500:
         GAME.oxy_accum -= 500
-        GAME.oxygen = max(0, GAME.oxygen - 0.4)
-        if GAME.depth > 3000:
-            GAME.oxygen = max(0, GAME.oxygen - 0.2)
+        GAME.oxygen = max(0, GAME.oxygen - 0.1)   # 넓은 다층 맵에 맞춰 완화(약 8분 분량)
         if GAME.hallucinating:
+            GAME.oxygen = max(0, GAME.oxygen - 0.05)
             GAME.sanity = max(0, GAME.sanity - 0.5)
 
     # 지속 웅얼거림 앰비언스: sanity에 따라 볼륨만 조절(실제 루프 재생은 한 번만 시작)
@@ -620,6 +690,7 @@ TILE_BASE_COLOR = {
     GL.PORTHOLE: (0, 15, 25), GL.VENT: (4, 15, 24), GL.CRACK: (3, 8, 15),
     GL.LOCKED: (26, 8, 8), GL.LOCKER: (14, 28, 40), GL.CABINET: (14, 28, 40),
     GL.PANEL: (12, 24, 36),
+    GL.STAIR_UP: (10, 28, 42), GL.STAIR_DOWN: (10, 28, 42), GL.RUBBLE: (16, 14, 12),
 }
 
 
@@ -655,7 +726,7 @@ def _shade_surface(alpha):
 def _visible(tx, ty, px, py, t_ms):
     """시야 판정 캐시: 플레이어가 한 칸의 1/4 이상 움직이거나 120ms가 지나야 다시 계산."""
     c = _LOS_CACHE
-    key = (round(px * 4), round(py * 4))
+    key = (GAME.floor, round(px * 4), round(py * 4))
     if c['key'] != key or t_ms - c['time'] > 120:
         c['key'], c['time'], c['data'] = key, t_ms, {}
     v = c['data'].get((tx, ty))
@@ -701,6 +772,28 @@ def draw_tiles(surf, cam_x, cam_y):
 
 
 _CRACK_CACHE = {}
+_RUBBLE_CACHE = {}
+
+
+def _rubble_surface(tx, ty):
+    """찌그러진 계단/잔해 타일: 좌표로 시드를 고정해 한 번만 그리고 재사용."""
+    s = _RUBBLE_CACHE.get((tx, ty))
+    if s is None:
+        rnd = random.Random(tx * 131 + ty * 17)
+        s = pygame.Surface((TS, TS))
+        s.fill((16, 14, 12))
+        for _ in range(9):
+            x, y = rnd.randint(1, TS - 14), rnd.randint(1, TS - 12)
+            w, h = rnd.randint(6, 16), rnd.randint(4, 12)
+            g = 26 + rnd.randint(0, 22)
+            pts = [(x, y + h), (x + rnd.randint(1, w // 2), y), (x + w, y + rnd.randint(0, h // 2)), (x + w - 2, y + h)]
+            pygame.draw.polygon(s, (g, g - 4, g - 8), pts)
+            pygame.draw.polygon(s, (8, 8, 8), pts, 1)
+        # 휜 철제 난간
+        pygame.draw.line(s, (60, 70, 76), (3, TS - 6), (TS - 8, 6), 2)
+        pygame.draw.line(s, (40, 48, 54), (8, TS - 4), (TS - 4, 12), 2)
+        _RUBBLE_CACHE[(tx, ty)] = s
+    return s
 _SEARCHED_SURF = []
 
 
@@ -734,7 +827,7 @@ def draw_tile_decor(surf, tx, ty, tile, sx, sy, t_ms):
         for i in range(4):
             yy = sy + 4 + i * ((TS - 8) / 3)
             pygame.draw.line(surf, (8, 24, 42), (sx + 4, yy), (sx + TS - 4, yy), 1)
-        vdat = GAME.flood.vents.get((tx, ty))
+        vdat = GAME.flood.vents.get((GAME.floor, tx, ty))
         if vdat and vdat['triggered']:
             for i in range(3):
                 phase = (t_ms * 0.006 + i * 2.1) % 1
@@ -745,6 +838,23 @@ def draw_tile_decor(surf, tx, ty, tile, sx, sy, t_ms):
                 s = pygame.Surface((r * 4, r * 4), pygame.SRCALPHA)
                 pygame.draw.circle(s, (90, 190, 220, a), (r * 2, r * 2), r)
                 surf.blit(s, (jx - r * 2, jy - r * 2))
+    elif tile in (GL.STAIR_UP, GL.STAIR_DOWN):
+        up = tile == GL.STAIR_UP
+        for i in range(5):
+            yy = sy + 6 + i * ((TS - 12) / 4)
+            pygame.draw.line(surf, (20, 70, 90), (sx + 5, yy), (sx + TS - 5, yy), 2)
+        cx, cy = sx + TS / 2, sy + TS / 2
+        pts = [(cx, cy - 8), (cx - 8, cy + 4), (cx + 8, cy + 4)] if up else [(cx, cy + 8), (cx - 8, cy - 4), (cx + 8, cy - 4)]
+        pygame.draw.polygon(surf, (74, 154, 176), pts, 2)
+        sid_dir = GL.STAIR_AT.get((tx, ty))
+        if sid_dir:
+            link_idx = GAME.floor - 1 if up else GAME.floor
+            if GAME.links[sid_dir[0]][link_idx] == 'collapse':
+                # 곧 무너질 계단: 금 간 선과 붉은 기운
+                pygame.draw.lines(surf, (150, 50, 40), False,
+                                  [(sx + 6, sy + 4), (sx + 16, sy + 16), (sx + 11, sy + 24), (sx + 24, sy + TS - 4)], 2)
+    elif tile == GL.RUBBLE:
+        surf.blit(_rubble_surface(tx, ty), (sx, sy))
     elif tile == GL.DOOR:
         d = GAME.doors.states.get((tx, ty))
         anim = d['anim'] if d else 1.0
@@ -764,7 +874,7 @@ def draw_tile_decor(surf, tx, ty, tile, sx, sy, t_ms):
         pygame.draw.arc(surf, col, (lx - 5, ly - 10, 10, 10), 0, math.pi, 2)
     elif tile in (GL.LOCKER, GL.CABINET, GL.PANEL):
         pulse = math.sin(t_ms * 0.002 + tx * 1.3 + ty * 2.1) * 0.5 + 0.5
-        searched = (tx, ty) in GAME.searched_tiles
+        searched = (GAME.floor, tx, ty) in GAME.searched_tiles
         col = (int(20 + pulse * 15), int(50 + pulse * 20), int(70 + pulse * 25))
         if not searched:
             if tile == GL.LOCKER:
@@ -924,7 +1034,7 @@ def draw_hud(surf):
     surf.blit(txt, (w - 16 - txt.get_width(), 2))
 
     center_x = w / 2
-    depth_txt = FONT_SM.render(f'수심 {GAME.depth:,}m', True, (74, 154, 176))
+    depth_txt = FONT_SM.render(f'수심 {GAME.depth:,}m  ·  {GL.FLOOR_NAMES[GAME.floor]}', True, (74, 154, 176))
     surf.blit(depth_txt, (center_x - depth_txt.get_width() / 2, 4))
     key_txt = FONT_MD.render(('× ' + str(GAME.key_count)) if GAME.key_count else '—', True,
                               (204, 170, 0) if GAME.key_count else (26, 58, 0))
@@ -949,12 +1059,13 @@ def draw_hud(surf):
 
     draw_captions(surf, h)
 
-    hint = FONT_SM.render('WASD / 방향키 · 이동  |  Space · 달리기  |  E · 조사 / 열쇠 사용', True, (10, 37, 53))
+    hint = FONT_SM.render('WASD / 방향키 · 이동  |  Space · 달리기  |  E · 조사 / 열쇠 / 계단', True, (10, 37, 53))
     surf.blit(hint, (center_x - hint.get_width() / 2, h - 22))
 
     if GAME.interact_prompt:
-        label = '[ E ]  열쇠 사용' if GAME.interact_prompt == 'unlock' else '[ E ]  조사'
-        pw, ph = 190, 28
+        label = {'unlock': '[ E ]  열쇠 사용', 'stairs_up': '[ E ]  계단 올라가기',
+                 'stairs_down': '[ E ]  계단 내려가기'}.get(GAME.interact_prompt, '[ E ]  조사')
+        pw, ph = 230, 28
         px, py = center_x - pw / 2, h * 0.62
         col = (204, 122, 90) if GAME.interact_prompt == 'unlock' else (74, 154, 176)
         border = (140, 40, 40) if GAME.interact_prompt == 'unlock' else (13, 100, 130)
@@ -1017,7 +1128,7 @@ def draw_title_screen(surf):
     surf.fill((0, 5, 8))
     t = FONT_XL.render('ABYSS', True, (13, 122, 156))
     surf.blit(t, (w / 2 - t.get_width() / 2, h / 2 - 120))
-    sub = FONT_SM.render('수심 6,000m · 잠수함 심해8호', True, (10, 48, 64))
+    sub = FONT_SM.render('수심 5,980m · 가라앉은 여객선', True, (10, 48, 64))
     surf.blit(sub, (w / 2 - sub.get_width() / 2, h / 2 - 60))
     btn_rect = pygame.Rect(w / 2 - 110, h / 2, 220, 48)
     mouse = pygame.mouse.get_pos()
@@ -1038,7 +1149,7 @@ app_state = STATE_TITLE
 def start_game():
     global app_state
     GAME.reset()
-    show_msg('선원실 · WASD 이동  /  E 조사\n주변을 살펴 열쇠를 찾을 것', 4500)
+    show_msg('B2 · 객실 14호 · WASD 이동  /  E 조사\n주변을 살펴 열쇠를 찾을 것', 4500)
     app_state = STATE_PLAYING
 
 

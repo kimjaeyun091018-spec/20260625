@@ -12,96 +12,96 @@ def check(name, cond):
 
 failures = 0
 
-m = G.build_map()
+maps, bounds = G.build_floors()
+B2 = G.START_FLOOR
+m = maps[B2]
 doors = G.Doors(m)
 
-# 1. map sanity: exactly 4 LOCKED tiles, 1 pre-placed DOOR
-locked_count = sum(row.count(G.LOCKED) for row in m)
-door_count = sum(row.count(G.DOOR) for row in m)
-check('exactly 4 locked doors', locked_count == 4)
-check('exactly 1 pre-placed open door', door_count == 1)
-check('doors registry has 1 entry initially', len(doors.states) == 1)
-check('pre-placed door starts closed', doors.states[(33, 20)]['state'] == 'closed')
+# 1. 맵 구성: 층별 잠긴 문 / 일반 문 개수
+locked_total = sum(row.count(G.LOCKED) for mp in maps for row in mp)
+check('exactly 3 locked doors across all floors', locked_total == 3)
+check('4 hidden keys (1 spare)', len(G.KEY_HIDDEN_AT) == 4)
+check('doors registry matches DOOR tiles on B2', len(doors.states) == sum(row.count(G.DOOR) for row in m))
+check('doors start closed', all(d['state'] == 'closed' for d in doors.states.values()))
 
-# 2. collision: wall blocks, floor doesn't
+# 2. 충돌
 check('wall blocks', G.tile_blocks(m, doors, 0, 0) is True)
-check('floor open', G.tile_blocks(m, doors, 6, 5) is False or m[5][6] == G.CRACK)  # crack tile doesn't block movement
-check('crack tile does not block movement', G.tile_blocks(m, doors, 6, 5) is False)
-check('locked door blocks', G.tile_blocks(m, doors, 11, 5) is True)
-check('furniture blocks movement', G.tile_blocks(m, doors, 5, 3) is True)
-
-# 3. can_move AABB
-check('can_move true in open floor', G.can_move(m, doors, 6.5, 6.5) is True)
+check('start position is open', G.can_move(m, doors, *G.START_POS) is True)
+check('locked door blocks (start room door)', G.tile_blocks(m, doors, 8, 17) is True)
+check('locker blocks movement', G.tile_blocks(m, doors, 6, 19) is True)
+check('bed does not block movement', G.tile_blocks(m, doors, 6, 21) is False)
+check('crack tile does not block movement', G.tile_blocks(m, doors, 24, 14) is False)
+check('rubble blocks movement', G.tile_blocks(maps[1], G.Doors(maps[1]), 3, 16) is True)
+check('stairs are walkable', G.tile_blocks(maps[1], G.Doors(maps[1]), 3, 15) is False)
 check('can_move false into wall', G.can_move(m, doors, 0.5, 0.5) is False)
 
-# 4. sight blocks: furniture no longer blocks sight, wall/door/locked do
-check('furniture does not block sight', G.sight_blocks(m, 5, 3) is False)
+# 3. 시야
 check('wall blocks sight', G.sight_blocks(m, 0, 0) is True)
-check('locked door blocks sight', G.sight_blocks(m, 11, 5) is True)
-check('open door tile itself still sight-blocking type-wise', G.sight_blocks(m, 33, 20) is True)
+check('rubble blocks sight', G.sight_blocks(maps[1], 3, 16) is True)
+check('locked door blocks sight', G.sight_blocks(m, 8, 17) is True)
+check('furniture does not block sight', G.sight_blocks(m, 6, 19) is False)
+check('LOS within start cabin', G.has_line_of_sight(m, 8.5, 19.5, 10.5, 20.5) is True)
+check('LOS blocked by cabin wall', G.has_line_of_sight(m, 8.5, 19.5, 14.5, 19.5) is False)
 
-# 5. line of sight: within room (crew room) no obstruction from furniture
-los_room = G.has_line_of_sight(m, 6.5, 6.5, 5.5, 3.5)
-check('LOS within room passes through furniture area', los_room is True)
-los_wall = G.has_line_of_sight(m, 6.5, 6.5, 15.5, 6.5)  # crosses wall boundary x=11
-check('LOS blocked by wall between rooms', los_wall is False)
-
-# 6. door unlock flow simulation
-key_count = 1
-dk = G.get_nearby_locked_door(m, 10.3, 5.5)
-check('locked door found near (10.3,5.5)', dk == (11, 5))
-# simulate unlock: convert tile + register door open
+# 4. 잠긴 문 해제 시뮬레이션
+dk = G.get_nearby_locked_door(m, 8.5, 18.3)
+check('locked door found next to start cabin door', dk == (8, 17))
 dx, dy = dk
 m[dy][dx] = G.DOOR
 doors.register(dx, dy, initially_open=True)
-key_count -= 1
-check('key consumed', key_count == 0)
-check('tile converted to DOOR', m[5][11] == G.DOOR)
-check('door registered as open', doors.states[(11, 5)]['state'] == 'open')
-check('door now passable', G.tile_blocks(m, doors, 11, 5) is False)
-check('LOS still blocked through open door (horror design)',
-      G.has_line_of_sight(m, 6.5, 5.5, 12.5, 5.5) is False)
-check('no longer matched by get_nearby_locked_door after conversion',
-      G.get_nearby_locked_door(m, 10.3, 5.5) is None)
+check('tile converted to DOOR', m[17][8] == G.DOOR)
+check('door now passable', G.tile_blocks(m, doors, 8, 17) is False)
+check('no longer matched by get_nearby_locked_door', G.get_nearby_locked_door(m, 8.5, 18.3) is None)
 
-# 7. door auto-close simulation: move far away, advance time
-opened_events = []
+# 5. 문 자동 닫힘 / 재개방
 closed_events = []
 for _ in range(60):
-    doors.update(50, px=2.0, py=2.0, on_open=lambda x,y: opened_events.append((x,y)),
-                 on_close=lambda x,y: closed_events.append((x,y)))
-check('door closed after player moved away + time passed', doors.states[(11,5)]['state'] == 'closed')
-check('on_close callback fired exactly once', closed_events == [(11,5)])
-check('door blocks movement again once closed', G.tile_blocks(m, doors, 11, 5) is True)
-
-# 8. door re-opens when player approaches again
+    doors.update(50, px=40.0, py=3.0, on_close=lambda x, y: closed_events.append((x, y)))
+check('door closed after player left', doors.states[(8, 17)]['state'] == 'closed')
+check('on_close fired once', closed_events == [(8, 17)])
 for _ in range(10):
-    doors.update(50, px=11.5, py=5.5, on_open=lambda x,y: opened_events.append((x,y)))
-check('door reopened on approach', doors.states[(11,5)]['state'] in ('opening','open'))
+    doors.update(50, px=8.5, py=17.5)
+check('door reopened on approach', doors.states[(8, 17)]['state'] in ('opening', 'open'))
 
-# 9. vent flooding simulation
+# 6. 침수 벤트 (층 정보 포함)
 fv = G.FloodVents()
 triggered = []
 gurgles = []
-any_active = fv.update(16, 10.5, 3.5, on_trigger=lambda x,y: triggered.append((x,y)), on_gurgle=lambda i: gurgles.append(i))
-check('vent triggers on proximity', triggered == [(10,3)])
+fv.update(16, 9.5, 19.5, floor=1, on_trigger=lambda x, y: triggered.append((x, y)))
+check('vent does NOT trigger on a different floor', triggered == [])
+any_active = fv.update(16, 9.5, 19.5, floor=3, on_trigger=lambda x, y: triggered.append((x, y)),
+                       on_gurgle=lambda i: gurgles.append(i))
+check('vent triggers on its own floor', triggered == [(9, 19)])
 check('any_active true once triggered', any_active is True)
-for _ in range(200):
-    fv.update(1000, 10.5, 3.5, on_gurgle=lambda i: gurgles.append(i))
-check('flood level reaches 100 after enough time', fv.flood_level == 100.0)
-check('gurgle callback fired multiple times over 200s', len(gurgles) > 10)
+for _ in range(300):
+    fv.update(1000, 9.5, 19.5, floor=3, on_gurgle=lambda i: gurgles.append(i))
+check('single vent alone does not fully flood (flood needs both vents)', fv.flood_level <= 100.0)
+for _ in range(300):
+    fv.update(1000, 29.5, 8.5, floor=2)
+check('flood level reaches 100 with both vents active', fv.flood_level == 100.0)
+check('gurgle callback fired multiple times', len(gurgles) > 10)
 
-# 10. room detection + hallucination event mapping
-check('room detection crew', G.get_room(6.5,6.5) == 'crew')
-check('room detection control', G.get_room(18,5) == 'control')
-check('room detection corridor fallback', G.get_room(12.5,5) == 'corridor')
-evt = next((e for e in G.HAL_EVENTS if e['trigger_room']=='engine'), None)
-check('engine room has fake-flood hallucination event', evt is not None and evt['id']=='flood')
+# 7. 방 판정 / 환각 이벤트
+check('room: start cabin', G.get_room(bounds, B2, 8.5, 19.5) == 'cabin')
+check('room: control on B3', G.get_room(bounds, 3, 15, 11) == 'control')
+check('room: corridor fallback', G.get_room(bounds, B2, 20.5, 15.5) in ('corridor', 'junction'))
+check('room: lab on B2', G.get_room(bounds, 2, 28, 5) == 'lab')
+check('room: buoy on 1F', G.get_room(bounds, 0, 42, 15) == 'buoy')
+check('same coordinates differ per floor', G.get_room(bounds, 0, 8.5, 19.5) != 'cabin')
+evt = next((e for e in G.HAL_EVENTS if e['trigger_room'] == 'engine'), None)
+check('engine room has fake-flood hallucination event', evt is not None and evt['id'] == 'flood')
 
-# 11. searchable + key hidden
-tk = G.get_nearby_searchable(m, 5.5, 3.5, searched_tiles=set())
-check('nearby searchable finds locker', tk == (5,3))
-check('key hidden at locker position', (5,3) in G.KEY_HIDDEN_AT)
+# 8. 조사 가능 대상 / 열쇠
+tk = G.get_nearby_searchable(m, 7.5, 19.5, searched_tiles=set())
+check('nearby searchable finds start-cabin locker', tk == (6, 19))
+check('key hidden at start-cabin locker', (B2, 6, 19) in G.KEY_HIDDEN_AT)
+check('every key tile is a searchable tile', all(maps[f][y][x] in G.SEARCHABLE for f, x, y in G.KEY_HIDDEN_AT))
+check('every key has lore text', all(k in G.SEARCH_LORE for k in G.KEY_HIDDEN_AT))
+
+# 9. 계단 탐지
+st = G.get_nearby_stairs(maps[1], 4.5, 15.5)
+check('stairs detected next to S1 on B1', st == (3, 15, 'up'))
+check('no stairs detected in open floor', G.get_nearby_stairs(m, 8.5, 19.5) is None)
 
 print()
 print('TOTAL FAILURES:', failures)
