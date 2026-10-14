@@ -4,7 +4,7 @@
 //   처음 저장은 무료, 저장된 칸을 다시 고치려면 초기화 비용, 칸을 늘리려면 구매 비용.
 // - 일반 노드(스탯)는 해금하면 항상 적용, 숙련 노드는 캐릭터 속성이 같을 때만 적용.
 
-import { ELEMENTS } from './data.js';
+import { ELEMENTS, SKINS } from './data.js';
 
 export const LOADOUT_SIZE = 4;
 export const MAX_BUILD_SLOTS = 4;
@@ -43,7 +43,7 @@ export const PERKS = {
 // 일반 노드 (해금하면 항상 적용)
 const GENERAL = [
   { id: 'g_hp', name: '활력', desc: '최대 체력 +2', bonus: { hp: 2 } },
-  { id: 'g_dmg', name: '힘', desc: '피해 +1', bonus: { dmg: 1 } },
+  { id: 'g_dmg', name: '힘', desc: '피해 +10%', bonus: { dmgPct: 0.1 } },
   { id: 'g_speed', name: '민첩', desc: '이동 속도 +8%', bonus: { speed: 0.08 } },
   { id: 'g_xp', name: '지혜', desc: '경험치 +20%', bonus: { xp: 0.2 } },
   { id: 'g_ess', name: '탐욕', desc: '정수 획득 +25%', bonus: { ess: 0.25 } },
@@ -93,17 +93,21 @@ export function canUnlock(unlocked, id) {
   return n.links.every((l) => l === 'start' || unlocked.includes(l));
 }
 
-// ---------- 저장 (이 브라우저에만 저장) ----------
-const SAVE_KEY = 'sk-save-v1';
+// ---------- 저장 (이 브라우저에만 저장, 로그인하면 계정마다 따로) ----------
+const BASE_KEY = 'sk-save-v1';
+let SAVE_KEY = BASE_KEY;
+export function setSaveAccount(id) {
+  SAVE_KEY = id ? `${BASE_KEY}:${id}` : BASE_KEY;
+}
 
 export function emptySlot() {
   return { saved: false, el: null, eq: [] };
 }
 
-export function loadSave() {
-  let s = null;
-  try { s = JSON.parse(localStorage.getItem(SAVE_KEY)); } catch { /* 저장소 사용 불가 */ }
-  const base = { essence: START_ESSENCE, unlocked: [], owned: 1, active: 0, slots: [emptySlot()], lastRun: null };
+export function loadSave(from) {
+  let s = from || null;
+  if (!s) try { s = JSON.parse(localStorage.getItem(SAVE_KEY)); } catch { /* 저장소 사용 불가 */ }
+  const base = { essence: START_ESSENCE, unlocked: [], owned: 1, active: 0, slots: [emptySlot()], skins: ['shadow'], skin: 'shadow' };
   if (!s || typeof s !== 'object') return base;
   const save = { ...base, ...s };
   save.unlocked = (Array.isArray(save.unlocked) ? save.unlocked : []).filter((id) => NODE[id]);
@@ -111,6 +115,8 @@ export function loadSave() {
   save.slots = Array.from({ length: MAX_BUILD_SLOTS }, (_, i) => ({ ...emptySlot(), ...(save.slots?.[i] || {}) }));
   save.active = Math.min(save.owned - 1, Math.max(0, Number(save.active) || 0));
   save.essence = Math.max(0, Math.floor(Number(save.essence) || 0));
+  save.skins = [...new Set(['shadow', ...(Array.isArray(save.skins) ? save.skins : [])])].filter((k) => SKINS[k]);
+  if (!save.skins.includes(save.skin)) save.skin = 'shadow';
   return save;
 }
 
@@ -122,7 +128,7 @@ export function writeSave(save) {
 export function currentBuild(save) {
   const slot = save.slots[save.active];
   const ok = slot && slot.saved;
-  return { el: ok ? slot.el : null, eq: ok ? slot.eq : [], nodes: save.unlocked };
+  return { el: ok ? slot.el : null, eq: ok ? slot.eq : [], nodes: save.unlocked, skin: save.skin };
 }
 
 // 방장이 받은 빌드를 검사 (없는 노드, 해금 안 된 장착 등은 버림)
@@ -130,12 +136,36 @@ export function sanitizeBuild(b) {
   const nodes = (Array.isArray(b?.nodes) ? b.nodes : []).filter((id) => typeof id === 'string' && NODE[id]).slice(0, TREE.length);
   const el = ELEMENTS[b?.el] && nodes.includes(`${b.el}_root`) ? b.el : null;
   const eq = [...new Set((Array.isArray(b?.eq) ? b.eq : []).filter((id) => nodes.includes(id) && equipable(id)))].slice(0, LOADOUT_SIZE);
-  return { el, eq, nodes };
+  const skin = SKINS[b?.skin] ? b.skin : 'shadow';
+  return { el, eq, nodes, skin };
+}
+
+// ---------- 저장 코드 (다른 기기로 옮기기) ----------
+function checksum(str) {
+  let h = 7;
+  for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) % 1000003;
+  return h.toString(36);
+}
+
+export function exportSaveCode(save) {
+  const json = JSON.stringify({ essence: save.essence, unlocked: save.unlocked, owned: save.owned, active: save.active, slots: save.slots, skins: save.skins, skin: save.skin });
+  const b64 = btoa(unescape(encodeURIComponent(json)));
+  return `DS1-${checksum(b64)}-${b64}`;
+}
+
+export function importSaveCode(code) {
+  const m = /^DS1-([0-9a-z]+)-([A-Za-z0-9+/=]+)$/.exec(String(code).trim().replace(/\s+/g, ''));
+  if (!m || checksum(m[2]) !== m[1]) return null;
+  try {
+    return JSON.parse(decodeURIComponent(escape(atob(m[2]))));
+  } catch {
+    return null;
+  }
 }
 
 // 빌드가 주는 보너스 합계
 export function buildBonus(build) {
-  const out = { hp: 0, dmg: 0, speed: 0, xp: 0, ess: 0, cd: 0, elLv: 0 };
+  const out = { hp: 0, dmgPct: 0, speed: 0, xp: 0, ess: 0, cd: 0, elLv: 0 };
   for (const id of build.nodes) {
     const n = NODE[id];
     if (n.kind === 'general') for (const [k, v] of Object.entries(n.bonus)) out[k] += v;

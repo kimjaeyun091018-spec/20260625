@@ -4,9 +4,10 @@ import {
 } from './game.js';
 import { packMap, unpackMap } from './maps.js';
 import { makeRoomCode, hostRoom, joinRoom, describeError } from './net.js';
-import { createRenderer, weaponIconHtml } from './render.js';
-import { loadSave, writeSave, currentBuild, NODE } from './tree.js';
+import { createRenderer, weaponIconHtml, tintedPlayer } from './render.js';
+import { loadSave, writeSave, currentBuild, setSaveAccount, NODE } from './tree.js';
 import { createTreeUI } from './treeui.js';
+import { settings, createSettingsUI, createWardrobeUI, createAccountUI, currentAccount } from './panels.js';
 
 const STEP = 1 / 60;          // 시뮬레이션 간격
 const SEND_STATE_MS = 50;     // 방장 → 참가자 상태 전송 (초당 20번)
@@ -25,14 +26,65 @@ const ui = {
   status: $('status'), roomInfo: $('roomInfo'),
   pause: $('pause'), pauseNote: $('pauseNote'), resume: $('resumeBtn'), quit: $('quitBtn'),
   stage: $('stage'), stageTitle: $('stageTitle'), stageSub: $('stageSub'), stageSlots: $('stageSlots'), rewards: $('rewardCards'),
+  account: $('accountBtn'), accountLabel: $('accountLabel'),
 };
 
-// ---------- 저장 데이터 (정수, 스킬 트리, 빌드) ----------
-const save = loadSave();
+// ---------- 저장 데이터 (정수, 스킬 트리, 빌드, 스킨) ----------
+setSaveAccount(currentAccount());
+let save = loadSave();
 const tree = createTreeUI($('tree'), {
   getSave: () => save,
   onChange: () => sendBuild(),
 });
+const settingsUI = createSettingsUI($('settings'));
+const wardrobe = createWardrobeUI($('wardrobe'), {
+  getSave: () => save,
+  onChange: () => { writeSave(save); sendBuild(); },
+  preview: skinPreview,
+});
+const account = createAccountUI($('account'), {
+  getSave: () => save,
+  onLogin(id) {
+    setSaveAccount(id);
+    save = loadSave();
+    if (id && !ui.name.value) ui.name.value = id.slice(0, 10);
+    updateAccountLabel();
+    sendBuild();
+  },
+  onImport(data) {
+    save = loadSave(data);
+    writeSave(save);
+    sendBuild();
+  },
+});
+const overlays = [tree, wardrobe, settingsUI, account];
+const anyOverlay = () => overlays.some((o) => o.isOpen());
+
+function updateAccountLabel() {
+  const id = currentAccount();
+  ui.accountLabel.textContent = id ? `${id} 계정` : '게스트';
+  ui.account.textContent = id ? '계정 · 저장 코드' : '로그인 / 회원가입';
+}
+updateAccountLabel();
+ui.account.addEventListener('click', () => account.open());
+for (const b of document.querySelectorAll('[data-open-settings]')) b.addEventListener('click', () => settingsUI.open());
+
+// 옷장 미리보기 그림 (스킨마다 한 번만 만듦)
+const previewCache = {};
+function skinPreview(skin) {
+  if (previewCache[skin]) return previewCache[skin];
+  try {
+    const sheet = tintedPlayer('#ffffff', skin);
+    const c = document.createElement('canvas');
+    c.width = 64;
+    c.height = 64;
+    const g = c.getContext('2d');
+    g.imageSmoothingEnabled = false;
+    g.drawImage(sheet, 0, 0, 32, 32, 0, 0, 64, 64);
+    previewCache[skin] = c.toDataURL();
+  } catch { return ''; }
+  return previewCache[skin];
+}
 
 function sendBuild() {
   if (!session) return;
@@ -66,6 +118,7 @@ function leaveTitle() {
   ui.menu.hidden = false;
   ui.name.focus();
 }
+ui.title.addEventListener('pointerdown', leaveTitle);
 ui.title.addEventListener('click', leaveTitle);
 window.addEventListener('keydown', (e) => { if (onTitle && !e.repeat) { e.preventDefault(); leaveTitle(); } }, { capture: true });
 
@@ -77,6 +130,7 @@ const HOLD_KEYS = {
 };
 const ACTION_KEYS = {
   KeyE: 'fence', KeyR: 'turret', KeyF: 'demolish', KeyG: 'ready', KeyQ: 'ult', Tab: 'swap',
+  KeyV: 'skill', KeyZ: 'pick1', KeyX: 'pick2', KeyC: 'pick3',
 };
 const NUMBER_KEYS = { Digit1: 1, Digit2: 2, Digit3: 3, Digit4: 4, Numpad1: 1, Numpad2: 2, Numpad3: 3, Numpad4: 4 };
 const keys = new Set();
@@ -86,28 +140,42 @@ let cam = { x: 0, y: 0 };
 const actionQueue = [];
 let actionSeq = 0;
 
-const pushAction = (act) => { if (session && !session.paused && !tree.isOpen()) actionQueue.push(act); };
+const pushAction = (act) => { if (session && !session.paused && !anyOverlay()) actionQueue.push(act); };
 
-function nearAltar() {
+function nearStation(key, range) {
   const me = session?.lastMe, L = session?.lastMap?.lobby;
-  return !!(me && L && Math.hypot(me.x - L.altar.x, me.y - L.altar.y) < 70);
+  const o = L?.[key];
+  return !!(me && o && Math.hypot(me.x - o.x, me.y - o.y) < range);
 }
 
 window.addEventListener('keydown', (e) => {
-  if (!session || onTitle) return;
-  if (tree.isOpen()) {
-    if (e.code === 'Escape' || e.code === 'KeyK') { tree.close(); e.preventDefault(); }
+  if (onTitle) return;
+  if (anyOverlay()) {
+    if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+    if (e.code === 'Escape' || (e.code === 'KeyK' && tree.isOpen())) { overlays.forEach((o) => o.close()); e.preventDefault(); }
     return;
   }
+  if (!session) return;
   if (e.code === 'Escape') { setPaused(!session.paused); e.preventDefault(); return; }
   if (session.paused || e.target instanceof HTMLInputElement) return;
   const phase = session.lastPhase;
   const hold = HOLD_KEYS[e.code];
   if (hold) { keys.add(hold); e.preventDefault(); }
   if (e.repeat) return;
-  if (phase === 'lobby' && (e.code === 'KeyK' || (e.code === 'KeyE' && nearAltar()))) {
+  if (phase === 'lobby' && (e.code === 'KeyK' || (e.code === 'KeyE' && nearStation('altar', 60)))) {
     keys.clear();
     tree.open();
+    e.preventDefault();
+    return;
+  }
+  if (phase === 'lobby' && e.code === 'KeyE' && nearStation('wardrobe', 60)) {
+    keys.clear();
+    wardrobe.open();
+    e.preventDefault();
+    return;
+  }
+  if (e.code === 'Enter' || e.code === 'NumpadEnter') {
+    if (settings.autoAim) keys.add('autofire');
     e.preventDefault();
     return;
   }
@@ -124,11 +192,12 @@ window.addEventListener('keydown', (e) => {
 window.addEventListener('keyup', (e) => {
   const k = HOLD_KEYS[e.code];
   if (k) keys.delete(k);
+  if (e.code === 'Enter' || e.code === 'NumpadEnter') keys.delete('autofire');
 });
 window.addEventListener('blur', () => {
   keys.clear();
   mouse.down = false;
-  if (session?.solo && !tree.isOpen()) setPaused(true); // 혼자 하기 중 다른 창/앱으로 가면 자동으로 멈춤
+  if (session?.solo && !anyOverlay()) setPaused(true); // 혼자 하기 중 다른 창/앱으로 가면 자동으로 멈춤
 });
 
 function toScreen(ev) {
@@ -157,23 +226,48 @@ canvas.addEventListener('wheel', (e) => {
   if (performance.now() - lastWheel > 300) { lastWheel = performance.now(); pushAction('swap'); }
 }, { passive: false });
 
-// 보상 화면의 버튼은 data-act 값을 행동으로 보냅니다.
-document.addEventListener('click', (e) => {
+// 보상 화면의 버튼은 누르는 순간(pointerdown) 바로 행동을 보냅니다.
+// (click은 누르는 동안 화면이 다시 그려지면 사라질 수 있어서 쓰지 않음)
+document.addEventListener('pointerdown', (e) => {
   const el = e.target.closest('[data-act]');
-  if (el && !el.disabled) pushAction(el.dataset.act);
+  if (el && !el.disabled && e.button === 0) { e.preventDefault(); pushAction(el.dataset.act); el.classList.add('pressed'); }
 });
+document.addEventListener('keydown', (e) => {
+  const el = e.target.closest?.('[data-act]');
+  if (el && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); pushAction(el.dataset.act); }
+});
+
+// 오토에임: 가장 가까운 적 (없으면 마지막으로 움직인 방향)
+let lastMoveAim = 0;
+function autoTarget(me) {
+  const enemies = session?.lastSnap?.e || [];
+  let best = null, bd = 520 * 520;
+  for (const e of enemies) {
+    const d = (e.x - me.x) ** 2 + (e.y - me.y) ** 2;
+    if (d < bd) { bd = d; best = e; }
+  }
+  return best;
+}
 
 function readInput(me) {
   mouse.x = mouse.sx + cam.x;
   mouse.y = mouse.sy + cam.y;
-  if (session?.paused || tree.isOpen()) return { aim: me?.a ?? me?.angle ?? 0, seq: actionSeq, pz: !!session?.paused };
+  if (session?.paused || anyOverlay()) return { aim: me?.a ?? me?.angle ?? 0, seq: actionSeq, pz: !!session?.paused };
   const act = actionQueue.shift() || null;
   if (act) actionSeq++;
+  const mx = (keys.has('right') ? 1 : 0) - (keys.has('left') ? 1 : 0), my = (keys.has('down') ? 1 : 0) - (keys.has('up') ? 1 : 0);
+  if (mx || my) lastMoveAim = Math.atan2(my, mx);
+  let aim = me ? Math.atan2(mouse.y - me.y, mouse.x - me.x) : 0;
+  let bx = Math.round(mouse.x), by = Math.round(mouse.y);
+  if (settings.autoAim && me) {
+    const t = autoTarget(me);
+    if (t) { aim = Math.atan2(t.y - me.y, t.x - me.x); bx = Math.round(t.x); by = Math.round(t.y); }
+    else if (keys.has('autofire') || !mouse.down) { aim = lastMoveAim; bx = Math.round(me.x + Math.cos(aim) * 200); by = Math.round(me.y + Math.sin(aim) * 200); }
+  }
   return {
     up: keys.has('up'), down: keys.has('down'), left: keys.has('left'), right: keys.has('right'),
-    dash: keys.has('dash'), fire: mouse.down,
-    aim: me ? Math.atan2(mouse.y - me.y, mouse.x - me.x) : 0,
-    act, seq: actionSeq, bx: Math.round(mouse.x), by: Math.round(mouse.y),
+    dash: keys.has('dash'), fire: mouse.down || keys.has('autofire'),
+    aim, act, seq: actionSeq, bx, by,
   };
 }
 
@@ -221,7 +315,7 @@ function leave(reason = '') {
   if (snap && snap.ph !== 'lobby' && session.lastMe) bankEssence(snap.rid, session.lastMe.es);
   session.net?.close();
   session = null;
-  tree.close();
+  overlays.forEach((o) => o.close());
   for (const el of [ui.pause, ui.stage, ui.roomInfo]) el.hidden = true;
   ui.menu.hidden = false;
   overlayCache.stage = '';
@@ -332,11 +426,12 @@ function slotHtml(snap, extra) {
 
 function updateStage(snap, myId) {
   const me = snap.p.find((p) => p.id === myId);
-  const key = JSON.stringify([snap.p.map((p) => [p.id, p.rwd, p.evd]), me?.rw, me?.rwd, me?.ev, me?.evd, snap.tt, snap.si]);
+  // 남은 시간 글자만 매초 바꾸고, 버튼은 선택이 바뀔 때만 다시 만듭니다.
+  ui.stageSub.textContent = `스테이지 보상을 골라 주세요 (종류마다 한 번만) · ${snap.tt}초 후 자동 선택`;
+  const key = JSON.stringify([snap.p.map((p) => [p.id, p.rwd, p.evd]), me?.rw, me?.rwd, me?.ev, me?.evd, snap.si]);
   if (key === overlayCache.stage) return;
   overlayCache.stage = key;
   ui.stageTitle.textContent = `${stageLabel(snap.si)} 클리어 → ${stageLabel(snap.si + 1)}`;
-  ui.stageSub.textContent = `스테이지 보상을 골라 주세요 (종류마다 한 번만) · ${snap.tt}초 후 자동 선택`;
   ui.stageSlots.innerHTML = slotHtml(snap, (p) => `<span class="pready">${p.rwd && p.evd ? '✔ 선택 완료' : '고르는 중…'}</span>`);
   const rewardHtml = me?.rwd
     ? '<p class="sub">보상 선택 완료!</p>'
@@ -363,13 +458,13 @@ function afterRender(snap, map, myId) {
   if (session.lastPhase !== snap.ph && snap.ph === 'lobby') { tree.refresh(); sendBuild(); }
   session.lastPhase = snap.ph;
   if (snap.ph === 'over' && me) bankEssence(snap.rid, me.es);
-  if (snap.ph !== 'lobby' && tree.isOpen()) tree.close();
+  if (snap.ph !== 'lobby') { if (tree.isOpen()) tree.close(); if (wardrobe.isOpen()) wardrobe.close(); }
   ui.stage.hidden = snap.ph !== 'transition';
   if (snap.ph === 'transition') updateStage(snap, myId);
   else overlayCache.stage = '';
 }
 
-const renderExtra = () => ({ essence: save.essence, build: buildSummary() });
+const renderExtra = () => ({ essence: save.essence, build: buildSummary(), damageNumbers: settings.damageNumbers });
 
 // ---------- 프레임 ----------
 function hostFrame(s, now) {
@@ -440,7 +535,7 @@ function clientFrame(s, now) {
       const q = latest.p.find((o) => o.id === p.id) || p;
       return {
         ...p, of: q.of, oq: q.oq, at: q.at, rw: q.rw, rwd: q.rwd, ev: q.ev, evd: q.evd, wp: q.wp, xp: q.xp, lv: q.lv, xn: q.xn,
-        ws: q.ws, sl: q.sl, sw: q.sw, ld: q.ld, cs: q.cs, es: q.es,
+        ws: q.ws, sl: q.sl, sw: q.sw, ld: q.ld, cs: q.cs, es: q.es, mp: q.mp, mm: q.mm, wst: q.wst, sk: q.sk,
       };
     }),
   };
@@ -455,3 +550,4 @@ function loop(now) {
   requestAnimationFrame(loop);
 }
 requestAnimationFrame(loop);
+window.__gameReady = true; // index.html의 '불러오기 실패' 안내를 끔

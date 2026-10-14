@@ -8,6 +8,7 @@ import {
   TILE, MAX_PLAYERS, WEAPONS, WEAPON_KEYS, weaponFam, SKILLS, WEAPON_SLOTS, SWAP_COOLDOWN, RESONANCE_ULT,
   CHEST_CHANCE, sameWeaponLimit, ENEMY_TYPES, STRUCTS, BUFFS, ELEMENTS, ELEMENT_MAX, ELEMENT_MAX_BONUS,
   MAX_AUGMENT_TYPES, STAGE_REWARDS, STAGES_PER_WORLD, WORLDS, ESSENCE, BOSSES, stageLabel, xpToNext,
+  enemyScale, MANA, activeManaCost, SKINS,
 } from './data.js';
 import { buildCampMap, buildLobbyMap, generateDungeon, tileCenter } from './maps.js';
 import { ACTIVES, PERKS, NODE, LOADOUT_SIZE, sanitizeBuild, buildBonus } from './tree.js';
@@ -233,7 +234,8 @@ function freshRunStats(p) {
     fireCd: 0, dashCd: 0, dashT: 0, healT: 0, moving: false, es: 0,
     buffs: {}, augTypes: [], offer: null, offerQueue: 0, element: null, elementLv: 0,
     level: 1, xp: 0, ready: false, reward: null, rewardDone: false, evo: null, evoDone: true, rewardsTaken: [],
-    bonus: { dmg: 0, rate: 0, speed: 0, xpMul: 1, iron: false, vamp: 0, slot: false, cdMul: 1, phoenix: false, essMul: 1, ultMul: 1 },
+    bonus: { dmgPct: 0, rate: 0, speed: 0, xpMul: 1, iron: false, vamp: 0, slot: false, cdMul: 1, phoenix: false, essMul: 1, ultMul: 1 },
+    mana: MANA.max, manaMsgT: 0,
     weapons: [newSlot(p.weapon || 'gun')], slot: 0, swapCd: 0,
     parry: 0, markId: null, markN: 0, spin: 0, spinIdle: 0, chargeT: 0,
     sdash: null, dashHits: [], javelin: null, ultT: 0, ultTick: 0, ultStep: 0,
@@ -247,7 +249,8 @@ function applyBuild(p) {
   const bb = buildBonus(b);
   p.maxHp += bb.hp;
   p.hp = p.maxHp;
-  p.bonus.dmg += bb.dmg;
+  p.bonus.dmgPct += bb.dmgPct;
+  p.skin = SKINS[b.skin] ? b.skin : 'shadow';
   p.bonus.speed += bb.speed;
   p.bonus.xpMul += bb.xp;
   p.bonus.essMul += bb.ess;
@@ -263,7 +266,9 @@ function applyBuild(p) {
 
 export function setBuild(state, id, build) {
   const p = state.players[id];
-  if (p) p.build = sanitizeBuild(build);
+  if (!p) return;
+  p.build = sanitizeBuild(build);
+  p.skin = SKINS[build?.skin] ? build.skin : 'shadow'; // 로비에서도 스킨이 바로 보이도록
 }
 
 export function addPlayer(state, id, name) {
@@ -272,7 +277,7 @@ export function addPlayer(state, id, name) {
   const color = PLAYER_COLORS.find((c) => !usedColor(state, c)) ?? PLAYER_COLORS[0];
   const p = {
     id, name: sanitizeName(name), color, x: 0, y: 0, r: PLAYER_RADIUS,
-    angle: 0, weapon: null, lastSeq: 0, paused: false, dashX: 0, dashY: 0, build: null,
+    angle: 0, weapon: null, lastSeq: 0, paused: false, dashX: 0, dashY: 0, build: null, skin: 'shadow',
   };
   freshRunStats(p);
   // 게임 도중 들어오면 관전(쓰러진 상태)으로 시작해서 다음 부활 때 합류합니다.
@@ -314,18 +319,25 @@ function stats(p) {
   const fam = W.fam;
   const gunUlt = fam === 'gun' && p.ultT > 0;
   const tail = hasPerk(p, 'tailwind');
+  const mul = 1 + 0.12 * (b.dmg || 0) + B.dmgPct;
+  const rate = (1 + 0.08 * (b.rate || 0) + B.rate) * (1 + (fam === 'gun' ? p.spin : 0)) * (gunUlt ? 3 : 1);
   return {
-    W, fam,
-    dmg: W.dmg + (b.dmg || 0) + B.dmg,
-    cd: W.cd / (1 + 0.25 * (b.rate || 0) + B.rate) / (1 + (fam === 'gun' ? p.spin : 0)) / (gunUlt ? 3 : 1),
+    W, fam, mul,
+    dmg: W.dmg * mul,
+    // 저격총·쇠뇌·샷건은 최소 간격(minCd)보다 빨라지지 않음
+    cd: Math.max(gunUlt ? 0 : W.minCd || 0, W.cd / rate),
+    crit: Math.min(0.9, (W.crit || 0) + 0.05 * (b.crit || 0)),
+    critX: W.critX || 2,
+    inacc: (W.inacc || 0) + (gunUlt ? 0.3 : 0),
     shots: 1 + (b.multi || 0),
-    spread: gunUlt ? 0.3 : 0,
-    speed: PLAYER_SPEED * (1 + 0.12 * (b.speed || 0) + B.speed + (tail ? 0.08 : 0)),
+    speed: PLAYER_SPEED * (1 + 0.06 * (b.speed || 0) + B.speed + (tail ? 0.08 : 0)),
     pierce: (W.pierce || 0) + (b.pierce || 0),
     bounce: b.bounce || 0,
-    reach: 1 + 0.2 * (b.reach || 0),
-    dashCd: DASH_COOLDOWN * 0.75 ** (b.dash || 0) * (B.iron ? 0.7 : 1) * (tail ? 0.7 : 1),
+    reach: 1 + 0.1 * (b.reach || 0),
+    dashCd: DASH_COOLDOWN * 0.88 ** (b.dash || 0) * (B.iron ? 0.7 : 1) * (tail ? 0.7 : 1),
     vamp: B.vamp,
+    maxMana: MANA.max + 20 * (b.mana || 0),
+    manaRegen: 1 + 0.15 * (b.mana || 0),
   };
 }
 
@@ -406,8 +418,8 @@ function applyBuff(p, key) {
   }
   p.buffs[key] = (p.buffs[key] || 0) + 1;
   if (key === 'hp') {
-    p.maxHp += 2;
-    if (p.alive) p.hp += 2;
+    p.maxHp += 1;
+    if (p.alive) p.hp += 1;
   }
 }
 
@@ -451,10 +463,10 @@ function applyReward(p, key) {
     if (p.element) p.elementLv = Math.min(ELEMENT_MAX_BONUS, p.elementLv + 1);
     else { p.element = shuffle(Object.keys(ELEMENTS))[0]; p.elementLv = 2; }
   } else if (k === 'heart') {
-    p.maxHp += 3;
+    p.maxHp += 2;
     p.hp = maxHpOf(p);
-  } else if (k === 'might') B.dmg += 2;
-  else if (k === 'gale') { B.rate += 0.4; B.speed += 0.1; }
+  } else if (k === 'might') B.dmgPct += 0.2;
+  else if (k === 'gale') B.rate += 0.2;
   else if (k === 'wisdom') B.xpMul += 0.5;
   else if (k === 'iron') B.iron = true;
   else if (k === 'vamp') B.vamp = 0.15;
@@ -677,6 +689,20 @@ function doAction(state, p, inp) {
   } else if (act === 'demolish') demolish(state, inp.bx, inp.by);
 }
 
+// ---------- 마나 & 치명타 ----------
+function spendMana(state, p, cost) {
+  if (cost <= 0 || p.mana >= cost) { p.mana -= Math.max(0, cost); return true; }
+  if (p.manaMsgT <= 0) {
+    floatText(state, p.x, p.y - 34, '마나 부족', '#64b5f6', 0.7);
+    p.manaMsgT = 1;
+  }
+  return false;
+}
+
+function rollCrit(st, sure = false) {
+  return sure || Math.random() < st.crit;
+}
+
 // ---------- 기본 공격 ----------
 function makeBullet(state, p, a, speed, extra) {
   const { el, elv } = attackElement(p);
@@ -690,21 +716,26 @@ function makeBullet(state, p, a, speed, extra) {
 
 function shoot(state, p, st, power = 1) {
   const W = st.W;
+  // 마나: 한 번 쏠 때마다 (궁극기 '난사' 중에는 무료)
+  if (!(st.fam === 'gun' && p.ultT > 0) && !spendMana(state, p, W.mana || 0)) return false;
   const speed = W.speed * (attackElement(p).el === 'wind' ? 1.3 : 1) * (W.charge ? 0.7 + 0.5 * power : 1);
   const pellets = W.pellets || 1;
   const total = st.shots * pellets;
-  const spread = (W.spread || 0.16) + st.spread;
+  const spread = (W.spread || 0.16);
   for (let i = 0; i < total; i++) {
-    const a = p.angle + (total > 1 ? (i / (total - 1) - 0.5) * spread * Math.max(1, total / 3) : 0) + (Math.random() - 0.5) * (0.06 + st.spread);
-    let dmg = W.charge ? Math.round(st.dmg * (0.6 + 1.4 * power)) : st.dmg;
-    let crit = false;
-    if (W.crit && Math.random() < W.crit) { dmg *= 3; crit = true; }
+    const a = p.angle + (total > 1 ? (i / (total - 1) - 0.5) * spread * Math.max(1, total / 3) : 0) + (Math.random() - 0.5) * st.inacc;
+    // 멀티샷으로 늘어난 총알은 피해 50%
+    const extra = pellets > 1 ? i >= pellets : i > 0;
+    let dmg = (W.charge ? st.dmg * (0.6 + 1.4 * power) : st.dmg) * (extra ? 0.5 : 1);
+    const crit = rollCrit(st, W.charge && power >= 0.99);
+    if (crit) dmg *= st.critX;
     state.bullets.push(makeBullet(state, p, a, speed, {
-      r: W.fam === 'bow' ? 5 : 4, dmg, crit,
+      r: W.fam === 'bow' ? 5 : 4, dmg, crit, sx: p.x, sy: p.y, falloff: !!W.falloff,
       life: W.life * (W.charge ? 0.7 + 0.6 * power : 1),
       pierce: st.pierce + (W.charge && power > 0.8 ? 2 : 0), bounce: st.bounce, blast: W.blast || 0,
     }));
   }
+  return true;
 }
 
 function angleDiff(a, b) {
@@ -736,14 +767,16 @@ function chainLightning(state, from, count, dmg, src) {
 
 // 근접 피해 한 번 (패시브·속성·궁극기 충전 포함)
 function meleeHit(state, p, e, dmg, ux, uy, knock) {
-  damageEnemy(state, e, dmg, p.id);
+  const st = stats(p);
+  const crit = rollCrit(st);
+  damageEnemy(state, e, crit ? dmg * st.critX : dmg, p.id, crit ? 'crit' : '');
   staticChain(state, p, e);
   if (heldFam(p) === 'sword') chargeUlt(p, 'sword', 'stack', 1);
   if (e.hp > 0) {
     const W = WEAPONS[held(p).key];
     if (W.execute && e.kind !== 'boss' && e.hp <= e.maxHp * W.execute) {
-      damageEnemy(state, e, e.hp, p.id);
-      floatText(state, e.x, e.y - e.r - 6, '처형!', '#ef9a9a');
+      damageEnemy(state, e, e.hp, p.id, 'crit');
+      floatText(state, e.x, e.y - e.r - 16, '처형!', '#ef9a9a');
       return;
     }
     push(state, e, ux, uy, knock);
@@ -757,7 +790,7 @@ function melee(state, p, st) {
   const ax = Math.cos(p.angle), ay = Math.sin(p.angle);
   const color = ELEMENTS[attackElement(p).el]?.color || '#ffffff';
   let dmg = st.dmg;
-  if (st.fam === 'sword' && p.parry > 0) { dmg += p.parry; p.parry = 0; } // 검 패시브: 반격 자세
+  if (st.fam === 'sword' && p.parry > 0) { dmg += p.parry * st.mul; p.parry = 0; } // 검 패시브: 반격 자세
   p.swingT = SWING_TIME;
   p.swingDir = -p.swingDir;
 
@@ -772,7 +805,7 @@ function melee(state, p, st) {
     if (W.quake) {
       for (let i = 0; i < 8; i++) {
         const a = (i / 8) * Math.PI * 2;
-        state.bullets.push({ ...makeBullet(state, p, a, 300, { kind: 'wave', dmg: Math.ceil(dmg / 2), life: 0.45, pierce: 3, r: 6 }), x: cx, y: cy });
+        state.bullets.push({ ...makeBullet(state, p, a, 300, { kind: 'wave', dmg: dmg / 2, life: 0.45, pierce: 3, r: 6 }), x: cx, y: cy });
       }
     }
     return;
@@ -792,7 +825,7 @@ function melee(state, p, st) {
     if (d > range + e.r || angleDiff(Math.atan2(e.y - p.y, e.x - p.x), p.angle) > W.arc / 2 + e.r / Math.max(d, 1)) continue;
     // 창 패시브: 창끝 일격
     const tip = st.fam === 'spear' && d > range * 0.6;
-    meleeHit(state, p, e, tip ? Math.ceil(dmg * 1.5) : dmg, (e.x - p.x) / (d || 1), (e.y - p.y) / (d || 1), W.knock);
+    meleeHit(state, p, e, tip ? dmg * 1.5 : dmg, (e.x - p.x) / (d || 1), (e.y - p.y) / (d || 1), W.knock);
   }
   // 검 계열: 적 총알을 베어 없앰 (대검은 범위 2배)
   if (st.fam === 'sword') {
@@ -819,7 +852,7 @@ function useSkill(state, p, inp) {
     else p.javelin = null;
     return;
   }
-  if (s.charges <= 0) return;
+  if (s.charges <= 0 || !spendMana(state, p, MANA.weaponSkill)) return;
   s.charges--;
   if (s.cd <= 0) s.cd = skillCdOf(s.key);
   const st = stats(p);
@@ -836,7 +869,7 @@ function useSkill(state, p, inp) {
     for (const e of enemiesNear(state, p.x, p.y, 110)) {
       e.st.stun = Math.max(e.st.stun, 1);
       const d = Math.hypot(e.x - p.x, e.y - p.y) || 1;
-      meleeHit(state, p, e, Math.ceil(st.dmg * 1.5), (e.x - p.x) / d, (e.y - p.y) / d, 20);
+      meleeHit(state, p, e, st.dmg * 1.5, (e.x - p.x) / d, (e.y - p.y) / d, 20);
     }
   } else if (fam === 'bow') {
     p.dashT = 0.15;
@@ -850,7 +883,7 @@ function useSkill(state, p, inp) {
   } else if (fam === 'gun') {
     const t = aimPoint(p, inp, 260);
     const { el, elv } = attackElement(p);
-    state.grenades.push({ id: state.nextId++, kind: 'grenade', sx: p.x, sy: p.y, tx: t.x, ty: t.y, t: 0, dur: 0.8, src: p.id, dmg: 3 + st.dmg, r: 80, el, elv });
+    state.grenades.push({ id: state.nextId++, kind: 'grenade', sx: p.x, sy: p.y, tx: t.x, ty: t.y, t: 0, dur: 0.8, src: p.id, dmg: 5 * st.mul, r: 80, el, elv });
   }
 }
 
@@ -860,29 +893,30 @@ function castActive(state, p, idx, inp) {
   const node = NODE[id];
   if (!node || node.kind !== 'active' || p.casts[idx] > 0) return;
   const def = ACTIVES[node.skill];
+  if (!spendMana(state, p, activeManaCost(def.cd))) return;
   p.casts[idx] = def.cd * p.bonus.cdMul;
   const el = def.el;
   const lv = Math.max(1, p.element === el ? p.elementLv : 1);
-  const power = stats(p).dmg;
+  const power = stats(p).mul; // 스킬 피해 = 기본 수치 × 피해 배율
   const ax = Math.cos(p.angle), ay = Math.sin(p.angle);
   const elOpt = { el, elv: lv };
   floatText(state, p.x, p.y - 34, def.name, ELEMENTS[el].color, 0.8);
 
   switch (node.skill) {
     case 'fireball':
-      state.bullets.push(makeBullet(state, p, p.angle, 520, { ...elOpt, kind: 'fireball', r: 9, dmg: 2 + power, life: 1.4, blast: 64, blastWall: true }));
+      state.bullets.push(makeBullet(state, p, p.angle, 520, { ...elOpt, kind: 'fireball', r: 9, dmg: 4 * power, life: 1.4, blast: 64, blastWall: true }));
       break;
     case 'meteor': {
       const t = aimPoint(p, inp, 340);
-      state.grenades.push({ id: state.nextId++, kind: 'meteor', sx: t.x - 120, sy: t.y - 260, tx: t.x, ty: t.y, t: 0, dur: 1.0, src: p.id, dmg: 8 + power * 2, r: 115, ...elOpt });
+      state.grenades.push({ id: state.nextId++, kind: 'meteor', sx: t.x - 120, sy: t.y - 260, tx: t.x, ty: t.y, t: 0, dur: 1.0, src: p.id, dmg: 12 * power, r: 115, ...elOpt });
       break;
     }
     case 'wave':
-      coneHit(state, p, 150, 1.8, 2 + power, 60, elOpt, '#42a5f5');
+      coneHit(state, p, 150, 1.8, 3 * power, 60, elOpt, '#42a5f5');
       break;
     case 'whirlpool': {
       const t = aimPoint(p, inp, 300);
-      state.zones.push({ id: state.nextId++, kind: 'whirl', x: t.x, y: t.y, r: 120, t: 3, tick: 0, every: 0.5, src: p.id, dmg: 1, pull: 70, ...elOpt });
+      state.zones.push({ id: state.nextId++, kind: 'whirl', x: t.x, y: t.y, r: 120, t: 3, tick: 0, every: 0.5, src: p.id, dmg: 1 * power, pull: 70, ...elOpt });
       break;
     }
     case 'bolt': {
@@ -891,26 +925,26 @@ function castActive(state, p, idx, inp) {
       const x = target ? target.x : t.x, y = target ? target.y : t.y;
       addFx(state, { k: 'l', x, y: y - 220, x2: x, y2: y, c: '#fff176', t: 0.3, life: 0.3 });
       addFx(state, { k: 'r', x, y, r: 40, c: '#fff176', t: 0.25, life: 0.25 });
-      if (target) { damageEnemy(state, target, 4 + power, p.id); if (target.hp > 0) applyElement(state, target, { ...elOpt, shooter: p.id, vx: 0, vy: 1 }); }
+      if (target) { damageEnemy(state, target, 6 * power, p.id); if (target.hp > 0) applyElement(state, target, { ...elOpt, shooter: p.id, vx: 0, vy: 1 }); }
       break;
     }
     case 'storm':
-      state.zones.push({ id: state.nextId++, kind: 'storm', follow: p.id, x: p.x, y: p.y, r: 230, t: 3, tick: 0, every: 0.3, src: p.id, dmg: 3 + power, ...elOpt });
+      state.zones.push({ id: state.nextId++, kind: 'storm', follow: p.id, x: p.x, y: p.y, r: 230, t: 3, tick: 0, every: 0.3, src: p.id, dmg: 3 * power, ...elOpt });
       break;
     case 'icespike':
-      state.bullets.push(makeBullet(state, p, p.angle, 700, { ...elOpt, kind: 'icespike', r: 6, dmg: 3 + power, life: 1, pierce: 2 }));
+      state.bullets.push(makeBullet(state, p, p.angle, 700, { ...elOpt, kind: 'icespike', r: 6, dmg: 4 * power, life: 1, pierce: 2 }));
       break;
     case 'blizzard':
       for (let i = 0; i < 5; i++) {
         const a = p.angle + (i / 4 - 0.5) * 0.55;
-        state.bullets.push(makeBullet(state, p, a, 720, { ...elOpt, kind: 'icelance', r: 8, dmg: 4 + power, life: 1.1, pierce: 99, freeze: 1.4 }));
+        state.bullets.push(makeBullet(state, p, a, 720, { ...elOpt, kind: 'icelance', r: 8, dmg: 5 * power, life: 1.1, pierce: 99, freeze: 1.4 }));
       }
       break;
     case 'gust':
-      coneHit(state, p, 170, 2.1, 1 + power, 110, elOpt, '#dcedc8');
+      coneHit(state, p, 170, 2.1, 2 * power, 110, elOpt, '#dcedc8');
       break;
     case 'tornado':
-      state.zones.push({ id: state.nextId++, kind: 'tornado', x: p.x + ax * 30, y: p.y + ay * 30, vx: ax * 160, vy: ay * 160, r: 72, t: 3, tick: 0, every: 0.3, src: p.id, dmg: 1 + Math.ceil(power / 2), pull: 140, ...elOpt });
+      state.zones.push({ id: state.nextId++, kind: 'tornado', x: p.x + ax * 30, y: p.y + ay * 30, vx: ax * 160, vy: ay * 160, r: 72, t: 3, tick: 0, every: 0.3, src: p.id, dmg: 1.5 * power, pull: 140, ...elOpt });
       break;
     case 'cloud': {
       const t = aimPoint(p, inp, 300);
@@ -1003,7 +1037,7 @@ function updateUlt(state, p, st, dt) {
       for (const e of enemiesNear(state, p.x, p.y, rad)) {
         const d = Math.hypot(e.x - p.x, e.y - p.y) || 1;
         e.st.stun = Math.max(e.st.stun, 0.5);
-        damageEnemy(state, e, Math.ceil(st.dmg * 2), p.id);
+        damageEnemy(state, e, st.dmg * 2, p.id);
         if (e.hp > 0) push(state, e, (e.x - p.x) / d, (e.y - p.y) / d, 24);
       }
       p.ultStep++;
@@ -1028,6 +1062,7 @@ function updatePlayer(state, p, inp, dt) {
   p.swapCd = Math.max(0, p.swapCd - dt);
   p.staticT = Math.max(0, p.staticT - dt);
   p.swingT = Math.max(0, p.swingT - dt);
+  p.manaMsgT = Math.max(0, p.manaMsgT - dt);
   for (let i = 0; i < p.casts.length; i++) p.casts[i] = Math.max(0, p.casts[i] - dt);
   // 모든 무기 칸의 스킬 쿨타임은 들고 있지 않아도 충전, 시간형 궁극기도 계속 충전
   for (const s of p.weapons) {
@@ -1046,6 +1081,9 @@ function updatePlayer(state, p, inp, dt) {
   }
   if (!p.alive) { p.moving = false; return; }
   const st = stats(p);
+  // 마나 회복: 싸우는 중에는 천천히, 적이 없으면 빠르게, 로비에서는 가득
+  const calm = lobby || state.enemies.length === 0;
+  p.mana = Math.min(st.maxMana, lobby ? st.maxMana : p.mana + dt * (calm ? MANA.idleRegen : MANA.regen) * st.manaRegen);
 
   let mx = (inp.right ? 1 : 0) - (inp.left ? 1 : 0);
   let my = (inp.down ? 1 : 0) - (inp.up ? 1 : 0);
@@ -1110,9 +1148,8 @@ function updatePlayer(state, p, inp, dt) {
       p.fireCd = st.cd;
     }
   } else if (inp.fire && p.fireCd <= 0 && p.dashT <= 0 && !p.sdash) {
-    p.fireCd = st.cd;
-    if (st.W.kind === 'ranged') shoot(state, p, st);
-    else melee(state, p, st);
+    if (st.W.kind === 'ranged') p.fireCd = shoot(state, p, st) ? st.cd : 0.25;
+    else { p.fireCd = st.cd; melee(state, p, st); }
   }
 
   if (lobby) return;
@@ -1138,11 +1175,15 @@ function updatePlayer(state, p, inp, dt) {
 }
 
 // ---------- 속성 & 원소 반응 ----------
-function damageEnemy(state, e, dmg, src) {
-  if (e.hp <= 0) return;
+// tag: 'crit' 치명타, 'dot' 지속 피해 (피해 숫자 색이 달라짐)
+function damageEnemy(state, e, dmg, src, tag = '') {
+  if (e.hp <= 0 || !(dmg > 0)) return;
   const real = Math.min(e.hp, dmg);
   e.hp -= dmg;
   e.hitT = 0.08;
+  if (state.fx.length < 220) {
+    state.fx.push({ k: 'dn', x: e.x + (Math.random() - 0.5) * e.r, y: e.y - e.r, v: Math.round(dmg * 10) / 10, g: tag, t: 0.7, life: 0.7 });
+  }
   if (!src) return;
   e.lastHit = src;
   const p = state.players[src];
@@ -1274,12 +1315,12 @@ function updateStatus(state, e, dt) {
   if (s.burn > 0) {
     s.burn -= dt;
     s.burnTick -= dt;
-    if (s.burnTick <= 0) { s.burnTick = 0.5; damageEnemy(state, e, 1, s.burnBy); }
+    if (s.burnTick <= 0) { s.burnTick = 0.5; damageEnemy(state, e, 1, s.burnBy, 'dot'); }
   }
   if (s.poison > 0) {
     s.poison -= dt;
     s.poisonTick -= dt;
-    if (s.poisonTick <= 0) { s.poisonTick = 1; damageEnemy(state, e, s.poisonN, s.poisonBy); }
+    if (s.poisonTick <= 0) { s.poisonTick = 1; damageEnemy(state, e, s.poisonN, s.poisonBy, 'dot'); }
   } else {
     s.poisonN = 0;
   }
@@ -1287,11 +1328,13 @@ function updateStatus(state, e, dt) {
 }
 
 // ---------- 적 ----------
-function makeEnemy(state, kind, x, y, hpBonus) {
+// lvl: 강함 단계 (모험 = 스테이지 번호, 캠프 = 웨이브 기준)
+function makeEnemy(state, kind, x, y, lvl) {
   const T = ENEMY_TYPES[kind];
-  const hp = T.hp + hpBonus;
+  const sc = enemyScale(lvl);
+  const hp = Math.round(T.hp * sc.hp * 10) / 10;
   return {
-    id: state.nextId++, kind, x, y, r: T.r, hp, maxHp: hp,
+    id: state.nextId++, kind, x, y, r: T.r, hp, maxHp: hp, sc,
     cd: 1 + Math.random(), hitT: 0, strafe: Math.random() < 0.5 ? 1 : -1,
     st: newStatus(), lastHit: null,
   };
@@ -1305,10 +1348,11 @@ function pickKind(level) {
 }
 
 function enemyBullet(state, e, a, speed, extra = {}) {
+  const sc = e.sc || enemyScale(0);
   state.bullets.push({
     id: state.nextId++, owner: 'e', shooter: e.id, x: e.x, y: e.y,
-    vx: Math.cos(a) * speed, vy: Math.sin(a) * speed,
-    r: 5, dmg: 1, life: 2.5, pierce: 0, bounce: 0, hits: [], ...extra,
+    vx: Math.cos(a) * speed * sc.shot, vy: Math.sin(a) * speed * sc.shot,
+    r: 5, dmg: sc.dmg, life: 2.5, pierce: 0, bounce: 0, hits: [], ...extra,
   });
 }
 
@@ -1319,7 +1363,7 @@ function spawnBoss(state, room) {
   const n = Object.keys(state.players).length;
   const hp = Math.round(def.hp * (1 + 0.6 * (n - 1)));
   const cx = (room.x0 + room.w / 2) * TILE, cy = (room.y0 + 3.5) * TILE;
-  const boss = { ...makeEnemy(state, 'boss', cx, cy, 0), hp, maxHp: hp, world, name: def.name, color: def.color, pattern: 0, patT: 2, act: null, actT: 0, spin: 0 };
+  const boss = { ...makeEnemy(state, 'boss', cx, cy, state.stageIdx), hp, maxHp: hp, world, name: def.name, color: def.color, pattern: 0, patT: 2, act: null, actT: 0, spin: 0 };
   state.enemies.push(boss);
   floatText(state, cx, cy - 60, def.name, '#ff8a80', 2);
 }
@@ -1370,7 +1414,7 @@ function updateBoss(state, e, alivePlayers, dt) {
         for (let i = 0; i < Math.max(0, 3 - minions); i++) {
           const a = Math.random() * Math.PI * 2;
           const spot = freeSpotNear(state, e.x + Math.cos(a) * 70, e.y + Math.sin(a) * 70);
-          state.enemies.push(makeEnemy(state, e.world >= 2 ? 'brute' : e.world >= 1 ? 'archer' : 'slime', spot.x, spot.y, e.world));
+          state.enemies.push(makeEnemy(state, e.world >= 2 ? 'brute' : e.world >= 1 ? 'archer' : 'slime', spot.x, spot.y, state.stageIdx));
           addFx(state, { k: 'r', x: spot.x, y: spot.y, r: 18, c: '#ef5350', t: 0.3, life: 0.3 });
         }
       } else if (pat === 'spiral') {
@@ -1381,7 +1425,7 @@ function updateBoss(state, e, alivePlayers, dt) {
   }
   // 몸으로 부딪히면 피해
   for (const p of alivePlayers) {
-    if (Math.hypot(p.x - e.x, p.y - e.y) < e.r + p.r && e.cd <= 0) { damagePlayer(state, p, T.touch); e.cd = 0.8; }
+    if (Math.hypot(p.x - e.x, p.y - e.y) < e.r + p.r && e.cd <= 0) { damagePlayer(state, p, T.touch + e.sc.dmg - 1); e.cd = 0.8; }
   }
 }
 
@@ -1390,6 +1434,7 @@ function updateEnemy(state, e, alivePlayers, dt) {
   e.hitT = Math.max(0, e.hitT - dt);
   if (!updateStatus(state, e, dt) || e.hp <= 0) return; // 빙결/기절 중엔 아무것도 못 함
   e.cd -= dt;
+  if (!e.sc) e.sc = enemyScale(0);
   if (e.kind === 'boss') { updateBoss(state, e, alivePlayers, dt); return; }
   const slow = (e.st.wet > 0 ? 0.8 : 1) * (e.st.chill > 0 ? 0.6 : 1);
   const target = nearest(alivePlayers, e.x, e.y);
@@ -1406,15 +1451,16 @@ function updateEnemy(state, e, alivePlayers, dt) {
     else if (d < 170) { vx = -ux; vy = -uy; }
     else { vx = -uy * e.strafe; vy = ux * e.strafe; }
     if (e.cd <= 0 && d < 420) {
-      e.cd = T.fireEvery + Math.random() * 0.5;
+      e.cd = (T.fireEvery + Math.random() * 0.5) / e.sc.speed;
       enemyBullet(state, e, Math.atan2(dy, dx), T.bulletSpeed);
     }
   } else if (d < e.r + PLAYER_RADIUS + 2 && e.cd <= 0) {
-    damagePlayer(state, target, T.touch);
+    damagePlayer(state, target, T.touch + e.sc.dmg - 1);
     e.cd = 0.8;
   }
 
-  const blocker = moveCircle(state, e, vx * T.speed * slow * dt, vy * T.speed * slow * dt, true);
+  const sp = T.speed * e.sc.speed * slow * dt;
+  const blocker = moveCircle(state, e, vx * sp, vy * sp, true);
   if (blocker && e.kind !== 'archer' && e.cd <= 0) {
     damageStruct(state, blocker, T.touch);
     e.cd = 0.8;
@@ -1500,7 +1546,7 @@ function blastAt(state, b, x, y, except) {
   addFx(state, { k: 'r', x, y, r: b.blast, c: ELEMENTS[b.el]?.color || '#ffcc80', t: 0.3, life: 0.3 });
   for (const o of enemiesNear(state, x, y, b.blast)) {
     if (o === except) continue;
-    damageEnemy(state, o, Math.ceil(b.dmg / 2), b.shooter);
+    damageEnemy(state, o, b.dmg / 2, b.shooter);
     if (b.kind === 'fireball' && o.hp > 0) applyElement(state, o, b);
   }
 }
@@ -1515,8 +1561,12 @@ function bulletHitEnemy(state, b, e) {
     else { p.markId = e.id; p.markN = 0; }
     dmg += p.markN;
   }
-  if (b.crit) floatText(state, e.x, e.y - e.r - 6, '치명!', '#ff8a80', 0.6);
-  damageEnemy(state, e, dmg, b.shooter);
+  if (b.falloff) {
+    // 샷건: 가까울수록 강함 (50px 이내 150% → 멀어질수록 50%까지)
+    const d = Math.hypot(e.x - b.sx, e.y - b.sy);
+    dmg *= Math.max(0.5, Math.min(1.5, 1.5 - (d - 50) / 120));
+  }
+  damageEnemy(state, e, dmg, b.shooter, b.crit ? 'crit' : '');
   if (p && !['icespike', 'icelance', 'fireball'].includes(b.kind)) staticChain(state, p, e);
   if (b.el && e.hp > 0) applyElement(state, e, b);
   if (b.freeze && e.hp > 0) e.st.frozen = Math.max(e.st.frozen, b.freeze);
@@ -1684,7 +1734,7 @@ function updateCamp(state, players, dt) {
   const count = Math.min(3 + state.wave * 2, 26);
   for (let i = 0; i < count; i++) {
     const { x, y } = campSpawnPoint(state);
-    state.enemies.push(makeEnemy(state, pickKind(state.wave), x, y, Math.floor(state.wave / 5)));
+    state.enemies.push(makeEnemy(state, pickKind(state.wave), x, y, state.wave * 0.6));
   }
 }
 
@@ -1694,11 +1744,33 @@ function roomAt(state, x, y) {
   return state.map.rooms.find((r) => tx >= r.x0 + 1 && tx <= r.x0 + r.w - 2 && ty >= r.y0 + 1 && ty <= r.y0 + r.h - 2) || null;
 }
 
+// 방과 점 사이 거리 (타일 단위)
+function distToRoom(r, x, y) {
+  const tx = x / TILE, ty = y / TILE;
+  const dx = Math.max(r.x0 - tx, 0, tx - (r.x0 + r.w));
+  const dy = Math.max(r.y0 - ty, 0, ty - (r.y0 + r.h));
+  return Math.hypot(dx, dy);
+}
+
+// 미니맵: 복도를 절반 이상 건너야 다음 방이 보입니다.
+function revealByCorridor(state, p) {
+  const rooms = state.map.rooms;
+  for (const r of rooms) {
+    if (r.seen) continue;
+    for (const id of r.links) {
+      const a = rooms[id];
+      const dr = distToRoom(r, p.x, p.y), da = distToRoom(a, p.x, p.y);
+      const gap = Math.max(Math.abs(a.gx - r.gx) ? Math.abs((a.x0 + a.w / 2) - (r.x0 + r.w / 2)) - (a.w + r.w) / 2 : Math.abs((a.y0 + a.h / 2) - (r.y0 + r.h / 2)) - (a.h + r.h) / 2, 1);
+      if (dr <= da && dr + da <= gap + 3) { r.seen = true; break; }
+    }
+  }
+}
+
 function spawnRoomWave(state, room) {
   room.wavesLeft--;
   const idx = state.stageIdx;
   const alive = Object.values(state.players).filter((p) => p.alive);
-  const count = Math.min(3 + Math.floor(idx * 0.6) + Math.max(0, alive.length - 1), 16);
+  const count = Math.min(4 + Math.floor(idx * 0.7) + Math.max(0, alive.length - 1) * 2, 20);
   for (let i = 0; i < count; i++) {
     let x = 0, y = 0;
     for (let tries = 0; tries < 60; tries++) {
@@ -1709,7 +1781,7 @@ function spawnRoomWave(state, room) {
       if (alive.every((p) => (p.x - x) ** 2 + (p.y - y) ** 2 > 150 ** 2)) break;
     }
     if (!x) continue;
-    state.enemies.push(makeEnemy(state, pickKind(1 + idx), x, y, Math.floor(idx / 3)));
+    state.enemies.push(makeEnemy(state, pickKind(1 + idx), x, y, idx));
     addFx(state, { k: 'r', x, y, r: 18, c: '#ef5350', t: 0.3, life: 0.3 });
   }
   room.waveDelay = 0.8;
@@ -1744,7 +1816,10 @@ function clearRoom(state, room) {
   const boss = room.type === 'boss';
   floatText(state, alive[0]?.x ?? 0, (alive[0]?.y ?? 0) - 30, boss ? '보스 처치!' : '방 클리어!', boss ? '#ffd54f' : '#a5d6a7', 1.6);
   for (const p of Object.values(state.players)) if (!p.alive && alive[0]) revive(state, p, 0.5, alive[0]);
-  for (const p of alive) if (hasPerk(p, 'tide')) heal(p, 1);
+  for (const p of alive) {
+    if (hasPerk(p, 'tide')) heal(p, 1);
+    p.mana = Math.min(stats(p).maxMana, p.mana + MANA.roomRestore);
+  }
   giveEssence(state, ESSENCE.room);
   // 보물상자: 보스방은 반드시, 일반 방은 확률로 (스테이지의 마지막 전투 방에서 아직 없었다면 반드시)
   const left = state.map.rooms.filter((r) => (r.type === 'battle' || r.type === 'boss') && r.state !== 'cleared').length;
@@ -1758,7 +1833,8 @@ function updateAdventure(state, players, dt) {
   const alive = players.filter((p) => p.alive);
   for (const p of alive) {
     const r = roomAt(state, p.x, p.y);
-    if (r) r.seen = true;
+    if (r) { r.seen = true; continue; }
+    revealByCorridor(state, p);
   }
 
   const room = state.activeRoom;
@@ -1896,6 +1972,19 @@ function bulletSnap(b) {
   };
 }
 
+// HUD에 보여 줄 지금 무기의 실제 수치
+function weaponStats(p) {
+  const st = stats(p);
+  return {
+    d: Math.round(st.dmg * 10) / 10,
+    a: Math.round((1 / Math.max(0.05, st.cd)) * 10) / 10,
+    c: Math.round(st.crit * 100),
+    x: st.critX,
+    h: st.W.kind === 'ranged' ? Math.max(0, Math.round(100 - st.inacc * 150)) : 100,
+    m: st.W.mana || 0,
+  };
+}
+
 // 화면에 그릴 데이터만 추린 가벼운 사본 (네트워크 전송용)
 export function snapshot(state) {
   const boss = state.enemies.find((e) => e.kind === 'boss');
@@ -1933,6 +2022,7 @@ export function snapshot(state) {
       })),
       sl: p.slot, sw: r1(p.swapCd), ut: r1(p.ultT), ch: WEAPONS[held(p).key].charge ? r2(p.chargeT / WEAPONS[held(p).key].charge) : 0,
       jv: p.javelin ? 1 : 0, ld: p.loadout, cs: p.casts.map(r1), sgt: r2(p.swingT / SWING_TIME), sgd: p.swingDir,
+      mp: Math.floor(p.mana), mm: stats(p).maxMana, sk: p.skin, wst: weaponStats(p),
     })),
     e: state.enemies.map((e) => ({
       id: e.id, k: e.kind, x: r1(e.x), y: r1(e.y), r: e.r,

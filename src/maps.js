@@ -17,34 +17,35 @@ const setTile = (m, x, y, v) => {
 };
 
 // ---------- 베이스캠프 ----------
-export function buildCampMap() {
-  const cols = 30, rows = 20;
+function walledRoom(cols, rows) {
   const m = emptyMap(cols, rows, 0);
   for (let y = 0; y < rows; y++) {
     for (let x = 0; x < cols; x++) {
       if (x === 0 || y === 0 || x === cols - 1 || y === rows - 1) setTile(m, x, y, 1);
     }
   }
-  for (const [bx, by] of [[5, 4], [23, 4], [5, 14], [23, 14]]) {
+  return m;
+}
+
+export function buildCampMap() {
+  const cols = 44, rows = 30;
+  const m = walledRoom(cols, rows);
+  for (const [bx, by] of [[7, 5], [35, 5], [7, 23], [35, 23], [21, 3], [21, 25], [3, 14], [39, 14]]) {
     for (let dy = 0; dy < 2; dy++) for (let dx = 0; dx < 2; dx++) setTile(m, bx + dx, by + dy, 1);
   }
-  m.camp = { x: 15 * TILE, y: 10 * TILE, r: 6 * TILE };
-  m.spawn = { x: 15 * TILE, y: 10 * TILE };
+  m.camp = { x: 22 * TILE, y: 15 * TILE, r: 7 * TILE };
+  m.spawn = { x: 22 * TILE, y: 15 * TILE };
   return m;
 }
 
 // ---------- 로비 (걸어 다니는 방) ----------
-// 왼쪽: 무기 거치대 5개 · 위: 스킬 트리 제단 · 오른쪽: 모험/베이스캠프 포털 · 아래: 토템 자리
+// 왼쪽: 무기 거치대 5개 · 위: 스킬 트리 제단과 옷장 · 오른쪽: 모험/베이스캠프 포털 · 아래: 토템 자리
 export function buildLobbyMap(weaponKeys) {
-  const m = buildCampMap();
-  m.camp = undefined;
-  // 가운데 기둥은 로비에서 치움
-  for (const [bx, by] of [[5, 4], [23, 4], [5, 14], [23, 14]]) {
-    for (let dy = 0; dy < 2; dy++) for (let dx = 0; dx < 2; dx++) setTile(m, bx + dx, by + dy, 0);
-  }
+  const m = walledRoom(30, 20);
   m.lobby = {
     racks: weaponKeys.map((key, i) => ({ key, x: 4 * TILE, y: (4 + i * 3) * TILE })),
-    altar: { x: 15 * TILE, y: 3.5 * TILE },
+    altar: { x: 13 * TILE, y: 3.5 * TILE },
+    wardrobe: { x: 18.5 * TILE, y: 3.5 * TILE },
     portals: [
       { mode: 'adv', name: '모험', x: 25 * TILE, y: 6.5 * TILE, color: '#b39ddb' },
       { mode: 'camp', name: '베이스캠프', x: 25 * TILE, y: 13.5 * TILE, color: '#ffb74d' },
@@ -58,7 +59,7 @@ export function buildLobbyMap(weaponKeys) {
 // ---------- 랜덤 던전 ----------
 // 5x5 칸 격자 위에 방을 나무 모양으로 이어 붙이고, 이웃한 방끼리 3칸 폭 복도로 연결합니다.
 const GRID = 5;
-const CELL = 22; // 한 칸 = 22x22 타일
+export const CELL = 30; // 한 칸 = 30x30 타일
 
 export function generateDungeon(stageIdx, { roomBonus = 0, boss = false } = {}) {
   const roomCount = Math.min(5 + Math.floor(stageIdx / 2) + roomBonus, GRID * GRID - 4);
@@ -97,8 +98,8 @@ export function generateDungeon(stageIdx, { roomBonus = 0, boss = false } = {}) 
   list.forEach((c, i) => {
     const type = c === first ? 'start' : c === last ? (boss ? 'boss' : 'portal') : 'battle';
     const small = type === 'start' || type === 'portal';
-    const w = type === 'boss' ? 17 : small ? 9 : rand(11, 15);
-    const h = type === 'boss' ? 15 : small ? 9 : rand(9, 13);
+    const w = type === 'boss' ? 25 : small ? 11 : rand(15, 21);
+    const h = type === 'boss' ? 21 : small ? 11 : rand(13, 17);
     c.room = {
       id: i, type, gx: c.gx, gy: c.gy,
       x0: c.gx * CELL + Math.floor((CELL - w) / 2),
@@ -129,8 +130,8 @@ export function generateDungeon(stageIdx, { roomBonus = 0, boss = false } = {}) 
   for (const r of m.rooms) {
     if (r.type !== 'battle') continue;
     const cx = r.x0 + Math.floor(r.w / 2), cy = r.y0 + Math.floor(r.h / 2);
-    for (let n = rand(2, 4), guard = 0; n > 0 && guard < 50; guard++) {
-      const s = Math.random() < 0.5 ? 1 : 2;
+    for (let n = rand(3, 6), guard = 0; n > 0 && guard < 60; guard++) {
+      const s = Math.random() < 0.5 ? 1 : Math.random() < 0.7 ? 2 : 3;
       const px = rand(r.x0 + 2, r.x0 + r.w - 3 - s), py = rand(r.y0 + 2, r.y0 + r.h - 3 - s);
       if (Math.abs(px - cx) < 3 && Math.abs(py - cy) < 3) continue;
       for (let dy = 0; dy < s; dy++) for (let dx = 0; dx < s; dx++) setTile(m, px + dx, py + dy, 1);

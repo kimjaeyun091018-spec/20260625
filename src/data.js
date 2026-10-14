@@ -13,24 +13,26 @@ export const MODES = {
 // ---------- 무기 ----------
 // kind: ranged(총알) / melee(부채꼴 베기·찌르기) / slam(앞쪽 원형 범위)
 // fam: 계열 — 같은 계열은 기본 스킬·패시브·궁극기를 공유하고, 전직하면 기본 공격과 특성이 바뀝니다.
+// 공통 필드: dmg 피해, cd 공격 간격(초), crit 치명타율, critX 치명타 배율, inacc 탄 퍼짐(라디안, 명중률 계산),
+//            mana 한 발당 마나, minCd 공격 속도 증강을 받아도 이보다 빨라지지 않는 최소 간격
 export const WEAPONS = {
   // 1단계 (로비에서 고르는 기본 무기)
-  sword: { fam: 'sword', tier: 1, name: '검', icon: '🗡️', kind: 'melee', dmg: 2, cd: 0.3, range: 52, arc: 1.9, knock: 14, desc: '넓게 베기 · 적 총알을 베어 막음', evo: ['greatsword', 'twinblades'] },
-  spear: { fam: 'spear', tier: 1, name: '창', icon: '🔱', kind: 'melee', dmg: 2, cd: 0.42, range: 92, arc: 0.5, knock: 10, desc: '긴 사거리 찌르기 · 일직선 관통', evo: ['halberd', 'lance'] },
-  hammer: { fam: 'hammer', tier: 1, name: '해머', icon: '🔨', kind: 'slam', dmg: 4, cd: 0.8, reach: 36, radius: 58, knock: 40, desc: '느리지만 강한 범위 공격 · 큰 넉백', evo: ['warhammer', 'quakehammer'] },
-  bow: { fam: 'bow', tier: 1, name: '활', icon: '🏹', kind: 'ranged', dmg: 2, cd: 0.42, speed: 760, pierce: 1, life: 0.9, desc: '강하고 관통하는 화살', evo: ['crossbow', 'longbow'] },
-  gun: { fam: 'gun', tier: 1, name: '총', icon: '🔫', kind: 'ranged', dmg: 1, cd: 0.16, speed: 600, pierce: 0, life: 1.1, desc: '빠른 연사', evo: ['shotgun', 'sniper'] },
+  sword: { fam: 'sword', tier: 1, name: '검', kind: 'melee', dmg: 2, cd: 0.3, crit: 0.08, range: 52, arc: 1.9, knock: 14, desc: '넓게 베기 · 적 총알을 베어 막음', evo: ['greatsword', 'twinblades'] },
+  spear: { fam: 'spear', tier: 1, name: '창', kind: 'melee', dmg: 2, cd: 0.42, crit: 0.1, range: 92, arc: 0.5, knock: 10, desc: '긴 사거리 찌르기 · 사거리 끝 피해 +50%', evo: ['halberd', 'lance'] },
+  hammer: { fam: 'hammer', tier: 1, name: '해머', kind: 'slam', dmg: 4, cd: 0.8, crit: 0.05, reach: 36, radius: 58, knock: 40, desc: '느리지만 강한 범위 공격 · 큰 넉백', evo: ['warhammer', 'quakehammer'] },
+  bow: { fam: 'bow', tier: 1, name: '활', kind: 'ranged', dmg: 2, cd: 0.42, crit: 0.12, inacc: 0.03, mana: 1.5, speed: 760, pierce: 1, life: 0.9, desc: '정확하고 관통하는 화살', evo: ['crossbow', 'longbow'] },
+  gun: { fam: 'gun', tier: 1, name: '총', kind: 'ranged', dmg: 1, cd: 0.16, crit: 0.05, inacc: 0.1, mana: 1, speed: 600, pierce: 0, life: 1.1, desc: '빠른 연사 · 탄이 조금 퍼짐', evo: ['shotgun', 'sniper'] },
   // 2단계 (스테이지를 넘어갈 때 전직)
-  greatsword: { fam: 'sword', tier: 2, name: '대검', kind: 'melee', dmg: 4, cd: 0.5, range: 66, arc: 2.2, knock: 24, parry: 2, desc: '느리지만 피해·범위 증가, 탄 막기 범위 2배' },
-  twinblades: { fam: 'sword', tier: 2, name: '쌍검', kind: 'melee', dmg: 1, cd: 0.14, range: 48, arc: 1.7, knock: 6, charges: 2, desc: '공격 속도 2배, 돌진 베기 2회 충전' },
-  halberd: { fam: 'spear', tier: 2, name: '할버드', kind: 'melee', dmg: 3, cd: 0.5, range: 92, arc: 1.1, knock: 24, desc: '찌르기에 베기를 더해 넓어진 범위, 넉백 증가' },
-  lance: { fam: 'spear', tier: 2, name: '랜스', kind: 'melee', dmg: 2, cd: 0.42, range: 96, arc: 0.5, knock: 12, dashHit: 3, skillCd: 4, desc: '대시로 부딪힌 적에게 피해, 투창 쿨타임 감소' },
-  warhammer: { fam: 'hammer', tier: 2, name: '워해머', kind: 'slam', dmg: 6, cd: 0.85, reach: 30, radius: 44, knock: 30, execute: 0.2, desc: '단일 피해 극대화, 체력 20% 이하 적 즉시 처치' },
-  quakehammer: { fam: 'hammer', tier: 2, name: '지진 망치', kind: 'slam', dmg: 4, cd: 0.9, reach: 36, radius: 58, knock: 36, quake: true, desc: '내려찍을 때마다 사방으로 진동파' },
-  crossbow: { fam: 'bow', tier: 2, name: '쇠뇌', kind: 'ranged', dmg: 5, cd: 0.9, speed: 900, pierce: 2, life: 0.9, blast: 44, desc: '느리지만 강한 볼트, 맞은 자리에서 작은 폭발' },
-  longbow: { fam: 'bow', tier: 2, name: '강화 활', kind: 'ranged', dmg: 2, cd: 0.35, speed: 760, pierce: 1, life: 1.1, charge: 1.2, desc: '누르고 있으면 차지, 오래 당길수록 피해·사거리·관통 증가' },
-  shotgun: { fam: 'gun', tier: 2, name: '샷건', kind: 'ranged', dmg: 1, cd: 0.55, speed: 620, pierce: 0, life: 0.35, pellets: 5, spread: 0.5, desc: '근거리 산탄 5발' },
-  sniper: { fam: 'gun', tier: 2, name: '저격총', kind: 'ranged', dmg: 6, cd: 1.0, speed: 1300, pierce: 1, life: 1.4, crit: 0.25, desc: '느린 단발, 긴 사거리, 25% 확률 치명타 3배' },
+  greatsword: { fam: 'sword', tier: 2, name: '대검', kind: 'melee', dmg: 4, cd: 0.5, crit: 0.08, range: 66, arc: 2.2, knock: 24, parry: 2, desc: '느리지만 피해·범위 증가, 탄 막기 범위 2배' },
+  twinblades: { fam: 'sword', tier: 2, name: '쌍검', kind: 'melee', dmg: 1, cd: 0.14, crit: 0.15, range: 48, arc: 1.7, knock: 6, charges: 2, desc: '공격 속도 2배, 치명타율 높음, 돌진 베기 2회 충전' },
+  halberd: { fam: 'spear', tier: 2, name: '할버드', kind: 'melee', dmg: 3, cd: 0.5, crit: 0.1, range: 92, arc: 1.1, knock: 24, desc: '찌르기에 베기를 더해 넓어진 범위, 넉백 증가' },
+  lance: { fam: 'spear', tier: 2, name: '랜스', kind: 'melee', dmg: 2, cd: 0.42, crit: 0.1, range: 96, arc: 0.5, knock: 12, dashHit: 3, skillCd: 4, desc: '대시로 부딪힌 적에게 피해, 투창 쿨타임 감소' },
+  warhammer: { fam: 'hammer', tier: 2, name: '워해머', kind: 'slam', dmg: 6, cd: 0.85, crit: 0.05, reach: 30, radius: 44, knock: 30, execute: 0.2, desc: '단일 피해 극대화, 체력 20% 이하 적 즉시 처치' },
+  quakehammer: { fam: 'hammer', tier: 2, name: '지진 망치', kind: 'slam', dmg: 4, cd: 0.9, crit: 0.05, reach: 36, radius: 58, knock: 36, quake: true, desc: '내려찍을 때마다 사방으로 진동파' },
+  crossbow: { fam: 'bow', tier: 2, name: '쇠뇌', kind: 'ranged', dmg: 5, cd: 0.9, minCd: 0.6, crit: 0.15, inacc: 0.01, mana: 3, speed: 900, pierce: 2, life: 0.9, blast: 44, desc: '느리지만 강한 볼트, 맞은 자리에서 작은 폭발' },
+  longbow: { fam: 'bow', tier: 2, name: '강화 활', kind: 'ranged', dmg: 2, cd: 0.35, crit: 0.1, inacc: 0.03, mana: 2, speed: 760, pierce: 1, life: 1.1, charge: 1.2, desc: '누르고 있으면 차지: 피해 60%→200%, 끝까지 당기면 반드시 치명타' },
+  shotgun: { fam: 'gun', tier: 2, name: '샷건', kind: 'ranged', dmg: 1, cd: 0.55, minCd: 0.4, crit: 0.05, inacc: 0.12, mana: 3, speed: 620, pierce: 0, life: 0.38, pellets: 5, spread: 0.5, falloff: true, desc: '산탄 5발, 가까울수록 강함 (150% → 50%)' },
+  sniper: { fam: 'gun', tier: 2, name: '저격총', kind: 'ranged', dmg: 6, cd: 1.0, minCd: 0.85, crit: 0.25, critX: 3, inacc: 0, mana: 4, speed: 1300, pierce: 1, life: 1.4, desc: '느린 단발, 긴 사거리, 치명타 3배 · 공속 증강 효과 적음' },
 };
 export const WEAPON_KEYS = Object.keys(WEAPONS).filter((k) => WEAPONS[k].tier === 1);
 export const weaponFam = (key) => WEAPONS[key]?.fam || 'gun';
@@ -98,15 +100,17 @@ export const STRUCTS = {
 
 // ---------- 증강 (레벨업할 때 3장 중 1장, 그 판에서만 유지) ----------
 export const BUFFS = {
-  dmg: { name: '공격력 강화', desc: '피해 +1', max: 5 },
-  rate: { name: '빠른 손', desc: '공격 속도 +25%', max: 5 },
-  multi: { name: '멀티샷', desc: '총알 +1발', max: 3, ranged: true },
-  speed: { name: '날쌘 발', desc: '이동 속도 +12%', max: 4 },
-  hp: { name: '튼튼한 몸', desc: '최대 체력 +2', max: 5 },
-  pierce: { name: '관통탄', desc: '적을 1명 더 관통', max: 3, ranged: true },
-  bounce: { name: '도탄', desc: '벽에 1번 더 튕김', max: 3, ranged: true },
-  dash: { name: '그림자 대시', desc: '대시 쿨타임 -25%', max: 3 },
-  reach: { name: '긴 팔', desc: '근접 공격 범위 +20%', max: 3, melee: true },
+  dmg: { name: '공격력 강화', desc: '피해 +12%', max: 5 },
+  rate: { name: '빠른 손', desc: '공격 속도 +8%', max: 5 },
+  crit: { name: '날카로운 눈', desc: '치명타율 +5%', max: 4 },
+  multi: { name: '멀티샷', desc: '총알 +1발 (추가 총알은 피해 50%)', max: 2, ranged: true },
+  speed: { name: '날쌘 발', desc: '이동 속도 +6%', max: 4 },
+  hp: { name: '튼튼한 몸', desc: '최대 체력 +1', max: 5 },
+  mana: { name: '마나 샘', desc: '최대 마나 +20, 마나 회복 +15%', max: 3 },
+  pierce: { name: '관통탄', desc: '적을 1명 더 관통', max: 2, ranged: true },
+  bounce: { name: '도탄', desc: '벽에 1번 더 튕김', max: 2, ranged: true },
+  dash: { name: '그림자 대시', desc: '대시 쿨타임 -12%', max: 3 },
+  reach: { name: '긴 팔', desc: '근접 공격 범위 +10%', max: 3, melee: true },
 };
 
 // ---------- 속성 ----------
@@ -132,9 +136,9 @@ export const STAGE_REWARDS = {
   coin: { name: '행운의 동전', desc: '정수 획득 +50%', color: '#ffd54f' },
   surge: { name: '궁극 증폭', desc: '궁극기 충전 +30%', color: '#ba68c8' },
   awaken: { name: '속성 각성', desc: '속성 레벨 +1 (없으면 무작위 속성 Lv2)', color: '#ce93d8' },
-  heart: { name: '거인의 심장', desc: '최대 체력 +3, 체력 완전 회복', color: '#ef5350' },
-  might: { name: '전사의 혼', desc: '피해 +2', color: '#ffb74d' },
-  gale: { name: '질풍', desc: '공격 속도 +40%, 이동 속도 +10%', color: '#81c784' },
+  heart: { name: '거인의 심장', desc: '최대 체력 +2, 체력 완전 회복', color: '#ef5350' },
+  might: { name: '전사의 혼', desc: '피해 +20%', color: '#ffb74d' },
+  gale: { name: '질풍', desc: '공격 속도 +20%', color: '#81c784' },
   wisdom: { name: '배움의 서', desc: '경험치 획득 +50%', color: '#4fc3f7' },
   iron: { name: '철의 의지', desc: '피격 후 무적 시간 2배, 대시 쿨타임 -30%', color: '#b0bec5' },
 };
@@ -144,7 +148,25 @@ export const STAGES_PER_WORLD = 5;
 export const WORLDS = 3; // 3-5를 깨면 클리어
 export const stageLabel = (idx) => `${Math.floor(idx / STAGES_PER_WORLD) + 1}-${(idx % STAGES_PER_WORLD) + 1}`;
 
-export const xpToNext = (level) => 4 + level * 3;
+export const xpToNext = (level) => 6 + level * 4 + Math.floor((level * level) / 4);
+
+// 몬스터 강화: 스테이지(모험)·웨이브(캠프)가 올라갈수록 체력·피해·탄속이 커집니다.
+export const enemyScale = (lvl) => ({ hp: 1 + 0.22 * lvl, dmg: 1 + Math.floor(lvl / 5), shot: 1 + 0.05 * lvl, speed: 1 + 0.02 * lvl });
+
+// 마나: 원거리 공격·무기 스킬·장착 스킬에 씀 (근접 기본 공격과 궁극기는 무료)
+export const MANA = { max: 100, regen: 5, idleRegen: 25, weaponSkill: 15, roomRestore: 40 };
+export const activeManaCost = (cd) => Math.round(cd * 2.5);
+
+// 스킨 (외형만 바뀜, 정수로 구매)
+export const SKINS = {
+  shadow: { name: '그림자', price: 0, body: '#070000', eye: '#ffffff' },
+  royal: { name: '왕실', price: 80, body: '#3a1d6e', eye: '#ffd54f' },
+  forest: { name: '숲지기', price: 80, body: '#1b5e20', eye: '#c5e1a5' },
+  ember: { name: '잿불', price: 120, body: '#7f1d1d', eye: '#ffcc80' },
+  frost: { name: '서리', price: 120, body: '#0d3b66', eye: '#b2ebf2' },
+  ghost: { name: '유령', price: 180, body: '#cfd8dc', eye: '#263238' },
+  gold: { name: '황금', price: 300, body: '#a67c00', eye: '#fff8e1' },
+};
 
 // 카드 키('dmg', 'el:fire', 'rw:might')의 표시용 정보
 export function offerInfo(key, buffs = {}, element = null, elementLv = 0) {

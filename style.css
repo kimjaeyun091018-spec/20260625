@@ -199,3 +199,32 @@ button.primary { background: #2e7d32; border-color: #43a047; }
   white-space: nowrap;
   pointer-events: none;
 }
+
+/* ---------- 설정 · 계정 · 옷장 ---------- */
+.panel { background: rgba(10, 9, 20, 0.94); gap: 12px; }
+.panel h2 { margin-bottom: 4px; }
+.toggle {
+  display: flex; gap: 12px; align-items: flex-start; text-align: left; max-width: 520px;
+  background: #1c1a2e; border: 1px solid #3a3556; border-radius: 10px; padding: 12px; cursor: pointer;
+}
+.toggle input { width: 22px; height: 22px; margin-top: 2px; accent-color: #7e57c2; }
+.toggle small { margin-top: 4px; }
+button.link { background: none; border: none; color: #b39ddb; padding: 2px 4px; text-decoration: underline; font-size: 14px; }
+button.link:hover:not(:disabled) { background: none; color: #d1c4e9; }
+.account-row { margin: 0; font-size: 14px; color: #cfc8ee; }
+.login { display: flex; flex-direction: column; gap: 8px; width: min(280px, 90%); }
+.login input { width: 100%; }
+.codebox { display: flex; flex-direction: column; gap: 8px; width: min(520px, 92%); }
+.codebox textarea {
+  font: 12px/1.4 ui-monospace, monospace; padding: 8px; border-radius: 8px; resize: vertical;
+  border: 1px solid #4a4370; background: #1f1d33; color: #fff; word-break: break-all;
+}
+.skins { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 10px; align-self: stretch; overflow-y: auto; }
+.skin {
+  display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 10px;
+  background: #1c1a2e; border: 2px solid #3a3556; border-radius: 10px;
+}
+.skin.on { border-color: #ffd54f; }
+.skin img { image-rendering: pixelated; }
+.skin button { padding: 5px 10px; font-size: 13px; }
+.reward.pressed, .weapon.pressed { transform: scale(0.97); border-color: #fff; }

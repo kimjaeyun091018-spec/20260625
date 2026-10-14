@@ -4,7 +4,24 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>던전 슈터</title>
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style.css?v=202610142035">
+  <!-- 버전 번호: 새로 올릴 때마다 tools/bump_version.py가 바꿔서, 예전 파일과 섞여 멈추는 문제를 막습니다 -->
+  <script>window.__ASSET_V = '202610142035';</script>
+  <script type="importmap">
+  {
+    "imports": {
+      "./src/main.js": "./src/main.js?v=202610142035",
+      "./src/game.js": "./src/game.js?v=202610142035",
+      "./src/data.js": "./src/data.js?v=202610142035",
+      "./src/maps.js": "./src/maps.js?v=202610142035",
+      "./src/net.js": "./src/net.js?v=202610142035",
+      "./src/render.js": "./src/render.js?v=202610142035",
+      "./src/tree.js": "./src/tree.js?v=202610142035",
+      "./src/treeui.js": "./src/treeui.js?v=202610142035",
+      "./src/panels.js": "./src/panels.js?v=202610142035"
+    }
+  }
+  </script>
   <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
 </head>
 <body>
@@ -16,13 +33,14 @@
     <div id="title" class="overlay title-screen">
       <h1 class="logo">던전 슈터</h1>
       <p class="tagline">속성과 무기로 빌드를 짜는 협동 로그라이크</p>
-      <p class="press">클릭하거나 아무 키나 누르세요</p>
+      <p class="press" id="pressText">클릭하거나 아무 키나 누르세요</p>
     </div>
 
     <!-- 시작 메뉴: 혼자 / 방 만들기 / 참가 -->
     <div id="menu" class="overlay" hidden>
       <h1>던전 슈터</h1>
       <p class="sub">Soul Knight 스타일 로그라이크 · 키보드 + 마우스 · 최대 4인 협동</p>
+      <p class="account-row"><span id="accountLabel">게스트</span> · <button id="accountBtn" class="link">로그인 / 회원가입</button></p>
       <label class="field">닉네임
         <input id="name" maxlength="10" placeholder="기사" autocomplete="off">
       </label>
@@ -35,14 +53,21 @@
         <button id="joinBtn">참가</button>
       </div>
       <p id="status" role="status"></p>
+      <button data-open-settings class="link">⚙ 설정 (오토에임 · 피해 숫자)</button>
       <p class="help">
-        WASD / 방향키 이동 · 마우스 조준 · 좌클릭 공격 · 우클릭 무기 스킬 · Q 궁극기<br>
-        1~4 장착 스킬 · Tab/휠 무기 교체 · Space 대시 · E 상호작용 · Esc 일시정지
+        WASD / 방향키 이동 · 마우스 조준 · 좌클릭 공격 · 우클릭(V) 무기 스킬 · Q 궁극기<br>
+        1~4 장착 스킬 · Tab/휠 무기 교체 · Space 대시 · E 상호작용 · Z/X/C 증강 카드 · Esc 일시정지
       </p>
     </div>
 
     <!-- 스킬 트리 (로비 제단에서 E 또는 K) -->
     <div id="tree" class="overlay tree" hidden></div>
+    <!-- 옷장 (로비 옷장에서 E) -->
+    <div id="wardrobe" class="overlay tree" hidden></div>
+    <!-- 설정 -->
+    <div id="settings" class="overlay panel" hidden></div>
+    <!-- 계정 -->
+    <div id="account" class="overlay panel" hidden></div>
 
     <!-- 스테이지 전환: 보상 선택 -->
     <div id="stage" class="overlay stage" hidden>
@@ -61,12 +86,13 @@
       <p id="pauseNote" class="sub"></p>
       <div class="buttons">
         <button id="resumeBtn">계속하기 (Esc)</button>
+        <button data-open-settings>설정</button>
         <button id="quitBtn" class="danger">메뉴로 나가기</button>
       </div>
       <p class="help">
-        WASD / 방향키 이동 · 마우스 조준 · 좌클릭 공격 · 우클릭 무기 스킬 · Q 궁극기<br>
-        1~4 장착 스킬 · Tab/휠 무기 교체 · Space 대시 · E 상자 열기·무기 줍기 · 증강 카드는 클릭<br>
-        로비: E 무기 들기 · 제단에서 E(또는 K) 스킬 트리 · 베이스캠프: E 울타리 · R 터렛 · F 철거 · G 준비 완료
+        WASD / 방향키 이동 · 마우스 조준 · 좌클릭(또는 오토에임 Enter) 공격 · 우클릭(V) 무기 스킬 · Q 궁극기<br>
+        1~4 장착 스킬 · Tab/휠 무기 교체 · Space 대시 · E 상자 열기·무기 줍기 · 증강 카드 클릭 또는 Z/X/C<br>
+        로비: E 무기 들기 · 제단(K) 스킬 트리 · 옷장 스킨 · 베이스캠프: E 울타리 · R 터렛 · F 철거 · G 준비 완료
       </p>
       <p class="help">
         원소 반응: 물+전기 감전 · 물+얼음 빙결 · 불+얼음 녹임 · 불+물 증발 · 불+독 폭발 · 바람 상태이상 확산
@@ -74,6 +100,21 @@
     </div>
   </div>
 
-  <script type="module" src="src/main.js"></script>
+  <script type="module" src="./src/main.js"></script>
+  <!-- 게임 코드를 못 불러왔을 때 안내 (예: 파일을 직접 열었거나, 캐시 때문에 예전 파일과 섞였을 때) -->
+  <script>
+    (function () {
+      var press = document.getElementById('pressText');
+      if (location.protocol === 'file:') {
+        press.textContent = '파일을 직접 열면 실행되지 않아요. GitHub Pages 주소(https://…)로 열어 주세요.';
+        return;
+      }
+      setTimeout(function () {
+        if (window.__gameReady) return;
+        press.textContent = '게임을 불러오지 못했어요. 새로고침(Ctrl+Shift+R, 태블릿은 당겨서 새로고침) 해 주세요.';
+        press.style.color = '#ffcc80';
+      }, 5000);
+    })();
+  </script>
 </body>
 </html>

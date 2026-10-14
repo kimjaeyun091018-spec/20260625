@@ -4,8 +4,10 @@
 만드는 것:
   assets/player.png            플레이어 32x32 x 13프레임 (원본 12프레임 + 쓰러짐 1프레임)
   assets/weapons.png           무기·상자 24x12 x 17프레임 (순서는 WEAPON_ORDER)
+  assets/enemies.png           몬스터 24x24 x 6프레임 (슬라임·해골 궁수·브루트, 각 2프레임)
+  assets/bosses.png            보스 40x40 x 6프레임 (거대 슬라임·해골 궁수 대장·심연의 골렘, 각 2프레임)
   assets/src/player.piskel     Piskel에서 바로 열어 고칠 수 있는 파일
-  assets/src/weapons.piskel
+  assets/src/weapons.piskel, enemies.piskel, bosses.piskel
 
 Piskel에서 직접 고쳤다면: Piskel의 Export → PNG → "Spritesheet" (가로 한 줄)로
 assets/player.png, assets/weapons.png에 덮어쓰면 됩니다. 프레임 순서만 지켜 주세요.
@@ -206,6 +208,160 @@ def to_piskel(name, frames, w, h):
         'layers': [json.dumps(layer)], 'hiddenFrames': [None]}}, strip
 
 
+# ---------------------------------------------------------------- 몬스터
+MON = {
+    'G': (102, 187, 106, 255), 'g': (56, 142, 60, 255), 'L': (200, 240, 190, 255),   # 슬라임
+    'B': (236, 232, 214, 255), 'b': (176, 170, 150, 255),                              # 뼈
+    'O': (121, 134, 92, 255), 'o': (85, 99, 62, 255), 'T': (250, 250, 235, 255),       # 오크 피부, 엄니
+    'S': (126, 120, 132, 255), 's': (88, 82, 96, 255), 'C': (255, 112, 67, 255),       # 돌, 코어
+    'K': (25, 20, 30, 255), 'R': (229, 57, 53, 255), 'Y': (255, 213, 79, 255),
+    'W': (150, 98, 60, 255), 'w': (110, 70, 42, 255), 'P': (126, 87, 194, 255), 'p': (81, 45, 168, 255),
+    'M': (205, 214, 228, 255),
+}
+
+
+class Canvas:
+    def __init__(self, w, h):
+        self.w, self.h, self.px = w, h, {}
+
+    def set(self, x, y, c):
+        if 0 <= x < self.w and 0 <= y < self.h:
+            self.px[(int(x), int(y))] = c
+
+    def rect(self, x0, y0, x1, y1, c):
+        for y in range(y0, y1 + 1):
+            for x in range(x0, x1 + 1):
+                self.set(x, y, c)
+
+    def ellipse(self, cx, cy, rx, ry, c, shade=None, light=None):
+        for y in range(int(cy - ry) - 1, int(cy + ry) + 2):
+            for x in range(int(cx - rx) - 1, int(cx + rx) + 2):
+                dx, dy = (x + 0.5 - cx) / rx, (y + 0.5 - cy) / ry
+                d = dx * dx + dy * dy
+                if d <= 1:
+                    col = c
+                    if shade and (dx * 0.6 + dy * 0.8) > 0.55:
+                        col = shade
+                    if light and dx < -0.25 and dy < -0.25 and d < 0.55:
+                        col = light
+                    self.set(x, y, col)
+
+    def image(self):
+        im = Image.new('RGBA', (self.w, self.h), (0, 0, 0, 0))
+        for (x, y), c in self.px.items():
+            im.putpixel((x, y), MON[c])
+        return outline(im)
+
+
+def outline(im):
+    w, h = im.size
+    out = im.copy()
+    for y in range(h):
+        for x in range(w):
+            if im.getpixel((x, y))[3]:
+                continue
+            if any(0 <= x + dx < w and 0 <= y + dy < h and im.getpixel((x + dx, y + dy))[3]
+                   for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1))):
+                out.putpixel((x, y), OUTLINE)
+    return out
+
+
+def slime(f, size=24, scale=1.0, crown=False):
+    c = Canvas(size, size)
+    cx = size / 2
+    rx, ry = (8.5 if f == 0 else 7.5) * scale, (6 if f == 0 else 7) * scale
+    cy = size - 3 - ry
+    c.ellipse(cx, cy, rx, ry, 'G', 'g', 'L')
+    ey = int(cy - ry * 0.1)
+    for ex in (int(cx - rx * 0.38), int(cx + rx * 0.3)):
+        c.rect(ex, ey, ex + max(1, int(scale)), ey + max(1, int(1.6 * scale)), 'K')
+    if crown:
+        top = int(cy - ry) - 1
+        c.rect(int(cx - 6), top - 3, int(cx + 6), top, 'Y')
+        for x in (int(cx - 6), int(cx), int(cx + 6)):
+            c.rect(x - 1, top - 6, x + 1, top - 4, 'Y')
+        c.set(int(cx), top - 2, 'R')
+    return c.image()
+
+
+def skeleton(f, size=24, scale=1.0, captain=False):
+    c = Canvas(size, size)
+    s = scale
+    cx = size // 2
+    base = size - 3
+    bob = 0 if f == 0 else 1
+    # 다리
+    c.rect(cx - int(3 * s), base - int(5 * s), cx - int(2 * s), base, 'B')
+    c.rect(cx + int(1 * s), base - int(5 * s) + bob, cx + int(2 * s), base, 'B')
+    # 갈비뼈 몸통
+    top = base - int(12 * s)
+    c.rect(cx - int(3 * s), top, cx + int(3 * s), base - int(5 * s), 'B')
+    for y in range(top + 1, base - int(5 * s), 2):
+        c.rect(cx - int(2 * s), y, cx + int(2 * s), y, 'b')
+    c.rect(cx, top, cx, base - int(5 * s), 'B')
+    # 머리
+    hy = top - int(4 * s)
+    c.ellipse(cx + 0.5, hy, 4.2 * s, 4 * s, 'B', 'b')
+    c.rect(cx - int(2 * s), hy - 1, cx - int(1 * s), hy, 'K')
+    c.rect(cx + int(1 * s), hy - 1, cx + int(2 * s), hy, 'K')
+    if captain:
+        c.rect(cx - int(5 * s), hy - int(5 * s), cx + int(5 * s), hy - int(3 * s), 'p')
+        c.rect(cx - int(1 * s), hy - int(8 * s), cx + int(1 * s), hy - int(5 * s), 'R')
+        c.rect(cx - int(6 * s), top, cx - int(4 * s), base - int(2 * s), 'P')  # 망토
+        for y in range(top, base - int(2 * s)):
+            c.set(cx - int(3 * s) - 1, y, 'R') if y % 3 == 0 else None
+        for x in (cx - int(2 * s), cx + int(2 * s)):
+            c.set(x, hy - 1, 'R')
+    # 활
+    bx = cx + int(5 * s)
+    for i, dx in enumerate([0, 1, 2, 2, 2, 2, 2, 1, 0]):
+        y = top - int(1 * s) + int(i * s)
+        c.rect(bx + int(dx * s), y, bx + int(dx * s), y + int(s) - 1 if s > 1 else y, 'W')
+    c.rect(bx, top - int(1 * s), bx, top + int(8 * s), 'M')
+    return c.image()
+
+
+def brute(f, size=24):
+    c = Canvas(size, size)
+    cx = size // 2
+    base = size - 3
+    bob = 0 if f == 0 else 1
+    c.rect(cx - 6, base - 4, cx - 3, base, 'o')
+    c.rect(cx + 2, base - 4 + bob, cx + 5, base, 'o')
+    c.ellipse(cx, base - 10, 8, 7, 'O', 'o')
+    c.rect(cx - 5, base - 6, cx + 5, base - 5, 'w')  # 허리띠
+    c.ellipse(cx, base - 17, 5, 4.5, 'O', 'o')
+    c.rect(cx - 3, base - 18, cx - 2, base - 18, 'R')
+    c.rect(cx + 2, base - 18, cx + 3, base - 18, 'R')
+    c.set(cx - 3, base - 15, 'T'); c.set(cx - 3, base - 16, 'T')
+    c.set(cx + 3, base - 15, 'T'); c.set(cx + 3, base - 16, 'T')
+    # 몽둥이
+    c.rect(cx + 8, base - 15 + bob, cx + 9, base - 5 + bob, 'W')
+    c.rect(cx + 7, base - 19 + bob, cx + 10, base - 15 + bob, 'w')
+    return c.image()
+
+
+def golem(f, size=40):
+    c = Canvas(size, size)
+    cx = size // 2
+    base = size - 3
+    bob = 0 if f == 0 else 1
+    c.rect(cx - 10, base - 6, cx - 5, base, 's')
+    c.rect(cx + 5, base - 6 + bob, cx + 10, base, 's')
+    c.rect(cx - 12, base - 22, cx + 12, base - 6, 'S')
+    c.rect(cx - 12, base - 8, cx + 12, base - 6, 's')
+    c.rect(cx - 17, base - 21 + bob, cx - 13, base - 9 + bob, 'S')   # 팔
+    c.rect(cx + 13, base - 21 - bob, cx + 17, base - 9 - bob, 'S')
+    c.rect(cx - 7, base - 31, cx + 7, base - 22, 'S')                # 머리
+    c.rect(cx - 7, base - 31, cx + 7, base - 30, 's')
+    c.rect(cx - 4, base - 27, cx - 2, base - 26, 'C')
+    c.rect(cx + 2, base - 27, cx + 4, base - 26, 'C')
+    c.ellipse(cx, base - 14, 3.5, 3.5, 'C' if f == 0 else 'Y')         # 코어
+    for (x, y) in [(cx - 9, base - 19), (cx + 6, base - 11), (cx - 4, base - 9), (cx + 9, base - 20)]:
+        c.rect(x, y, x + 2, y, 's')
+    return c.image()
+
+
 def main():
     SRC.mkdir(parents=True, exist_ok=True)
 
@@ -220,7 +376,17 @@ def main():
     pk, sheet = to_piskel('weapons', wframes, WW, WH)
     sheet.save(ASSETS / 'weapons.png')
     (SRC / 'weapons.piskel').write_text(json.dumps(pk))
-    print('player frames', len(frames), '| weapon frames', len(wframes))
+    eframes = [slime(0), slime(1), skeleton(0), skeleton(1), brute(0), brute(1)]
+    pk, sheet = to_piskel('enemies', eframes, 24, 24)
+    sheet.save(ASSETS / 'enemies.png')
+    (SRC / 'enemies.piskel').write_text(json.dumps(pk))
+
+    bframes = [slime(0, 40, 2.0, crown=True), slime(1, 40, 2.0, crown=True),
+               skeleton(0, 40, 1.7, captain=True), skeleton(1, 40, 1.7, captain=True), golem(0), golem(1)]
+    pk, sheet = to_piskel('bosses', bframes, 40, 40)
+    sheet.save(ASSETS / 'bosses.png')
+    (SRC / 'bosses.piskel').write_text(json.dumps(pk))
+    print('player frames', len(frames), '| weapon frames', len(wframes), '| enemy', len(eframes), '| boss', len(bframes))
 
 
 if __name__ == '__main__':
