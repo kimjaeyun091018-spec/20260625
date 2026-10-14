@@ -46,6 +46,10 @@ body {
 .overlay[hidden], #roomInfo[hidden] { display: none; }
 
 h1 { margin: 0; font-size: clamp(28px, 5vw, 48px); letter-spacing: 2px; }
+h2 { margin: 0; font-size: clamp(24px, 4vw, 36px); }
+#pause { background: rgba(10, 9, 20, 0.7); }
+button.danger { background: #5a2a3a; border-color: #8a3f55; }
+button.danger:hover { background: #6e3347; }
 .sub { margin: 0; color: #b0aacc; font-size: 14px; }
 
 .field { display: flex; gap: 8px; align-items: center; }

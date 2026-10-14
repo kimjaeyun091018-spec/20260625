@@ -1,5 +1,5 @@
 import {
-  WIDTH, HEIGHT, TILE, COLS, ROWS, MAP, MAX_PLAYERS, CAMP, STRUCTS, BUFFS, inCamp,
+  WIDTH, HEIGHT, TILE, COLS, ROWS, MAP, MAX_PLAYERS, CAMP, STRUCTS, BUFFS, ELEMENTS, inCamp, offerInfo,
   createState, addPlayer, removePlayer, step, snapshot, sanitizeInput, sanitizeName,
 } from './game.js';
 import { makeRoomCode, hostRoom, joinRoom, describeError } from './net.js';
@@ -23,6 +23,10 @@ const ui = {
   join: document.getElementById('joinBtn'),
   status: document.getElementById('status'),
   roomInfo: document.getElementById('roomInfo'),
+  pause: document.getElementById('pause'),
+  pauseNote: document.getElementById('pauseNote'),
+  resume: document.getElementById('resumeBtn'),
+  quit: document.getElementById('quitBtn'),
 };
 
 // ---------- 입력 (키보드 + 마우스) ----------
@@ -48,7 +52,8 @@ let cardRects = []; // 화면에 그려진 강화 카드 위치 (클릭 선택�
 
 window.addEventListener('keydown', (e) => {
   if (!session) return;
-  if (e.code === 'Escape') { leave(); return; }
+  if (e.code === 'Escape') { setPaused(!session.paused); e.preventDefault(); return; }
+  if (session.paused) return;
   const hold = HOLD_KEYS[e.code];
   if (hold) { keys.add(hold); e.preventDefault(); }
   const act = ACTION_KEYS[e.code];
@@ -58,7 +63,12 @@ window.addEventListener('keyup', (e) => {
   const k = HOLD_KEYS[e.code];
   if (k) keys.delete(k);
 });
-window.addEventListener('blur', () => { keys.clear(); mouse.down = false; });
+window.addEventListener('blur', () => {
+  keys.clear();
+  mouse.down = false;
+  // 혼자 하기 중 다른 창/앱으로 가면 자동으로 멈춥니다.
+  if (session?.solo) setPaused(true);
+});
 
 function toWorld(ev) {
   const r = canvas.getBoundingClientRect();
@@ -69,7 +79,7 @@ function toWorld(ev) {
 canvas.addEventListener('pointermove', toWorld);
 canvas.addEventListener('pointerdown', (e) => {
   toWorld(e);
-  if (e.button !== 0) return;
+  if (e.button !== 0 || session?.paused) return;
   const card = cardRects.findIndex((c) => mouse.x >= c.x && mouse.x <= c.x + c.w && mouse.y >= c.y && mouse.y <= c.y + c.h);
   if (card >= 0) { actionQueue.push(`pick${card + 1}`); return; }
   mouse.down = true;
@@ -81,6 +91,10 @@ canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
 // 호출할 때마다 쌓인 행동을 하나씩 꺼내 보냅니다(seq가 바뀌면 방장이 한 번 실행).
 function readInput(me) {
+  if (session?.paused) {
+    // 일시정지 중엔 아무 조작도 보내지 않고, 다른 사람 화면에 ⏸ 표시만 합니다.
+    return { aim: me?.a ?? me?.angle ?? 0, seq: actionSeq, pz: true };
+  }
   const act = actionQueue.shift() || null;
   if (act) actionSeq++;
   return {
@@ -103,7 +117,7 @@ function setBusy(busy) {
 function enterGame(label) {
   ui.menu.hidden = true;
   ui.roomInfo.hidden = false;
-  ui.roomInfo.textContent = `${label} · Esc 나가기`;
+  ui.roomInfo.textContent = `${label} · Esc 일시정지`;
   setStatus('');
   setBusy(false);
   keys.clear();
@@ -111,11 +125,29 @@ function enterGame(label) {
   mouse.down = false;
 }
 
+function setPaused(paused) {
+  if (!session || session.paused === paused) return;
+  session.paused = paused;
+  ui.pause.hidden = !paused;
+  ui.pauseNote.textContent = session.solo
+    ? '게임이 멈춰 있어요.'
+    : '멀티플레이 중에는 게임이 계속 진행돼요. 내 캐릭터는 그 자리에 멈춰 있습니다.';
+  keys.clear();
+  actionQueue.length = 0;
+  mouse.down = false;
+  if (!paused && session.mode === 'host') session.last = performance.now();
+  if (paused) ui.resume.focus();
+}
+
+ui.resume.addEventListener('click', () => setPaused(false));
+ui.quit.addEventListener('click', () => leave());
+
 function leave(reason = '') {
   if (!session) return;
   session.net?.close();
   session = null;
   cardRects = [];
+  ui.pause.hidden = true;
   ui.menu.hidden = false;
   ui.roomInfo.hidden = true;
   setBusy(false);
@@ -153,7 +185,10 @@ async function startHost(solo) {
     }
   }
 
-  session = { mode: 'host', myId, state, inputs, net, acc: 0, last: performance.now(), lastSend: 0 };
+  session = {
+    mode: 'host', solo, paused: false, myId, state, inputs, net,
+    acc: 0, last: performance.now(), lastSend: 0,
+  };
   enterGame(solo ? '혼자 하기' : `방 코드: ${net.code} (친구에게 알려주세요)`);
 }
 
@@ -163,7 +198,7 @@ async function startClient() {
   setBusy(true);
   setStatus('접속하는 중…');
 
-  const s = { mode: 'client', myId: null, buffer: [], lastSend: 0, net: null };
+  const s = { mode: 'client', solo: false, paused: false, myId: null, buffer: [], lastSend: 0, net: null };
   try {
     s.net = await joinRoom(code, playerName(), {
       onWelcome(id) { s.myId = id; },
@@ -198,6 +233,11 @@ ui.name.addEventListener('change', () => {
 function hostFrame(s, now) {
   const dt = Math.min((now - s.last) / 1000, 0.1);
   s.last = now;
+  // 혼자 하기 일시정지: 시뮬레이션 자체를 멈춥니다(화면만 다시 그림).
+  if (s.solo && s.paused) {
+    render(snapshot(s.state), s.myId);
+    return;
+  }
   s.acc += dt;
   s.inputs[s.myId] = readInput(s.state.players[s.myId]);
   while (s.acc >= STEP) {
@@ -366,7 +406,93 @@ function drawEnemy(e) {
   }
   circle(e.x - e.r * 0.35, e.y - 2, 2.5, '#111');
   circle(e.x + e.r * 0.35, e.y - 2, 2.5, '#111');
+  drawStatus(e);
   if (e.hp < e.mh) hpBar(e.x, e.y - e.r - 8, e.r * 2, e.hp, e.mh);
+}
+
+// 상태이상 표시 (b화상 w젖음 c둔화 f빙결 p중독 z기절)
+function drawStatus(e) {
+  const s = e.s || '';
+  if (!s) return;
+  const now = performance.now();
+  if (s.includes('f')) {
+    ctx.fillStyle = 'rgba(178,235,242,.55)';
+    ctx.strokeStyle = '#e0f7fa';
+    ctx.lineWidth = 2;
+    ctx.fillRect(e.x - e.r - 3, e.y - e.r - 3, e.r * 2 + 6, e.r * 2 + 6);
+    ctx.strokeRect(e.x - e.r - 3, e.y - e.r - 3, e.r * 2 + 6, e.r * 2 + 6);
+  } else if (s.includes('c')) {
+    ctx.strokeStyle = 'rgba(178,235,242,.9)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(e.x, e.y, e.r + 3, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  if (s.includes('b')) {
+    for (let i = 0; i < 3; i++) {
+      const fx = e.x + (i - 1) * e.r * 0.6;
+      circle(fx, e.y - e.r * 0.6 - ((now / 4 + i * 60) % 12), 3, i % 2 ? '#ffca28' : '#ff7043');
+    }
+  }
+  if (s.includes('w')) {
+    circle(e.x - e.r * 0.8, e.y + 3 + Math.sin(now / 150) * 2, 2.5, '#42a5f5');
+    circle(e.x + e.r * 0.8, e.y + 5 + Math.cos(now / 150) * 2, 2.5, '#42a5f5');
+  }
+  if (s.includes('p')) {
+    ctx.fillStyle = 'rgba(156,204,101,.35)';
+    ctx.beginPath();
+    ctx.arc(e.x, e.y, e.r + 2, 0, Math.PI * 2);
+    ctx.fill();
+    circle(e.x + e.r * 0.5, e.y - e.r - ((now / 6) % 10), 2.5, '#9ccc65');
+  }
+  if (s.includes('z')) {
+    ctx.strokeStyle = '#fff176';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    for (let i = 0; i < 4; i++) {
+      const a = now / 120 + (i * Math.PI) / 2;
+      ctx.moveTo(e.x + Math.cos(a) * (e.r + 2), e.y + Math.sin(a) * (e.r + 2));
+      ctx.lineTo(e.x + Math.cos(a) * (e.r + 7), e.y + Math.sin(a) * (e.r + 7));
+    }
+    ctx.stroke();
+  }
+}
+
+function drawFx(list) {
+  for (const f of list || []) {
+    const k = f.t / f.life; // 1 → 0
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, Math.min(1, k * 1.5));
+    if (f.k === 'l') {
+      // 번개 선 (지그재그)
+      ctx.strokeStyle = f.c;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(f.x, f.y);
+      for (let i = 1; i < 5; i++) {
+        const t = i / 5;
+        ctx.lineTo(lerp(f.x, f.x2, t) + (Math.random() - 0.5) * 10, lerp(f.y, f.y2, t) + (Math.random() - 0.5) * 10);
+      }
+      ctx.lineTo(f.x2, f.y2);
+      ctx.stroke();
+    } else if (f.k === 'r') {
+      ctx.strokeStyle = f.c;
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.arc(f.x, f.y, f.r * (1 - k * 0.6), 0, Math.PI * 2);
+      ctx.stroke();
+    } else if (f.k === 't') {
+      ctx.fillStyle = f.c;
+      ctx.strokeStyle = 'rgba(0,0,0,.7)';
+      ctx.lineWidth = 3;
+      ctx.font = 'bold 15px sans-serif';
+      ctx.textAlign = 'center';
+      const y = f.y - (1 - k) * 18;
+      ctx.strokeText(f.text, f.x, y);
+      ctx.fillText(f.text, f.x, y);
+    }
+    ctx.restore();
+  }
 }
 
 function drawPlayer(p, isMe, now) {
@@ -375,6 +501,16 @@ function drawPlayer(p, isMe, now) {
   else if (p.iv && Math.floor(now / 80) % 2) ctx.globalAlpha = 0.55;
 
   circle(p.x, p.y + 10, 10, 'rgba(0,0,0,.3)');
+  if (p.el && ELEMENTS[p.el]) {
+    // 내 속성 오라
+    ctx.strokeStyle = ELEMENTS[p.el].color;
+    ctx.lineWidth = 2;
+    ctx.globalAlpha *= 0.8;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 16 + Math.sin(now / 200) * 1.5, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.globalAlpha /= 0.8;
+  }
   circle(p.x, p.y, 12, p.c);
   if (isMe) {
     ctx.strokeStyle = '#fff';
@@ -390,7 +526,7 @@ function drawPlayer(p, isMe, now) {
   ctx.fillStyle = '#fff';
   ctx.font = '12px sans-serif';
   ctx.textAlign = 'center';
-  const tag = p.al ? `${p.n}${p.rd ? ' ✔' : ''}` : `${p.n} (다음 웨이브에 부활)`;
+  const tag = p.al ? `${p.pz ? '⏸ ' : ''}${p.n}${p.rd ? ' ✔' : ''}` : `${p.n} (다음 웨이브에 부활)`;
   ctx.fillText(tag, p.x, p.y - 20);
 }
 
@@ -429,21 +565,20 @@ function drawBuffCards(me) {
     roundRect(x, y, w, h, 10);
     ctx.fillStyle = hover ? 'rgba(75,63,143,.97)' : 'rgba(30,27,52,.94)';
     ctx.fill();
-    ctx.strokeStyle = '#ffd54f';
+    const info = offerInfo(key, me.bf, me.el, me.elv);
+    ctx.strokeStyle = info.color;
     ctx.lineWidth = 2;
     ctx.stroke();
-    const def = BUFFS[key];
-    const lv = (me.bf?.[key] || 0) + 1;
-    ctx.fillStyle = '#ffd54f';
+    ctx.fillStyle = info.color;
     ctx.font = 'bold 13px sans-serif';
     ctx.fillText(`[${i + 1}]`, x + 12, y + 24);
     ctx.fillStyle = '#fff';
     ctx.font = 'bold 16px sans-serif';
-    ctx.fillText(def.name, x + 44, y + 24);
+    ctx.fillText(info.name, x + 44, y + 24);
     ctx.fillStyle = '#b0aacc';
-    ctx.font = '13px sans-serif';
-    ctx.fillText(def.desc, x + 12, y + 50);
-    ctx.fillText(`Lv ${lv} / ${def.max}`, x + 12, y + 70);
+    ctx.font = '12px sans-serif';
+    ctx.fillText(info.desc, x + 12, y + 50, w - 24);
+    ctx.fillText(`Lv ${info.lv} / ${info.max}`, x + 12, y + 70);
     cardRects.push({ x, y, w, h });
   });
 }
@@ -467,6 +602,9 @@ function drawHud(snap, me) {
     ctx.fillStyle = '#ddd';
     ctx.font = '12px sans-serif';
     ctx.fillText(`점수 ${me.s}`, 20, 76);
+    const el = ELEMENTS[me.el];
+    ctx.fillStyle = el ? el.color : '#888';
+    ctx.fillText(el ? `${el.name} 속성 Lv ${me.elv}` : '속성 없음', 110, 76);
     // 보유 강화
     const owned = Object.entries(me.bf || {}).map(([k, n]) => `${BUFFS[k]?.name ?? k} ${n}`);
     if (owned.length) {
@@ -512,9 +650,10 @@ function render(snap, myId) {
   drawCampfire(now);
   for (const s of snap.st) drawStruct(s);
   drawBuildPreview(snap, me);
-  for (const b of snap.b) circle(b.x, b.y, b.r, b.o ? '#ff5252' : '#ffee58');
+  for (const b of snap.b) circle(b.x, b.y, b.r, b.o ? '#ff5252' : ELEMENTS[b.el]?.color ?? '#ffffff');
   for (const e of snap.e) drawEnemy(e);
   for (const p of snap.p) drawPlayer(p, p.id === myId, now);
+  drawFx(snap.fx);
   drawHud(snap, me);
   drawBuffCards(me);
 }

@@ -31,6 +31,30 @@ export const BUFFS = {
   vamp: { name: '흡혈', desc: '처치 시 12% 확률로 체력 +1', max: 3 },
 };
 
+// 무기 속성: 한 사람은 한 속성만. 같은 속성 카드를 고르면 레벨업, 다른 속성이면 교체.
+// 서로 다른 속성을 가진 동료와 함께 맞히면 원소 반응이 일어납니다.
+export const ELEMENTS = {
+  fire: { name: '불', color: '#ff7043', desc: '화상(지속 피해)' },
+  water: { name: '물', color: '#42a5f5', desc: '젖음(둔화), 전기·얼음과 반응' },
+  electric: { name: '전기', color: '#fff176', desc: '주변 적에게 연쇄 번개' },
+  ice: { name: '얼음', color: '#b2ebf2', desc: '둔화, 3번 맞히면 빙결' },
+  wind: { name: '바람', color: '#dcedc8', desc: '넉백·상태이상 확산·탄속 증가' },
+  poison: { name: '독', color: '#9ccc65', desc: '중독(중첩 지속 피해)' },
+};
+export const ELEMENT_MAX = 3;
+
+// 강화 카드 키('dmg' 또는 'el:fire')의 표시용 정보
+export function offerInfo(key, buffs = {}, element = null, elementLv = 0) {
+  if (key.startsWith('el:')) {
+    const k = key.slice(3), def = ELEMENTS[k];
+    const lv = element === k ? elementLv + 1 : 1;
+    const desc = element && element !== k ? `${def.desc} (현재 속성과 교체)` : def.desc;
+    return { name: `${def.name} 속성`, desc, lv, max: ELEMENT_MAX, color: def.color };
+  }
+  const def = BUFFS[key];
+  return { name: def.name, desc: def.desc, lv: (buffs[key] || 0) + 1, max: def.max, color: '#ffd54f' };
+}
+
 // 한 번 누르면 한 번 실행되는 행동들 (입력의 act 값)
 export const ACTIONS = ['fence', 'turret', 'demolish', 'pick1', 'pick2', 'pick3', 'ready'];
 
@@ -126,7 +150,7 @@ function moveCircle(state, e, dx, dy, structsBlock) {
 
 export const EMPTY_INPUT = Object.freeze({
   up: false, down: false, left: false, right: false, fire: false, dash: false,
-  aim: 0, act: null, seq: 0, bx: 0, by: 0,
+  aim: 0, act: null, seq: 0, bx: 0, by: 0, pz: false,
 });
 
 // 네트워크로 들어온 입력은 믿지 않고 정리해서 씁니다.
@@ -140,6 +164,7 @@ export function sanitizeInput(i) {
     act: ACTIONS.includes(i.act) ? i.act : null,
     seq: Math.trunc(num(i.seq)),
     bx: num(i.bx), by: num(i.by),
+    pz: !!i.pz,
   };
 }
 
@@ -157,6 +182,7 @@ export function createState() {
     bullets: [],
     structs: [],
     structMap: new Map(),
+    fx: [],
     gold: START_GOLD,
     wave: 0,
     waveTimer: FIRST_BREAK,
@@ -180,16 +206,34 @@ function stats(p) {
   };
 }
 
-function makeOffer(p) {
-  const pool = Object.keys(BUFFS).filter((k) => (p.buffs[k] || 0) < BUFFS[k].max);
-  for (let i = pool.length - 1; i > 0; i--) {
+function shuffle(list) {
+  for (let i = list.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
-    [pool[i], pool[j]] = [pool[j], pool[i]];
+    [list[i], list[j]] = [list[j], list[i]];
   }
-  return pool.length ? pool.slice(0, 3) : null;
+  return list;
+}
+
+function makeOffer(p) {
+  const buffs = Object.keys(BUFFS).filter((k) => (p.buffs[k] || 0) < BUFFS[k].max);
+  const elements = Object.keys(ELEMENTS)
+    .filter((k) => !(p.element === k && p.elementLv >= ELEMENT_MAX))
+    .map((k) => `el:${k}`);
+  const offer = shuffle([...buffs, ...elements]).slice(0, 3);
+  // 아직 속성이 없으면 속성 카드를 최소 1장 보여 줍니다.
+  if (!p.element && elements.length && !offer.some((k) => k.startsWith('el:'))) {
+    offer[offer.length - 1] = shuffle(elements)[0];
+  }
+  return offer.length ? offer : null;
 }
 
 function applyBuff(p, key) {
+  if (key.startsWith('el:')) {
+    const k = key.slice(3);
+    if (p.element === k) p.elementLv = Math.min(ELEMENT_MAX, p.elementLv + 1);
+    else { p.element = k; p.elementLv = 1; }
+    return;
+  }
   p.buffs[key] = (p.buffs[key] || 0) + 1;
   if (key === 'hp') {
     p.maxHp += 2;
@@ -216,6 +260,7 @@ export function addPlayer(state, id, name) {
     angle: 0, hp: PLAYER_MAX_HP, maxHp: PLAYER_MAX_HP, alive: true, score: 0,
     fireCd: 0, dashCd: 0, dashT: 0, dashX: 0, dashY: 0, invuln: 1,
     buffs: {}, offer: null, ready: false, lastSeq: 0, healT: 0,
+    element: null, elementLv: 0, paused: false,
   };
   placeAtSpawn(p, Object.keys(state.players).length);
   state.players[id] = p;
@@ -303,18 +348,21 @@ function doAction(state, p, inp) {
 function fire(state, p, st) {
   p.fireCd = st.fireCd;
   const spread = 0.16;
+  const speed = BULLET_SPEED * (p.element === 'wind' ? 1.3 : 1);
   for (let i = 0; i < st.shots; i++) {
     const a = p.angle + (i - (st.shots - 1) / 2) * spread + (Math.random() - 0.5) * 0.06;
     state.bullets.push({
       id: state.nextId++, owner: 'p', shooter: p.id,
       x: p.x + Math.cos(a) * 16, y: p.y + Math.sin(a) * 16,
-      vx: Math.cos(a) * BULLET_SPEED, vy: Math.sin(a) * BULLET_SPEED,
+      vx: Math.cos(a) * speed, vy: Math.sin(a) * speed,
       r: 4, dmg: st.dmg, life: 1.1, pierce: st.pierce, bounce: st.bounce, hits: [],
+      el: p.element, elv: p.elementLv,
     });
   }
 }
 
 function updatePlayer(state, p, inp, dt) {
+  p.paused = inp.pz;
   if (inp.seq !== p.lastSeq) {
     p.lastSeq = inp.seq;
     if (inp.act) doAction(state, p, inp);
@@ -356,10 +404,180 @@ function updatePlayer(state, p, inp, dt) {
   }
 }
 
+// ---------- 속성 & 원소 반응 ----------
+function addFx(state, fx) {
+  if (state.fx.length < 80) state.fx.push(fx);
+}
+
+function reactText(state, e, text, color) {
+  addFx(state, { k: 't', x: e.x, y: e.y - e.r - 6, text, c: color, t: 0.8, life: 0.8 });
+}
+
+function damageEnemy(state, e, dmg, src) {
+  if (e.hp <= 0) return;
+  e.hp -= dmg;
+  e.hitT = 0.08;
+  if (src) e.lastHit = src;
+}
+
+function enemiesNear(state, x, y, radius) {
+  return state.enemies.filter((o) => o.hp > 0 && (o.x - x) ** 2 + (o.y - y) ** 2 <= radius * radius);
+}
+
+function newStatus() {
+  return {
+    burn: 0, burnTick: 0, burnBy: null, wet: 0, chill: 0, chillN: 0, frozen: 0,
+    poison: 0, poisonN: 0, poisonTick: 0, poisonBy: null, stun: 0,
+  };
+}
+
+function explode(state, e, lv, src) {
+  reactText(state, e, '폭발!', '#ffab40');
+  addFx(state, { k: 'r', x: e.x, y: e.y, r: 80, c: '#ffab40', t: 0.35, life: 0.35 });
+  for (const o of enemiesNear(state, e.x, e.y, 80)) damageEnemy(state, o, 1 + lv, src);
+}
+
+function applyElement(state, e, b) {
+  const s = e.st, lv = b.elv || 1, src = b.shooter;
+  switch (b.el) {
+    case 'fire':
+      if (s.frozen > 0 || s.chill > 0) {
+        reactText(state, e, '녹임!', '#ff8a65');
+        Object.assign(s, { frozen: 0, chill: 0, chillN: 0 });
+        damageEnemy(state, e, 2 + lv, src);
+      } else if (s.poison > 0) {
+        Object.assign(s, { poison: 0, poisonN: 0 });
+        explode(state, e, lv, src);
+      } else if (s.wet > 0) {
+        reactText(state, e, '증발!', '#e0e0e0');
+        s.wet = 0;
+        damageEnemy(state, e, 1 + lv, src);
+      } else {
+        s.burn = Math.max(s.burn, 1.5 + lv * 0.5);
+        s.burnBy = src;
+      }
+      break;
+
+    case 'water':
+      if (s.burn > 0) {
+        reactText(state, e, '증발!', '#e0e0e0');
+        s.burn = 0;
+        damageEnemy(state, e, 1 + lv, src);
+      }
+      s.wet = Math.max(s.wet, 2.5 + lv);
+      break;
+
+    case 'electric':
+      if (s.wet > 0) {
+        // 감전: 근처의 젖은 적 모두에게 피해 + 기절
+        reactText(state, e, '감전!', '#fff176');
+        for (const o of enemiesNear(state, e.x, e.y, 130)) {
+          if (o.st.wet <= 0) continue;
+          damageEnemy(state, o, 1 + lv, src);
+          o.st.stun = 0.6;
+          o.st.wet = 0;
+          if (o !== e) addFx(state, { k: 'l', x: e.x, y: e.y, x2: o.x, y2: o.y, c: '#fff176', t: 0.25, life: 0.25 });
+        }
+      } else {
+        // 연쇄 번개: 레벨만큼 옆 적으로 튑니다.
+        let from = e;
+        const hit = new Set([e.id]);
+        for (let i = 0; i < lv; i++) {
+          const next = nearest(state.enemies.filter((o) => o.hp > 0 && !hit.has(o.id)), from.x, from.y, 150);
+          if (!next) break;
+          damageEnemy(state, next, 1, src);
+          addFx(state, { k: 'l', x: from.x, y: from.y, x2: next.x, y2: next.y, c: '#fff176', t: 0.2, life: 0.2 });
+          hit.add(next.id);
+          from = next;
+        }
+      }
+      break;
+
+    case 'ice':
+      if (s.burn > 0) {
+        reactText(state, e, '녹임!', '#ff8a65');
+        s.burn = 0;
+        damageEnemy(state, e, 2 + lv, src);
+      } else if (s.wet > 0) {
+        reactText(state, e, '빙결!', '#b2ebf2');
+        s.wet = 0;
+        s.frozen = 1 + 0.5 * lv;
+      } else {
+        s.chill = 2;
+        s.chillN++;
+        if (s.chillN >= 3) {
+          reactText(state, e, '빙결!', '#b2ebf2');
+          Object.assign(s, { frozen: 0.8 + 0.3 * lv, chill: 0, chillN: 0 });
+        }
+      }
+      break;
+
+    case 'wind': {
+      // 넉백 (벽을 뚫지 않도록 잘게 나눠 밀기)
+      const len = Math.hypot(b.vx, b.vy) || 1;
+      const push = 30 + 12 * lv;
+      for (let d = 0; d < push; d += 10) {
+        moveCircle(state, e, (b.vx / len) * Math.min(10, push - d), (b.vy / len) * Math.min(10, push - d), true);
+      }
+      // 확산: 이 적의 상태이상을 주변 적에게 옮깁니다.
+      if (s.burn > 0 || s.poison > 0 || s.wet > 0 || s.chill > 0) {
+        const others = enemiesNear(state, e.x, e.y, 90 + 20 * lv).filter((o) => o !== e);
+        if (others.length) reactText(state, e, '확산!', '#dcedc8');
+        for (const o of others) {
+          const t = o.st;
+          if (s.burn > 0) { t.burn = Math.max(t.burn, s.burn); t.burnBy = src; }
+          if (s.poison > 0) { t.poison = Math.max(t.poison, s.poison); t.poisonN = Math.max(t.poisonN, s.poisonN); t.poisonBy = src; }
+          t.wet = Math.max(t.wet, s.wet);
+          t.chill = Math.max(t.chill, s.chill);
+        }
+      }
+      break;
+    }
+
+    case 'poison':
+      if (s.burn > 0) {
+        s.burn = 0;
+        explode(state, e, lv, src);
+      } else {
+        s.poison = 4;
+        s.poisonN = Math.min(2 + lv, s.poisonN + 1);
+        s.poisonBy = src;
+      }
+      break;
+
+    default:
+  }
+}
+
+// 상태이상 시간 감소와 지속 피해. 움직일 수 없으면 false를 돌려줍니다.
+function updateStatus(state, e, dt) {
+  const s = e.st;
+  s.wet = Math.max(0, s.wet - dt);
+  s.chill = Math.max(0, s.chill - dt);
+  if (s.chill <= 0) s.chillN = 0;
+  s.frozen = Math.max(0, s.frozen - dt);
+  s.stun = Math.max(0, s.stun - dt);
+  if (s.burn > 0) {
+    s.burn -= dt;
+    s.burnTick -= dt;
+    if (s.burnTick <= 0) { s.burnTick = 0.5; damageEnemy(state, e, 1, s.burnBy); }
+  }
+  if (s.poison > 0) {
+    s.poison -= dt;
+    s.poisonTick -= dt;
+    if (s.poisonTick <= 0) { s.poisonTick = 1; damageEnemy(state, e, s.poisonN, s.poisonBy); }
+  } else {
+    s.poisonN = 0;
+  }
+  return s.frozen <= 0 && s.stun <= 0;
+}
+
 function updateEnemy(state, e, alivePlayers, dt) {
   const T = ENEMY_TYPES[e.kind];
   e.hitT = Math.max(0, e.hitT - dt);
+  if (!updateStatus(state, e, dt) || e.hp <= 0) return; // 빙결/기절 중엔 아무것도 못 함
   e.cd -= dt;
+  const slow = (e.st.wet > 0 ? 0.8 : 1) * (e.st.chill > 0 ? 0.6 : 1);
   const target = nearest(alivePlayers, e.x, e.y);
   if (!target) return;
 
@@ -387,7 +605,7 @@ function updateEnemy(state, e, alivePlayers, dt) {
     e.cd = 0.8;
   }
 
-  const blocker = moveCircle(state, e, vx * T.speed * dt, vy * T.speed * dt, true);
+  const blocker = moveCircle(state, e, vx * T.speed * slow * dt, vy * T.speed * slow * dt, true);
   // 근접 적은 길을 막는 건물을 부숩니다.
   if (blocker && e.kind !== 'archer' && e.cd <= 0) {
     damageStruct(state, blocker, T.touch);
@@ -420,7 +638,7 @@ function updateTurrets(state, dt) {
     s.cd -= dt;
     if (s.cd > 0) continue;
     const x = tileCenter(s.tx), y = tileCenter(s.ty);
-    const target = nearest(state.enemies, x, y, T.range);
+    const target = nearest(state.enemies.filter((e) => e.hp > 0), x, y, T.range);
     if (!target) continue;
     s.cd = T.fireEvery;
     const a = Math.atan2(target.y - y, target.x - x);
@@ -428,7 +646,7 @@ function updateTurrets(state, dt) {
     state.bullets.push({
       id: state.nextId++, owner: 'p', shooter: s.owner, x, y,
       vx: Math.cos(a) * T.bulletSpeed, vy: Math.sin(a) * T.bulletSpeed,
-      r: 4, dmg: 1, life: 0.8, pierce: 0, bounce: 0, hits: [], turret: true,
+      r: 4, dmg: 1, life: 0.8, pierce: 0, bounce: 0, hits: [], el: null, elv: 0,
     });
   }
 }
@@ -470,9 +688,8 @@ function updateBullets(state, dt) {
       for (const e of state.enemies) {
         if (e.hp <= 0 || b.hits.includes(e.id)) continue;
         if ((e.x - b.x) ** 2 + (e.y - b.y) ** 2 < (e.r + b.r) ** 2) {
-          e.hp -= b.dmg;
-          e.hitT = 0.08;
-          if (e.hp <= 0) killEnemy(state, e, b.shooter);
+          damageEnemy(state, e, b.dmg, b.shooter);
+          if (b.el && e.hp > 0) applyElement(state, e, b);
           if (b.pierce > 0) { b.pierce--; b.hits.push(e.id); }
           else { b.dead = true; break; }
         }
@@ -522,20 +739,21 @@ function spawnWave(state) {
     state.enemies.push({
       id: state.nextId++, kind, x, y, r: T.r, hp, maxHp: hp,
       cd: 1 + Math.random(), hitT: 0, strafe: Math.random() < 0.5 ? 1 : -1,
+      st: newStatus(), lastHit: null,
     });
   }
 }
 
 function resetRun(state) {
   Object.assign(state, {
-    enemies: [], bullets: [], structs: [], structMap: new Map(),
+    enemies: [], bullets: [], structs: [], structMap: new Map(), fx: [],
     gold: START_GOLD, wave: 0, waveTimer: FIRST_BREAK, cleared: true, gameOverTimer: 0,
   });
   Object.values(state.players).forEach((p, i) => {
     placeAtSpawn(p, i);
     Object.assign(p, {
       hp: PLAYER_MAX_HP, maxHp: PLAYER_MAX_HP, alive: true, score: 0, invuln: 1.5,
-      dashT: 0, buffs: {}, offer: null, ready: false,
+      dashT: 0, buffs: {}, offer: null, ready: false, element: null, elementLv: 0,
     });
   });
 }
@@ -580,11 +798,21 @@ export function step(state, inputs, dt) {
   separateEnemies(state);
   updateTurrets(state, dt);
   updateBullets(state, dt);
+  // 총알·지속 피해·반응 어떤 이유로든 쓰러진 적은 마지막으로 때린 사람에게 점수를 줍니다.
+  for (const e of state.enemies) if (e.hp <= 0) killEnemy(state, e, e.lastHit);
   state.enemies = state.enemies.filter((e) => e.hp > 0);
+  for (const f of state.fx) f.t -= dt;
+  state.fx = state.fx.filter((f) => f.t > 0);
   updateWaves(state, players, dt);
 }
 
 const r1 = (n) => Math.round(n * 10) / 10;
+
+// 상태이상을 글자로 압축: b화상 w젖음 c둔화 f빙결 p중독 z기절
+function statusCode(s) {
+  return (s.burn > 0 ? 'b' : '') + (s.wet > 0 ? 'w' : '') + (s.chill > 0 ? 'c' : '')
+    + (s.frozen > 0 ? 'f' : '') + (s.poison > 0 ? 'p' : '') + (s.stun > 0 ? 'z' : '');
+}
 
 // 화면에 그릴 데이터만 추린 가벼운 사본 (네트워크 전송용)
 export function snapshot(state) {
@@ -598,15 +826,17 @@ export function snapshot(state) {
       a: Math.round(p.angle * 100) / 100, hp: p.hp, mh: p.maxHp,
       al: p.alive ? 1 : 0, s: p.score, iv: p.invuln > 0 ? 1 : 0,
       bf: p.buffs, of: p.offer, rd: p.ready ? 1 : 0,
+      el: p.element, elv: p.elementLv, pz: p.paused ? 1 : 0,
     })),
     e: state.enemies.map((e) => ({
       id: e.id, k: e.kind, x: r1(e.x), y: r1(e.y), r: e.r,
-      hp: e.hp, mh: e.maxHp, h: e.hitT > 0 ? 1 : 0,
+      hp: e.hp, mh: e.maxHp, h: e.hitT > 0 ? 1 : 0, s: statusCode(e.st),
     })),
+    fx: state.fx.map((f) => ({ ...f, x: r1(f.x), y: r1(f.y), t: r1(f.t) })),
     st: state.structs.map((s) => ({
       id: s.id, k: s.kind, tx: s.tx, ty: s.ty, hp: s.hp, mh: s.maxHp,
       a: s.angle !== undefined ? Math.round(s.angle * 100) / 100 : 0,
     })),
-    b: state.bullets.map((b) => ({ x: r1(b.x), y: r1(b.y), r: b.r, o: b.owner === 'p' ? 0 : 1 })),
+    b: state.bullets.map((b) => ({ x: r1(b.x), y: r1(b.y), r: b.r, o: b.owner === 'p' ? 0 : 1, el: b.el || 0 })),
   };
 }
