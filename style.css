@@ -130,7 +130,14 @@ small { display: block; color: #b0aacc; font-size: 12px; line-height: 1.35; }
 }
 @keyframes swirl { 50% { transform: scale(1.05) rotate(4deg); } }
 @media (prefers-reduced-motion: reduce) { .portal-art { animation: none; } }
-.reward-cards { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
+.reward-cards { display: flex; flex-direction: column; gap: 10px; align-items: center; }
+.reward-row { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
+.evo-title { text-align: center; color: #ffd54f; margin-top: 4px; }
+.reward.skip { border-color: #6f6893; border-style: dashed; justify-content: center; }
+.wsprite {
+  display: inline-block; vertical-align: middle; flex: none;
+  background-image: url(assets/weapons.png); background-repeat: no-repeat; image-rendering: pixelated;
+}
 .reward { width: 190px; border-color: var(--c); }
 .reward:hover { background: #2a2745; }
 .rkey { font-size: 12px; color: var(--c); }

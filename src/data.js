@@ -12,14 +12,63 @@ export const MODES = {
 
 // ---------- 무기 ----------
 // kind: ranged(총알) / melee(부채꼴 베기·찌르기) / slam(앞쪽 원형 범위)
+// fam: 계열 — 같은 계열은 기본 스킬·패시브·궁극기를 공유하고, 전직하면 기본 공격과 특성이 바뀝니다.
 export const WEAPONS = {
-  sword: { name: '검', icon: '🗡️', kind: 'melee', dmg: 2, cd: 0.3, range: 52, arc: 1.9, knock: 14, desc: '넓게 베기 · 적 총알을 베어 막음' },
-  spear: { name: '창', icon: '🔱', kind: 'melee', dmg: 2, cd: 0.42, range: 92, arc: 0.5, knock: 10, desc: '긴 사거리 찌르기 · 일직선 관통' },
-  hammer: { name: '해머', icon: '🔨', kind: 'slam', dmg: 4, cd: 0.8, reach: 36, radius: 58, knock: 40, desc: '느리지만 강한 범위 공격 · 큰 넉백' },
-  bow: { name: '활', icon: '🏹', kind: 'ranged', dmg: 2, cd: 0.42, speed: 760, pierce: 1, life: 0.9, desc: '강하고 관통하는 화살' },
-  gun: { name: '총', icon: '🔫', kind: 'ranged', dmg: 1, cd: 0.16, speed: 600, pierce: 0, life: 1.1, desc: '빠른 연사' },
+  // 1단계 (로비에서 고르는 기본 무기)
+  sword: { fam: 'sword', tier: 1, name: '검', icon: '🗡️', kind: 'melee', dmg: 2, cd: 0.3, range: 52, arc: 1.9, knock: 14, desc: '넓게 베기 · 적 총알을 베어 막음', evo: ['greatsword', 'twinblades'] },
+  spear: { fam: 'spear', tier: 1, name: '창', icon: '🔱', kind: 'melee', dmg: 2, cd: 0.42, range: 92, arc: 0.5, knock: 10, desc: '긴 사거리 찌르기 · 일직선 관통', evo: ['halberd', 'lance'] },
+  hammer: { fam: 'hammer', tier: 1, name: '해머', icon: '🔨', kind: 'slam', dmg: 4, cd: 0.8, reach: 36, radius: 58, knock: 40, desc: '느리지만 강한 범위 공격 · 큰 넉백', evo: ['warhammer', 'quakehammer'] },
+  bow: { fam: 'bow', tier: 1, name: '활', icon: '🏹', kind: 'ranged', dmg: 2, cd: 0.42, speed: 760, pierce: 1, life: 0.9, desc: '강하고 관통하는 화살', evo: ['crossbow', 'longbow'] },
+  gun: { fam: 'gun', tier: 1, name: '총', icon: '🔫', kind: 'ranged', dmg: 1, cd: 0.16, speed: 600, pierce: 0, life: 1.1, desc: '빠른 연사', evo: ['shotgun', 'sniper'] },
+  // 2단계 (스테이지를 넘어갈 때 전직)
+  greatsword: { fam: 'sword', tier: 2, name: '대검', kind: 'melee', dmg: 4, cd: 0.5, range: 66, arc: 2.2, knock: 24, parry: 2, desc: '느리지만 피해·범위 증가, 탄 막기 범위 2배' },
+  twinblades: { fam: 'sword', tier: 2, name: '쌍검', kind: 'melee', dmg: 1, cd: 0.14, range: 48, arc: 1.7, knock: 6, charges: 2, desc: '공격 속도 2배, 돌진 베기 2회 충전' },
+  halberd: { fam: 'spear', tier: 2, name: '할버드', kind: 'melee', dmg: 3, cd: 0.5, range: 92, arc: 1.1, knock: 24, desc: '찌르기에 베기를 더해 넓어진 범위, 넉백 증가' },
+  lance: { fam: 'spear', tier: 2, name: '랜스', kind: 'melee', dmg: 2, cd: 0.42, range: 96, arc: 0.5, knock: 12, dashHit: 3, skillCd: 4, desc: '대시로 부딪힌 적에게 피해, 투창 쿨타임 감소' },
+  warhammer: { fam: 'hammer', tier: 2, name: '워해머', kind: 'slam', dmg: 6, cd: 0.85, reach: 30, radius: 44, knock: 30, execute: 0.2, desc: '단일 피해 극대화, 체력 20% 이하 적 즉시 처치' },
+  quakehammer: { fam: 'hammer', tier: 2, name: '지진 망치', kind: 'slam', dmg: 4, cd: 0.9, reach: 36, radius: 58, knock: 36, quake: true, desc: '내려찍을 때마다 사방으로 진동파' },
+  crossbow: { fam: 'bow', tier: 2, name: '쇠뇌', kind: 'ranged', dmg: 5, cd: 0.9, speed: 900, pierce: 2, life: 0.9, blast: 44, desc: '느리지만 강한 볼트, 맞은 자리에서 작은 폭발' },
+  longbow: { fam: 'bow', tier: 2, name: '강화 활', kind: 'ranged', dmg: 2, cd: 0.35, speed: 760, pierce: 1, life: 1.1, charge: 1.2, desc: '누르고 있으면 차지, 오래 당길수록 피해·사거리·관통 증가' },
+  shotgun: { fam: 'gun', tier: 2, name: '샷건', kind: 'ranged', dmg: 1, cd: 0.55, speed: 620, pierce: 0, life: 0.35, pellets: 5, spread: 0.5, desc: '근거리 산탄 5발' },
+  sniper: { fam: 'gun', tier: 2, name: '저격총', kind: 'ranged', dmg: 6, cd: 1.0, speed: 1300, pierce: 1, life: 1.4, crit: 0.25, desc: '느린 단발, 긴 사거리, 25% 확률 치명타 3배' },
 };
-export const WEAPON_KEYS = Object.keys(WEAPONS);
+export const WEAPON_KEYS = Object.keys(WEAPONS).filter((k) => WEAPONS[k].tier === 1);
+export const weaponFam = (key) => WEAPONS[key]?.fam || 'gun';
+
+// 계열별 스킬 (우클릭 기본 스킬 / 패시브 / Q 궁극기)
+// ult.type: stack(적중·처치 횟수) / gauge(피해량) / time(시간)
+export const SKILLS = {
+  sword: {
+    skill: { name: '돌진 베기', cd: 6, desc: '조준 방향으로 돌진하며 지나간 적 베기, 돌진 중 무적' },
+    passive: { name: '반격 자세', desc: '총알을 베어 막을 때마다 다음 공격 피해 +1 (최대 3)' },
+    ult: { name: '검기 폭풍', type: 'stack', need: 30, unit: '적중', desc: '3초간 회전 베기 + 사방으로 검기 발사' },
+  },
+  spear: {
+    skill: { name: '투창', cd: 7, desc: '창을 던져 관통, 다시 우클릭하면 회수하며 한 번 더 피해' },
+    passive: { name: '창끝 일격', desc: '사거리 끝부분으로 맞히면 피해 +50%' },
+    ult: { name: '천 개의 창', type: 'gauge', need: 40, unit: '피해', desc: '2초간 앞쪽 긴 직선을 연속 찌르기' },
+  },
+  hammer: {
+    skill: { name: '지면 강타', cd: 9, desc: '주변 큰 원에 피해 + 1초 기절' },
+    passive: { name: '강철 몸', desc: '들고 있는 동안 최대 체력 +2' },
+    ult: { name: '대지 분쇄', type: 'gauge', need: 40, unit: '주고받은 피해', desc: '3번 연속 내려찍기, 갈수록 충격파가 커짐' },
+  },
+  bow: {
+    skill: { name: '백스텝 사격', cd: 5, desc: '뒤로 뛰며 부채꼴로 화살 5발' },
+    passive: { name: '약점 포착', desc: '같은 적을 연속으로 맞히면 피해 +1씩 (최대 +3)' },
+    ult: { name: '화살비', type: 'time', need: 40, unit: '초', desc: '마우스 위치에 3초간 화살비' },
+  },
+  gun: {
+    skill: { name: '수류탄', cd: 8, desc: '마우스 위치로 던져 1초 뒤 범위 폭발' },
+    passive: { name: '연발 가속', desc: '계속 쏘면 연사 속도 증가 (최대 +40%)' },
+    ult: { name: '난사', type: 'stack', need: 15, unit: '처치', desc: '5초간 연사 속도 3배' },
+  },
+};
+
+export const WEAPON_SLOTS = 2;      // 무기 칸 (나중에 강화로 3칸)
+export const SWAP_COOLDOWN = 1.5;
+export const RESONANCE_ULT = 1.25;  // 무기 속성 = 캐릭터 속성일 때 궁극기 충전 배율
+export const CHEST_CHANCE = 0.4;    // 전투 방 클리어 시 보물상자 확률 (스테이지마다 최소 1개)
 
 // 같은 무기를 고를 수 있는 최대 인원: 2인 이하 1명, 3~4인 2명
 export const sameWeaponLimit = (playerCount) => (playerCount <= 2 ? 1 : 2);
@@ -81,6 +130,10 @@ export const xpToNext = (level) => 4 + level * 3;
 
 // 카드 키('dmg', 'el:fire', 'rw:might')의 표시용 정보
 export function offerInfo(key, buffs = {}, element = null, elementLv = 0) {
+  if (key.startsWith('evo:')) {
+    const w = WEAPONS[key.slice(4)];
+    return { name: `전직: ${w.name}`, desc: w.desc, lv: null, max: null, color: '#ffd54f', weapon: key.slice(4) };
+  }
   if (key.startsWith('rw:')) {
     const def = STAGE_REWARDS[key.slice(3)];
     return { name: def.name, desc: def.desc, lv: null, max: null, color: def.color };

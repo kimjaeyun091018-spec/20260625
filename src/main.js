@@ -4,7 +4,7 @@ import {
 } from './game.js';
 import { packMap, unpackMap } from './maps.js';
 import { makeRoomCode, hostRoom, joinRoom, describeError } from './net.js';
-import { createRenderer } from './render.js';
+import { createRenderer, weaponIconHtml } from './render.js';
 
 const STEP = 1 / 60;          // 시뮬레이션 간격
 const SEND_STATE_MS = 50;     // 방장 → 참가자 상태 전송 (초당 20번)
@@ -34,6 +34,7 @@ const HOLD_KEYS = {
 };
 const ACTION_KEYS = {
   KeyE: 'fence', KeyR: 'turret', KeyF: 'demolish', KeyG: 'ready',
+  KeyQ: 'ult', Tab: 'swap',
   Digit1: 'pick1', Digit2: 'pick2', Digit3: 'pick3', Numpad1: 'pick1', Numpad2: 'pick2', Numpad3: 'pick3',
 };
 const keys = new Set();
@@ -74,15 +75,22 @@ function toScreen(ev) {
 canvas.addEventListener('pointermove', toScreen);
 canvas.addEventListener('pointerdown', (e) => {
   toScreen(e);
-  if (e.button !== 0 || session?.paused) return;
+  if ((e.button !== 0 && e.button !== 2) || session?.paused) return;
   const card = renderer.cardAt(mouse.sx, mouse.sy);
   if (card >= 0) { pushAction(`pick${card + 1}`); return; }
+  if (e.button === 2) { pushAction('skill'); return; }
   mouse.down = true;
   canvas.setPointerCapture?.(e.pointerId);
 });
 canvas.addEventListener('pointerup', (e) => { if (e.button === 0) mouse.down = false; });
 canvas.addEventListener('pointercancel', () => { mouse.down = false; });
 canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+// 마우스 휠 = 무기 교체 (너무 빨리 여러 번 바뀌지 않게 0.3초 간격)
+let lastWheel = 0;
+canvas.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  if (performance.now() - lastWheel > 300) { lastWheel = performance.now(); pushAction('swap'); }
+}, { passive: false });
 
 // 로비·보상 화면의 버튼은 data-act 값을 행동으로 보냅니다.
 document.addEventListener('click', (e) => {
@@ -242,7 +250,7 @@ function slotHtml(snap, extra) {
     const w = WEAPONS[p.wp];
     html += `<div class="slot" style="--c:${p.c}"><b>${i + 1}P</b>
       <span class="pname">${esc(p.n)}${p.id === snap.hid ? ' 👑' : ''}</span>
-      <span class="pweap">${w ? `${w.icon} ${w.name}` : '무기 선택 중…'}</span>${extra ? extra(p) : ''}</div>`;
+      <span class="pweap">${w ? `${weaponIconHtml(p.ws?.[p.sl]?.k || p.wp, 1.5)} ${WEAPONS[p.ws?.[p.sl]?.k]?.name || w.name}` : '무기 선택 중…'}</span>${extra ? extra(p) : ''}</div>`;
   }
   return html;
 }
@@ -264,7 +272,7 @@ function updateLobby(snap, myId) {
     const mine = me?.wp === k;
     const full = !mine && others >= limit;
     return `<button class="weapon${mine ? ' selected' : ''}" data-act="weapon:${k}" ${full ? 'disabled' : ''}>
-      <span class="wicon">${w.icon}</span><b>${w.name}</b><small>${w.desc}</small>${full ? '<em>선택 불가</em>' : ''}</button>`;
+      ${weaponIconHtml(k, 3)}<b>${w.name}</b><small>${w.desc}</small>${full ? '<em>선택 불가</em>' : ''}</button>`;
   }).join('');
 
   ui.modes.innerHTML = Object.entries(MODES).map(([k, m]) => `
@@ -281,19 +289,27 @@ function updateLobby(snap, myId) {
 
 function updateStage(snap, myId) {
   const me = snap.p.find((p) => p.id === myId);
-  const key = JSON.stringify([snap.p.map((p) => [p.id, p.rwd]), me?.rw, me?.rwd, snap.tt, snap.si]);
+  const key = JSON.stringify([snap.p.map((p) => [p.id, p.rwd, p.evd]), me?.rw, me?.rwd, me?.ev, me?.evd, snap.tt, snap.si]);
   if (key === overlayCache.stage) return;
   overlayCache.stage = key;
   ui.stageTitle.textContent = `${stageLabel(snap.si)} 클리어 → ${stageLabel(snap.si + 1)}`;
   ui.stageSub.textContent = `스테이지 보상을 골라 주세요 · ${snap.tt}초 후 자동 선택`;
-  ui.stageSlots.innerHTML = slotHtml(snap, (p) => `<span class="pready">${p.rwd ? '✔ 선택 완료' : '고르는 중…'}</span>`);
-  ui.rewards.innerHTML = me?.rwd
-    ? '<p class="sub">선택 완료! 다른 팀원을 기다리는 중…</p>'
-    : (me?.rw || []).map((k, i) => {
+  ui.stageSlots.innerHTML = slotHtml(snap, (p) => `<span class="pready">${p.rwd && p.evd ? '✔ 선택 완료' : '고르는 중…'}</span>`);
+  const rewardHtml = me?.rwd
+    ? '<p class="sub">보상 선택 완료!</p>'
+    : `<div class="reward-row">${(me?.rw || []).map((k, i) => {
       const info = offerInfo(k);
       return `<button class="reward" style="--c:${info.color}" data-act="reward${i + 1}">
         <span class="rkey">${i + 1}</span><b>${info.name}</b><small>${info.desc}</small></button>`;
-    }).join('');
+    }).join('')}</div>`;
+  const evoHtml = me?.ev && !me.evd
+    ? `<h3 class="evo-title">무기 전직 (선택 안 해도 돼요)</h3><div class="reward-row">${me.ev.map((k, i) => {
+      const info = offerInfo(`evo:${k}`);
+      return `<button class="reward evo" style="--c:${info.color}" data-act="evo${i + 1}">
+        ${weaponIconHtml(k, 3)}<b>${info.name}</b><small>${info.desc}</small></button>`;
+    }).join('')}<button class="reward skip" data-act="evoskip"><b>전직 안 함</b><small>지금 무기 그대로</small></button></div>`
+    : '';
+  ui.rewards.innerHTML = rewardHtml + evoHtml + (me?.rwd && me?.evd ? '<p class="sub">다른 팀원을 기다리는 중…</p>' : '');
 }
 
 function updateOverlays(snap, myId) {
@@ -373,7 +389,10 @@ function clientFrame(s, now) {
     ...snap, g: latest.g, ph: latest.ph, lp: latest.lp, md: latest.md, tt: latest.tt,
     p: snap.p.map((p) => {
       const q = latest.p.find((o) => o.id === p.id) || p;
-      return { ...p, of: q.of, oq: q.oq, rw: q.rw, rwd: q.rwd, wp: q.wp, xp: q.xp, lv: q.lv, xn: q.xn };
+      return {
+        ...p, of: q.of, oq: q.oq, rw: q.rw, rwd: q.rwd, ev: q.ev, evd: q.evd, wp: q.wp, xp: q.xp, lv: q.lv, xn: q.xn,
+        ws: q.ws, sl: q.sl, sw: q.sw,
+      };
     }),
   };
   cam = renderer.render(view, s.map, s.myId, mouse);
