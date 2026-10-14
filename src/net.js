@@ -118,6 +118,8 @@ export function joinRoom(code, name, handlers) {
           });
         } else if (msg.t === 's') {
           handlers.onState(msg.s);
+        } else if (msg.t === 'map') {
+          handlers.onMap?.(msg.m);
         } else if (msg.t === 'full') {
           fail(new Error('방이 가득 찼어요 (최대 4명).'));
         }

@@ -1,8 +1,10 @@
+import { VIEW_W, VIEW_H, MAX_PLAYERS, WEAPONS, WEAPON_KEYS, MODES, sameWeaponLimit, stageLabel, offerInfo } from './data.js';
 import {
-  WIDTH, HEIGHT, TILE, COLS, ROWS, MAP, MAX_PLAYERS, CAMP, STRUCTS, BUFFS, ELEMENTS, inCamp, offerInfo,
   createState, addPlayer, removePlayer, step, snapshot, sanitizeInput, sanitizeName,
 } from './game.js';
+import { packMap, unpackMap } from './maps.js';
 import { makeRoomCode, hostRoom, joinRoom, describeError } from './net.js';
+import { createRenderer } from './render.js';
 
 const STEP = 1 / 60;          // 시뮬레이션 간격
 const SEND_STATE_MS = 50;     // 방장 → 참가자 상태 전송 (초당 20번)
@@ -10,54 +12,48 @@ const SEND_INPUT_MS = 33;     // 참가자 → 방장 입력 전송 (초당 30�
 const INTERP_DELAY_MS = 100;  // 참가자 화면 보간 지연
 
 const canvas = document.getElementById('game');
-const ctx = canvas.getContext('2d');
-canvas.width = WIDTH;
-canvas.height = HEIGHT;
+canvas.width = VIEW_W;
+canvas.height = VIEW_H;
+const renderer = createRenderer(canvas);
 
+const $ = (id) => document.getElementById(id);
 const ui = {
-  menu: document.getElementById('menu'),
-  name: document.getElementById('name'),
-  solo: document.getElementById('soloBtn'),
-  host: document.getElementById('hostBtn'),
-  code: document.getElementById('code'),
-  join: document.getElementById('joinBtn'),
-  status: document.getElementById('status'),
-  roomInfo: document.getElementById('roomInfo'),
-  pause: document.getElementById('pause'),
-  pauseNote: document.getElementById('pauseNote'),
-  resume: document.getElementById('resumeBtn'),
-  quit: document.getElementById('quitBtn'),
+  menu: $('menu'), name: $('name'), solo: $('soloBtn'), host: $('hostBtn'), code: $('code'), join: $('joinBtn'),
+  status: $('status'), roomInfo: $('roomInfo'),
+  pause: $('pause'), pauseNote: $('pauseNote'), resume: $('resumeBtn'), quit: $('quitBtn'),
+  lobby: $('lobby'), lobbyRoom: $('lobbyRoom'), slots: $('slots'), weapons: $('weapons'), modes: $('modes'),
+  lobbyMsg: $('lobbyMsg'), startBtn: $('startBtn'),
+  stage: $('stage'), stageTitle: $('stageTitle'), stageSub: $('stageSub'), stageSlots: $('stageSlots'), rewards: $('rewardCards'),
 };
 
 // ---------- 입력 (키보드 + 마우스) ----------
-// 누르고 있는 동안 유지되는 키
 const HOLD_KEYS = {
-  KeyW: 'up', ArrowUp: 'up',
-  KeyS: 'down', ArrowDown: 'down',
-  KeyA: 'left', ArrowLeft: 'left',
-  KeyD: 'right', ArrowRight: 'right',
+  KeyW: 'up', ArrowUp: 'up', KeyS: 'down', ArrowDown: 'down',
+  KeyA: 'left', ArrowLeft: 'left', KeyD: 'right', ArrowRight: 'right',
   Space: 'dash', ShiftLeft: 'dash', ShiftRight: 'dash',
 };
-// 한 번 누르면 한 번 실행되는 키
 const ACTION_KEYS = {
   KeyE: 'fence', KeyR: 'turret', KeyF: 'demolish', KeyG: 'ready',
-  Digit1: 'pick1', Digit2: 'pick2', Digit3: 'pick3',
-  Numpad1: 'pick1', Numpad2: 'pick2', Numpad3: 'pick3',
+  Digit1: 'pick1', Digit2: 'pick2', Digit3: 'pick3', Numpad1: 'pick1', Numpad2: 'pick2', Numpad3: 'pick3',
 };
 const keys = new Set();
-const mouse = { x: WIDTH / 2, y: HEIGHT / 2, down: false };
+// sx/sy: 화면 좌표, x/y: 맵(월드) 좌표
+const mouse = { sx: VIEW_W / 2, sy: VIEW_H / 2, x: 0, y: 0, down: false };
+let cam = { x: 0, y: 0 };
 const actionQueue = [];
 let actionSeq = 0;
-let cardRects = []; // 화면에 그려진 강화 카드 위치 (클릭 선택용)
+
+const pushAction = (act) => { if (session && !session.paused) actionQueue.push(act); };
 
 window.addEventListener('keydown', (e) => {
   if (!session) return;
   if (e.code === 'Escape') { setPaused(!session.paused); e.preventDefault(); return; }
-  if (session.paused) return;
+  if (session.paused || e.target instanceof HTMLInputElement) return;
   const hold = HOLD_KEYS[e.code];
   if (hold) { keys.add(hold); e.preventDefault(); }
-  const act = ACTION_KEYS[e.code];
-  if (act && !e.repeat) { actionQueue.push(act); e.preventDefault(); }
+  let act = ACTION_KEYS[e.code];
+  if (act && session.lastPhase === 'transition' && act.startsWith('pick')) act = `reward${act[4]}`;
+  if (act && !e.repeat) { pushAction(act); e.preventDefault(); }
 });
 window.addEventListener('keyup', (e) => {
   const k = HOLD_KEYS[e.code];
@@ -66,22 +62,21 @@ window.addEventListener('keyup', (e) => {
 window.addEventListener('blur', () => {
   keys.clear();
   mouse.down = false;
-  // 혼자 하기 중 다른 창/앱으로 가면 자동으로 멈춥니다.
-  if (session?.solo) setPaused(true);
+  if (session?.solo) setPaused(true); // 혼자 하기 중 다른 창/앱으로 가면 자동으로 멈춤
 });
 
-function toWorld(ev) {
+function toScreen(ev) {
   const r = canvas.getBoundingClientRect();
-  mouse.x = ((ev.clientX - r.left) * WIDTH) / r.width;
-  mouse.y = ((ev.clientY - r.top) * HEIGHT) / r.height;
+  mouse.sx = ((ev.clientX - r.left) * VIEW_W) / r.width;
+  mouse.sy = ((ev.clientY - r.top) * VIEW_H) / r.height;
 }
-// pointer 이벤트라 마우스뿐 아니라 펜/터치로도 조준+사격이 됩니다(태블릿 테스트용).
-canvas.addEventListener('pointermove', toWorld);
+// pointer 이벤트라 펜/터치로도 조준+사격이 됩니다(태블릿 테스트용).
+canvas.addEventListener('pointermove', toScreen);
 canvas.addEventListener('pointerdown', (e) => {
-  toWorld(e);
+  toScreen(e);
   if (e.button !== 0 || session?.paused) return;
-  const card = cardRects.findIndex((c) => mouse.x >= c.x && mouse.x <= c.x + c.w && mouse.y >= c.y && mouse.y <= c.y + c.h);
-  if (card >= 0) { actionQueue.push(`pick${card + 1}`); return; }
+  const card = renderer.cardAt(mouse.sx, mouse.sy);
+  if (card >= 0) { pushAction(`pick${card + 1}`); return; }
   mouse.down = true;
   canvas.setPointerCapture?.(e.pointerId);
 });
@@ -89,12 +84,16 @@ canvas.addEventListener('pointerup', (e) => { if (e.button === 0) mouse.down = f
 canvas.addEventListener('pointercancel', () => { mouse.down = false; });
 canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
-// 호출할 때마다 쌓인 행동을 하나씩 꺼내 보냅니다(seq가 바뀌면 방장이 한 번 실행).
+// 로비·보상 화면의 버튼은 data-act 값을 행동으로 보냅니다.
+document.addEventListener('click', (e) => {
+  const el = e.target.closest('[data-act]');
+  if (el && !el.disabled) pushAction(el.dataset.act);
+});
+
 function readInput(me) {
-  if (session?.paused) {
-    // 일시정지 중엔 아무 조작도 보내지 않고, 다른 사람 화면에 ⏸ 표시만 합니다.
-    return { aim: me?.a ?? me?.angle ?? 0, seq: actionSeq, pz: true };
-  }
+  mouse.x = mouse.sx + cam.x;
+  mouse.y = mouse.sy + cam.y;
+  if (session?.paused) return { aim: me?.a ?? me?.angle ?? 0, seq: actionSeq, pz: true };
   const act = actionQueue.shift() || null;
   if (act) actionSeq++;
   return {
@@ -114,7 +113,7 @@ function setBusy(busy) {
   for (const b of [ui.solo, ui.host, ui.join]) b.disabled = busy;
 }
 
-function enterGame(label) {
+function enterSession(label) {
   ui.menu.hidden = true;
   ui.roomInfo.hidden = false;
   ui.roomInfo.textContent = `${label} · Esc 일시정지`;
@@ -138,7 +137,6 @@ function setPaused(paused) {
   if (!paused && session.mode === 'host') session.last = performance.now();
   if (paused) ui.resume.focus();
 }
-
 ui.resume.addEventListener('click', () => setPaused(false));
 ui.quit.addEventListener('click', () => leave());
 
@@ -146,19 +144,18 @@ function leave(reason = '') {
   if (!session) return;
   session.net?.close();
   session = null;
-  cardRects = [];
-  ui.pause.hidden = true;
+  for (const el of [ui.pause, ui.lobby, ui.stage, ui.roomInfo]) el.hidden = true;
   ui.menu.hidden = false;
-  ui.roomInfo.hidden = true;
+  overlayCache.lobby = overlayCache.stage = '';
   setBusy(false);
   setStatus(reason);
 }
 
 async function startHost(solo) {
   setBusy(true);
-  const state = createState();
-  const inputs = {};
   const myId = 'host';
+  const state = createState(myId);
+  const inputs = {};
   addPlayer(state, myId, playerName());
 
   let net = null;
@@ -169,7 +166,9 @@ async function startHost(solo) {
         net = await hostRoom(makeRoomCode(), {
           onJoin(id, name) {
             if (Object.keys(state.players).length >= MAX_PLAYERS) return false;
-            return !!addPlayer(state, id, name);
+            const ok = !!addPlayer(state, id, name);
+            if (ok && session) session.mapDirty = true; // 새로 온 사람에게 맵 보내기
+            return ok;
           },
           onInput(id, input) { inputs[id] = sanitizeInput(input); },
           onLeave(id) { removePlayer(state, id); delete inputs[id]; },
@@ -186,10 +185,10 @@ async function startHost(solo) {
   }
 
   session = {
-    mode: 'host', solo, paused: false, myId, state, inputs, net,
-    acc: 0, last: performance.now(), lastSend: 0,
+    mode: 'host', solo, paused: false, myId, state, inputs, net, code: net?.code,
+    acc: 0, last: performance.now(), lastSend: 0, sentMapId: null, mapDirty: true, lastPhase: 'lobby',
   };
-  enterGame(solo ? '혼자 하기' : `방 코드: ${net.code} (친구에게 알려주세요)`);
+  enterSession(solo ? '혼자 하기' : `방 코드: ${net.code} (친구에게 알려주세요)`);
 }
 
 async function startClient() {
@@ -198,7 +197,10 @@ async function startClient() {
   setBusy(true);
   setStatus('접속하는 중…');
 
-  const s = { mode: 'client', solo: false, paused: false, myId: null, buffer: [], lastSend: 0, net: null };
+  const s = {
+    mode: 'client', solo: false, paused: false, myId: null, buffer: [], lastSend: 0, net: null,
+    map: null, code, lastPhase: 'lobby',
+  };
   try {
     s.net = await joinRoom(code, playerName(), {
       onWelcome(id) { s.myId = id; },
@@ -206,6 +208,7 @@ async function startClient() {
         s.buffer.push({ t: performance.now(), s: snap });
         if (s.buffer.length > 30) s.buffer.shift();
       },
+      onMap(m) { s.map = unpackMap(m); },
       onClose(reason) { if (session === s) leave(reason); },
     });
   } catch (err) {
@@ -214,12 +217,10 @@ async function startClient() {
     return;
   }
   session = s;
-  enterGame(`방 코드: ${code}`);
+  enterSession(`방 코드: ${code}`);
 }
 
-// 탭을 닫거나 새로고침하면 상대방에게 바로 퇴장이 전달되도록 연결을 닫습니다.
 window.addEventListener('pagehide', () => session?.net?.close());
-
 ui.solo.addEventListener('click', () => startHost(true));
 ui.host.addEventListener('click', () => startHost(false));
 ui.join.addEventListener('click', startClient);
@@ -229,31 +230,109 @@ ui.name.addEventListener('change', () => {
   try { localStorage.setItem('sk-name', ui.name.value); } catch { /* 무시 */ }
 });
 
+// ---------- 로비 / 스테이지 화면 (HTML) ----------
+const overlayCache = { lobby: '', stage: '' };
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+function slotHtml(snap, extra) {
+  let html = '';
+  for (let i = 0; i < MAX_PLAYERS; i++) {
+    const p = snap.p[i];
+    if (!p) { html += `<div class="slot empty"><b>${i + 1}P</b><span>비어 있음</span></div>`; continue; }
+    const w = WEAPONS[p.wp];
+    html += `<div class="slot" style="--c:${p.c}"><b>${i + 1}P</b>
+      <span class="pname">${esc(p.n)}${p.id === snap.hid ? ' 👑' : ''}</span>
+      <span class="pweap">${w ? `${w.icon} ${w.name}` : '무기 선택 중…'}</span>${extra ? extra(p) : ''}</div>`;
+  }
+  return html;
+}
+
+function updateLobby(snap, myId) {
+  const me = snap.p.find((p) => p.id === myId);
+  const isHost = myId === snap.hid;
+  const key = JSON.stringify([snap.p.map((p) => [p.id, p.n, p.wp, p.c]), snap.md, snap.lp, isHost]);
+  if (key === overlayCache.lobby) return;
+  overlayCache.lobby = key;
+
+  ui.lobbyRoom.textContent = session.solo ? '혼자 하기' : `방 코드 ${session.code} · 친구에게 알려 주세요`;
+  ui.slots.innerHTML = slotHtml(snap);
+
+  const limit = sameWeaponLimit(snap.p.length);
+  ui.weapons.innerHTML = WEAPON_KEYS.map((k) => {
+    const w = WEAPONS[k];
+    const others = snap.p.filter((p) => p.wp === k && p.id !== myId).length;
+    const mine = me?.wp === k;
+    const full = !mine && others >= limit;
+    return `<button class="weapon${mine ? ' selected' : ''}" data-act="weapon:${k}" ${full ? 'disabled' : ''}>
+      <span class="wicon">${w.icon}</span><b>${w.name}</b><small>${w.desc}</small>${full ? '<em>선택 불가</em>' : ''}</button>`;
+  }).join('');
+
+  ui.modes.innerHTML = Object.entries(MODES).map(([k, m]) => `
+    <button class="mode${snap.md === k ? ' selected' : ''}" data-act="mode:${k}" ${isHost ? '' : 'disabled'}>
+      <b>${m.name}</b><small>${m.desc}</small></button>`).join('');
+
+  ui.lobbyMsg.textContent = snap.lp
+    || (isHost ? '준비 완료! 게임을 시작하세요.' : '방장이 게임을 시작하기를 기다리는 중…');
+  ui.lobbyMsg.className = snap.lp ? 'warn' : '';
+  ui.startBtn.hidden = !isHost;
+  ui.startBtn.disabled = !!snap.lp;
+  ui.startBtn.dataset.act = 'start';
+}
+
+function updateStage(snap, myId) {
+  const me = snap.p.find((p) => p.id === myId);
+  const key = JSON.stringify([snap.p.map((p) => [p.id, p.rwd]), me?.rw, me?.rwd, snap.tt, snap.si]);
+  if (key === overlayCache.stage) return;
+  overlayCache.stage = key;
+  ui.stageTitle.textContent = `${stageLabel(snap.si)} 클리어 → ${stageLabel(snap.si + 1)}`;
+  ui.stageSub.textContent = `스테이지 보상을 골라 주세요 · ${snap.tt}초 후 자동 선택`;
+  ui.stageSlots.innerHTML = slotHtml(snap, (p) => `<span class="pready">${p.rwd ? '✔ 선택 완료' : '고르는 중…'}</span>`);
+  ui.rewards.innerHTML = me?.rwd
+    ? '<p class="sub">선택 완료! 다른 팀원을 기다리는 중…</p>'
+    : (me?.rw || []).map((k, i) => {
+      const info = offerInfo(k);
+      return `<button class="reward" style="--c:${info.color}" data-act="reward${i + 1}">
+        <span class="rkey">${i + 1}</span><b>${info.name}</b><small>${info.desc}</small></button>`;
+    }).join('');
+}
+
+function updateOverlays(snap, myId) {
+  session.lastPhase = snap.ph;
+  ui.lobby.hidden = snap.ph !== 'lobby';
+  ui.stage.hidden = snap.ph !== 'transition';
+  if (snap.ph === 'lobby') updateLobby(snap, myId);
+  else overlayCache.lobby = '';
+  if (snap.ph === 'transition') updateStage(snap, myId);
+  else overlayCache.stage = '';
+}
+
 // ---------- 프레임 ----------
 function hostFrame(s, now) {
   const dt = Math.min((now - s.last) / 1000, 0.1);
   s.last = now;
-  // 혼자 하기 일시정지: 시뮬레이션 자체를 멈춥니다(화면만 다시 그림).
-  if (s.solo && s.paused) {
-    render(snapshot(s.state), s.myId);
-    return;
+  if (!(s.solo && s.paused)) {
+    s.acc += dt;
+    s.inputs[s.myId] = readInput(s.state.players[s.myId]);
+    while (s.acc >= STEP) {
+      step(s.state, s.inputs, STEP);
+      s.acc -= STEP;
+    }
   }
-  s.acc += dt;
-  s.inputs[s.myId] = readInput(s.state.players[s.myId]);
-  while (s.acc >= STEP) {
-    step(s.state, s.inputs, STEP);
-    s.acc -= STEP;
+  if (s.net && (s.mapDirty || s.sentMapId !== s.state.map.id)) {
+    s.net.broadcast({ t: 'map', m: packMap(s.state.map) });
+    s.sentMapId = s.state.map.id;
+    s.mapDirty = false;
   }
   const snap = snapshot(s.state);
   if (s.net && now - s.lastSend >= SEND_STATE_MS) {
     s.net.broadcast({ t: 's', s: snap });
     s.lastSend = now;
   }
-  render(snap, s.myId);
+  cam = renderer.render(snap, s.state.map, s.myId, mouse);
+  updateOverlays(snap, s.myId);
 }
 
 const lerp = (a, b, t) => a + (b - a) * t;
-
 function lerpList(a, b, t) {
   const prev = new Map(a.map((o) => [o.id, o]));
   return b.map((o) => {
@@ -269,6 +348,7 @@ function interpolated(buffer, now) {
   for (let i = buffer.length - 2; i >= 0; i--) {
     const a = buffer[i], b = buffer[i + 1];
     if (a.t <= rt && rt <= b.t) {
+      if (a.s.mid !== b.s.mid) return b.s; // 맵이 바뀐 순간엔 보간하지 않음
       const t = (rt - a.t) / (b.t - a.t || 1);
       return { ...b.s, p: lerpList(a.s.p, b.s.p, t), e: lerpList(a.s.e, b.s.e, t) };
     }
@@ -277,385 +357,33 @@ function interpolated(buffer, now) {
 }
 
 function clientFrame(s, now) {
+  const latest = s.buffer[s.buffer.length - 1]?.s;
   const snap = interpolated(s.buffer, now);
   const me = snap?.p.find((p) => p.id === s.myId);
   if (now - s.lastSend >= SEND_INPUT_MS) {
     s.net.send({ t: 'in', i: readInput(me) });
     s.lastSend = now;
   }
-  // 강화 카드/골드는 최신 상태로 보여 줍니다(보간 X).
-  const latest = s.buffer[s.buffer.length - 1]?.s;
-  if (snap && latest) render({ ...snap, g: latest.g, p: snap.p.map((p) => ({ ...p, of: latest.p.find((q) => q.id === p.id)?.of ?? p.of })) }, s.myId);
-  else { drawMap(); centerText('상태를 받는 중…'); }
+  if (!snap || !latest || !s.map || s.map.id !== snap.mid) {
+    renderer.message('맵을 받는 중…');
+    return;
+  }
+  // 카드·골드·단계는 최신 상태로 (보간 X)
+  const view = {
+    ...snap, g: latest.g, ph: latest.ph, lp: latest.lp, md: latest.md, tt: latest.tt,
+    p: snap.p.map((p) => {
+      const q = latest.p.find((o) => o.id === p.id) || p;
+      return { ...p, of: q.of, oq: q.oq, rw: q.rw, rwd: q.rwd, wp: q.wp, xp: q.xp, lv: q.lv, xn: q.xn };
+    }),
+  };
+  cam = renderer.render(view, s.map, s.myId, mouse);
+  updateOverlays(view, s.myId);
 }
 
 function loop(now) {
   if (session?.mode === 'host') hostFrame(session, now);
   else if (session?.mode === 'client') clientFrame(session, now);
-  else drawMap();
+  else renderer.message('던전 슈터');
   requestAnimationFrame(loop);
 }
-
-// ---------- 그리기 ----------
-const mapCanvas = document.createElement('canvas');
-mapCanvas.width = WIDTH;
-mapCanvas.height = HEIGHT;
-(function prerenderMap() {
-  const m = mapCanvas.getContext('2d');
-  for (let y = 0; y < ROWS; y++) {
-    for (let x = 0; x < COLS; x++) {
-      const px = x * TILE, py = y * TILE;
-      if (MAP[y][x]) {
-        m.fillStyle = '#2b2440';
-        m.fillRect(px, py, TILE, TILE);
-        m.fillStyle = '#3d3460';
-        m.fillRect(px, py, TILE, 6);
-      } else {
-        const camp = inCamp(x, y);
-        m.fillStyle = camp
-          ? ((x + y) % 2 ? '#262035' : '#2a2339')
-          : ((x + y) % 2 ? '#1b1a2e' : '#1f1e34');
-        m.fillRect(px, py, TILE, TILE);
-      }
-    }
-  }
-  // 캠프 경계선
-  m.strokeStyle = 'rgba(255, 183, 77, .35)';
-  m.setLineDash([8, 8]);
-  m.lineWidth = 2;
-  m.beginPath();
-  m.arc(CAMP.x, CAMP.y, CAMP.r + TILE / 2, 0, Math.PI * 2);
-  m.stroke();
-})();
-
-function drawMap() {
-  ctx.drawImage(mapCanvas, 0, 0);
-}
-
-function drawCampfire(now) {
-  const flick = Math.sin(now / 90) * 2;
-  circle(CAMP.x, CAMP.y + 6, 12, '#5d4037');
-  circle(CAMP.x, CAMP.y, 9 + flick * 0.5, '#ff7043');
-  circle(CAMP.x, CAMP.y - 3, 5 + flick * 0.3, '#ffd54f');
-}
-
-function circle(x, y, r, color) {
-  ctx.fillStyle = color;
-  ctx.beginPath();
-  ctx.arc(x, y, r, 0, Math.PI * 2);
-  ctx.fill();
-}
-
-function hpBar(x, y, w, hp, max) {
-  ctx.fillStyle = 'rgba(0,0,0,.6)';
-  ctx.fillRect(x - w / 2, y, w, 4);
-  ctx.fillStyle = '#ef5350';
-  ctx.fillRect(x - w / 2, y, (w * Math.max(0, hp)) / max, 4);
-}
-
-function drawStruct(s) {
-  const x = s.tx * TILE, y = s.ty * TILE, cx = x + TILE / 2, cy = y + TILE / 2;
-  if (s.k === 'fence') {
-    ctx.fillStyle = '#8d6e63';
-    ctx.fillRect(x + 3, y + 6, 4, 22);
-    ctx.fillRect(x + 14, y + 6, 4, 22);
-    ctx.fillRect(x + 25, y + 6, 4, 22);
-    ctx.fillStyle = '#a1887f';
-    ctx.fillRect(x + 1, y + 10, 30, 4);
-    ctx.fillRect(x + 1, y + 20, 30, 4);
-  } else {
-    ctx.fillStyle = '#546e7a';
-    ctx.fillRect(x + 4, y + 4, 24, 24);
-    circle(cx, cy, 8, '#90a4ae');
-    ctx.save();
-    ctx.translate(cx, cy);
-    ctx.rotate(s.a);
-    ctx.fillStyle = '#cfd8dc';
-    ctx.fillRect(0, -3, 16, 6);
-    ctx.restore();
-  }
-  if (s.hp < s.mh) hpBar(cx, y - 2, 26, s.hp, s.mh);
-}
-
-// 마우스가 캠프 안이면 건설 가능 여부를 칸으로 보여 줍니다.
-function drawBuildPreview(snap, me) {
-  if (!me?.al) return;
-  const tx = Math.floor(mouse.x / TILE), ty = Math.floor(mouse.y / TILE);
-  if (tx < 0 || ty < 0 || tx >= COLS || ty >= ROWS || !inCamp(tx, ty)) return;
-  const occupied = snap.st.find((s) => s.tx === tx && s.ty === ty);
-  const ok = !MAP[ty][tx] && !occupied;
-  ctx.strokeStyle = occupied ? 'rgba(255,138,101,.9)' : ok ? 'rgba(129,199,132,.9)' : 'rgba(229,115,115,.9)';
-  ctx.lineWidth = 2;
-  ctx.setLineDash([4, 4]);
-  ctx.strokeRect(tx * TILE + 1, ty * TILE + 1, TILE - 2, TILE - 2);
-  ctx.setLineDash([]);
-}
-
-const ENEMY_COLORS = { slime: '#66bb6a', archer: '#9575cd', brute: '#e57373' };
-
-function drawEnemy(e) {
-  const color = e.h ? '#ffffff' : ENEMY_COLORS[e.k] || '#ccc';
-  circle(e.x, e.y + e.r * 0.7, e.r * 0.9, 'rgba(0,0,0,.25)');
-  if (e.k === 'slime') {
-    ctx.fillStyle = color;
-    ctx.beginPath();
-    ctx.ellipse(e.x, e.y + 2, e.r, e.r * 0.8, 0, 0, Math.PI * 2);
-    ctx.fill();
-  } else {
-    circle(e.x, e.y, e.r, color);
-  }
-  circle(e.x - e.r * 0.35, e.y - 2, 2.5, '#111');
-  circle(e.x + e.r * 0.35, e.y - 2, 2.5, '#111');
-  drawStatus(e);
-  if (e.hp < e.mh) hpBar(e.x, e.y - e.r - 8, e.r * 2, e.hp, e.mh);
-}
-
-// 상태이상 표시 (b화상 w젖음 c둔화 f빙결 p중독 z기절)
-function drawStatus(e) {
-  const s = e.s || '';
-  if (!s) return;
-  const now = performance.now();
-  if (s.includes('f')) {
-    ctx.fillStyle = 'rgba(178,235,242,.55)';
-    ctx.strokeStyle = '#e0f7fa';
-    ctx.lineWidth = 2;
-    ctx.fillRect(e.x - e.r - 3, e.y - e.r - 3, e.r * 2 + 6, e.r * 2 + 6);
-    ctx.strokeRect(e.x - e.r - 3, e.y - e.r - 3, e.r * 2 + 6, e.r * 2 + 6);
-  } else if (s.includes('c')) {
-    ctx.strokeStyle = 'rgba(178,235,242,.9)';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.arc(e.x, e.y, e.r + 3, 0, Math.PI * 2);
-    ctx.stroke();
-  }
-  if (s.includes('b')) {
-    for (let i = 0; i < 3; i++) {
-      const fx = e.x + (i - 1) * e.r * 0.6;
-      circle(fx, e.y - e.r * 0.6 - ((now / 4 + i * 60) % 12), 3, i % 2 ? '#ffca28' : '#ff7043');
-    }
-  }
-  if (s.includes('w')) {
-    circle(e.x - e.r * 0.8, e.y + 3 + Math.sin(now / 150) * 2, 2.5, '#42a5f5');
-    circle(e.x + e.r * 0.8, e.y + 5 + Math.cos(now / 150) * 2, 2.5, '#42a5f5');
-  }
-  if (s.includes('p')) {
-    ctx.fillStyle = 'rgba(156,204,101,.35)';
-    ctx.beginPath();
-    ctx.arc(e.x, e.y, e.r + 2, 0, Math.PI * 2);
-    ctx.fill();
-    circle(e.x + e.r * 0.5, e.y - e.r - ((now / 6) % 10), 2.5, '#9ccc65');
-  }
-  if (s.includes('z')) {
-    ctx.strokeStyle = '#fff176';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    for (let i = 0; i < 4; i++) {
-      const a = now / 120 + (i * Math.PI) / 2;
-      ctx.moveTo(e.x + Math.cos(a) * (e.r + 2), e.y + Math.sin(a) * (e.r + 2));
-      ctx.lineTo(e.x + Math.cos(a) * (e.r + 7), e.y + Math.sin(a) * (e.r + 7));
-    }
-    ctx.stroke();
-  }
-}
-
-function drawFx(list) {
-  for (const f of list || []) {
-    const k = f.t / f.life; // 1 → 0
-    ctx.save();
-    ctx.globalAlpha = Math.max(0, Math.min(1, k * 1.5));
-    if (f.k === 'l') {
-      // 번개 선 (지그재그)
-      ctx.strokeStyle = f.c;
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(f.x, f.y);
-      for (let i = 1; i < 5; i++) {
-        const t = i / 5;
-        ctx.lineTo(lerp(f.x, f.x2, t) + (Math.random() - 0.5) * 10, lerp(f.y, f.y2, t) + (Math.random() - 0.5) * 10);
-      }
-      ctx.lineTo(f.x2, f.y2);
-      ctx.stroke();
-    } else if (f.k === 'r') {
-      ctx.strokeStyle = f.c;
-      ctx.lineWidth = 4;
-      ctx.beginPath();
-      ctx.arc(f.x, f.y, f.r * (1 - k * 0.6), 0, Math.PI * 2);
-      ctx.stroke();
-    } else if (f.k === 't') {
-      ctx.fillStyle = f.c;
-      ctx.strokeStyle = 'rgba(0,0,0,.7)';
-      ctx.lineWidth = 3;
-      ctx.font = 'bold 15px sans-serif';
-      ctx.textAlign = 'center';
-      const y = f.y - (1 - k) * 18;
-      ctx.strokeText(f.text, f.x, y);
-      ctx.fillText(f.text, f.x, y);
-    }
-    ctx.restore();
-  }
-}
-
-function drawPlayer(p, isMe, now) {
-  ctx.save();
-  if (!p.al) ctx.globalAlpha = 0.35;
-  else if (p.iv && Math.floor(now / 80) % 2) ctx.globalAlpha = 0.55;
-
-  circle(p.x, p.y + 10, 10, 'rgba(0,0,0,.3)');
-  if (p.el && ELEMENTS[p.el]) {
-    // 내 속성 오라
-    ctx.strokeStyle = ELEMENTS[p.el].color;
-    ctx.lineWidth = 2;
-    ctx.globalAlpha *= 0.8;
-    ctx.beginPath();
-    ctx.arc(p.x, p.y, 16 + Math.sin(now / 200) * 1.5, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.globalAlpha /= 0.8;
-  }
-  circle(p.x, p.y, 12, p.c);
-  if (isMe) {
-    ctx.strokeStyle = '#fff';
-    ctx.lineWidth = 2;
-    ctx.stroke();
-  }
-  ctx.translate(p.x, p.y);
-  ctx.rotate(p.a);
-  ctx.fillStyle = '#e0e0e0';
-  ctx.fillRect(6, -3, 15, 6);
-  ctx.restore();
-
-  ctx.fillStyle = '#fff';
-  ctx.font = '12px sans-serif';
-  ctx.textAlign = 'center';
-  const tag = p.al ? `${p.pz ? '⏸ ' : ''}${p.n}${p.rd ? ' ✔' : ''}` : `${p.n} (다음 웨이브에 부활)`;
-  ctx.fillText(tag, p.x, p.y - 20);
-}
-
-function centerText(text, sub = '') {
-  ctx.fillStyle = 'rgba(0,0,0,.45)';
-  roundRect(WIDTH / 2 - 280, 100, 560, sub ? 76 : 52, 10);
-  ctx.fill();
-  ctx.fillStyle = '#fff';
-  ctx.textAlign = 'center';
-  ctx.font = 'bold 26px sans-serif';
-  ctx.fillText(text, WIDTH / 2, 134);
-  if (sub) {
-    ctx.font = '15px sans-serif';
-    ctx.fillText(sub, WIDTH / 2, 162);
-  }
-}
-
-function roundRect(x, y, w, h, r) {
-  ctx.beginPath();
-  ctx.roundRect ? ctx.roundRect(x, y, w, h, r) : ctx.rect(x, y, w, h);
-}
-
-function drawBuffCards(me) {
-  cardRects = [];
-  if (!me?.of) return;
-  const w = 200, h = 84, gap = 14;
-  const total = me.of.length * w + (me.of.length - 1) * gap;
-  const y = HEIGHT - h - 44;
-  ctx.textAlign = 'left';
-  ctx.fillStyle = '#ffe082';
-  ctx.font = 'bold 14px sans-serif';
-  ctx.fillText('강화를 골라 주세요 (숫자키 또는 클릭)', (WIDTH - total) / 2, y - 8);
-  me.of.forEach((key, i) => {
-    const x = (WIDTH - total) / 2 + i * (w + gap);
-    const hover = mouse.x >= x && mouse.x <= x + w && mouse.y >= y && mouse.y <= y + h;
-    roundRect(x, y, w, h, 10);
-    ctx.fillStyle = hover ? 'rgba(75,63,143,.97)' : 'rgba(30,27,52,.94)';
-    ctx.fill();
-    const info = offerInfo(key, me.bf, me.el, me.elv);
-    ctx.strokeStyle = info.color;
-    ctx.lineWidth = 2;
-    ctx.stroke();
-    ctx.fillStyle = info.color;
-    ctx.font = 'bold 13px sans-serif';
-    ctx.fillText(`[${i + 1}]`, x + 12, y + 24);
-    ctx.fillStyle = '#fff';
-    ctx.font = 'bold 16px sans-serif';
-    ctx.fillText(info.name, x + 44, y + 24);
-    ctx.fillStyle = '#b0aacc';
-    ctx.font = '12px sans-serif';
-    ctx.fillText(info.desc, x + 12, y + 50, w - 24);
-    ctx.fillText(`Lv ${info.lv} / ${info.max}`, x + 12, y + 70);
-    cardRects.push({ x, y, w, h });
-  });
-}
-
-function drawHud(snap, me) {
-  // 왼쪽 위: 웨이브, 체력, 점수, 골드
-  ctx.textAlign = 'left';
-  ctx.fillStyle = 'rgba(0,0,0,.5)';
-  ctx.fillRect(10, 10, 230, 80);
-  ctx.fillStyle = '#fff';
-  ctx.font = 'bold 16px sans-serif';
-  ctx.fillText(`웨이브 ${snap.w}`, 20, 32);
-  ctx.fillStyle = '#ffd54f';
-  ctx.font = 'bold 15px sans-serif';
-  ctx.fillText(`💰 ${snap.g}`, 170, 32);
-  if (me) {
-    for (let i = 0; i < me.mh; i++) {
-      ctx.fillStyle = i < me.hp ? '#ef5350' : '#555';
-      ctx.fillRect(20 + i * 13, 42, 10, 12);
-    }
-    ctx.fillStyle = '#ddd';
-    ctx.font = '12px sans-serif';
-    ctx.fillText(`점수 ${me.s}`, 20, 76);
-    const el = ELEMENTS[me.el];
-    ctx.fillStyle = el ? el.color : '#888';
-    ctx.fillText(el ? `${el.name} 속성 Lv ${me.elv}` : '속성 없음', 110, 76);
-    // 보유 강화
-    const owned = Object.entries(me.bf || {}).map(([k, n]) => `${BUFFS[k]?.name ?? k} ${n}`);
-    if (owned.length) {
-      ctx.fillStyle = 'rgba(0,0,0,.45)';
-      ctx.fillRect(10, 94, 230, 16 * owned.length + 8);
-      ctx.fillStyle = '#c5b8ff';
-      owned.forEach((t, i) => ctx.fillText(t, 20, 112 + i * 16));
-    }
-  }
-
-  // 오른쪽 위: 팀원
-  ctx.textAlign = 'right';
-  ctx.font = '13px sans-serif';
-  snap.p.forEach((p, i) => {
-    ctx.fillStyle = p.c;
-    ctx.fillText(`${p.rd ? '✔ ' : ''}${p.n}  ${'♥'.repeat(p.hp)}${p.al ? '' : ' ✕'}`, WIDTH - 14, 52 + i * 18);
-  });
-
-  // 왼쪽 아래: 건설 안내
-  ctx.textAlign = 'left';
-  ctx.font = '12px sans-serif';
-  ctx.fillStyle = 'rgba(0,0,0,.5)';
-  ctx.fillRect(10, HEIGHT - 34, 330, 24);
-  ctx.fillStyle = '#eee';
-  ctx.fillText(
-    `캠프 안에서  E 울타리(${STRUCTS.fence.cost})  R 터렛(${STRUCTS.turret.cost})  F 철거(반값 환불)`,
-    18, HEIGHT - 18,
-  );
-
-  const alive = snap.p.filter((p) => p.al);
-  if (snap.go) centerText('전멸!', '잠시 후 다시 시작합니다');
-  else if (snap.e.length === 0) {
-    const ready = alive.filter((p) => p.rd).length;
-    const title = snap.w === 0 ? '베이스캠프를 준비하세요' : `웨이브 ${snap.w} 클리어!`;
-    centerText(title, `다음 웨이브까지 ${Math.ceil(snap.wt)}초 · G 준비 완료 (${ready}/${alive.length}) · 캠프 안에서 체력 회복`);
-  }
-}
-
-function render(snap, myId) {
-  const now = performance.now();
-  const me = snap.p.find((p) => p.id === myId);
-  drawMap();
-  drawCampfire(now);
-  for (const s of snap.st) drawStruct(s);
-  drawBuildPreview(snap, me);
-  for (const b of snap.b) circle(b.x, b.y, b.r, b.o ? '#ff5252' : ELEMENTS[b.el]?.color ?? '#ffffff');
-  for (const e of snap.e) drawEnemy(e);
-  for (const p of snap.p) drawPlayer(p, p.id === myId, now);
-  drawFx(snap.fx);
-  drawHud(snap, me);
-  drawBuffCards(me);
-}
-
 requestAnimationFrame(loop);

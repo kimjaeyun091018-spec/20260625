@@ -12,6 +12,61 @@
     <canvas id="game"></canvas>
     <div id="roomInfo" hidden></div>
 
+    <!-- 시작 메뉴: 혼자 / 방 만들기 / 참가 -->
+    <div id="menu" class="overlay">
+      <h1>던전 슈터</h1>
+      <p class="sub">Soul Knight 스타일 로그라이크 · 키보드 + 마우스 · 최대 4인 협동</p>
+      <label class="field">닉네임
+        <input id="name" maxlength="10" placeholder="기사" autocomplete="off">
+      </label>
+      <div class="buttons">
+        <button id="soloBtn">혼자 하기</button>
+        <button id="hostBtn">방 만들기</button>
+      </div>
+      <div class="join">
+        <input id="code" maxlength="5" placeholder="방 코드" autocomplete="off" autocapitalize="characters">
+        <button id="joinBtn">참가</button>
+      </div>
+      <p id="status" role="status"></p>
+      <p class="help">
+        WASD / 방향키 이동 · 마우스 조준 · 왼쪽 클릭 공격 · Space 대시 · 1/2/3 카드 선택 · Esc 일시정지
+      </p>
+    </div>
+
+    <!-- 로비: 플레이어 슬롯, 무기·모드 선택 -->
+    <div id="lobby" class="overlay lobby" hidden>
+      <div class="lobby-head">
+        <h2>LOBBY</h2>
+        <p id="lobbyRoom" class="sub"></p>
+      </div>
+      <div class="lobby-grid">
+        <div id="slots" class="slots"></div>
+        <div class="lobby-right">
+          <h3>무기 선택</h3>
+          <div id="weapons" class="weapons"></div>
+          <h3>모드</h3>
+          <div id="modes" class="modes"></div>
+          <p id="lobbyMsg"></p>
+          <button id="startBtn" class="start">게임 시작</button>
+        </div>
+      </div>
+      <div class="totems" title="곧 추가될 예정이에요">
+        <span>토템</span><i>🔒</i><i>🔒</i><i>🔒</i>
+      </div>
+    </div>
+
+    <!-- 스테이지 전환: 보상 선택 -->
+    <div id="stage" class="overlay stage" hidden>
+      <h2 id="stageTitle"></h2>
+      <p id="stageSub" class="sub"></p>
+      <div class="stage-grid">
+        <div id="stageSlots" class="slots"></div>
+        <div class="portal-art" aria-hidden="true"></div>
+      </div>
+      <div id="rewardCards" class="reward-cards"></div>
+    </div>
+
+    <!-- 일시정지 -->
     <div id="pause" class="overlay" hidden>
       <h2>일시정지</h2>
       <p id="pauseNote" class="sub"></p>
@@ -20,37 +75,11 @@
         <button id="quitBtn" class="danger">메뉴로 나가기</button>
       </div>
       <p class="help">
-        WASD / 방향키 이동 · 마우스 조준 · 왼쪽 클릭 공격 · Space 대시<br>
-        E 울타리 · R 터렛 · F 철거 · 1/2/3 강화 선택 · G 준비 완료
+        WASD / 방향키 이동 · 마우스 조준 · 왼쪽 클릭 공격 · Space 대시 · 1/2/3 카드 선택<br>
+        베이스캠프: E 울타리 · R 터렛 · F 철거 · G 준비 완료
       </p>
       <p class="help">
         원소 반응: 물+전기 감전 · 물+얼음 빙결 · 불+얼음 녹임 · 불+물 증발 · 불+독 폭발 · 바람 상태이상 확산
-      </p>
-    </div>
-
-    <div id="menu" class="overlay">
-      <h1>던전 슈터</h1>
-      <p class="sub">Soul Knight 스타일 로그라이크 · 키보드 + 마우스 · 최대 4인 협동</p>
-
-      <label class="field">닉네임
-        <input id="name" maxlength="10" placeholder="기사" autocomplete="off">
-      </label>
-
-      <div class="buttons">
-        <button id="soloBtn">혼자 하기</button>
-        <button id="hostBtn">방 만들기</button>
-      </div>
-
-      <div class="join">
-        <input id="code" maxlength="5" placeholder="방 코드" autocomplete="off" autocapitalize="characters">
-        <button id="joinBtn">참가</button>
-      </div>
-
-      <p id="status" role="status"></p>
-
-      <p class="help">
-        WASD / 방향키 이동 · 마우스 조준 · 왼쪽 클릭 공격 · Space 대시<br>
-        E 울타리 · R 터렛 · F 철거 · 1/2/3 강화 선택 · G 준비 완료 · Esc 일시정지
       </p>
     </div>
   </div>
