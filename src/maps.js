@@ -39,11 +39,11 @@ export function buildCampMap() {
 }
 
 // ---------- 로비 (걸어 다니는 방) ----------
-// 왼쪽: 무기 거치대 5개 · 위: 스킬 트리 제단과 옷장 · 오른쪽: 모험/베이스캠프 포털 · 아래: 토템 자리
-export function buildLobbyMap(weaponKeys) {
+// 왼쪽: 캐릭터 동상 6개 · 위: 스킬 트리 제단과 옷장 · 오른쪽: 모험/베이스캠프 포털 · 아래: 토템 자리
+export function buildLobbyMap(charKeys) {
   const m = walledRoom(30, 20);
   m.lobby = {
-    racks: weaponKeys.map((key, i) => ({ key, x: 4 * TILE, y: (4 + i * 3) * TILE })),
+    statues: charKeys.map((key, i) => ({ key, x: (3.5 + (i % 2) * 4) * TILE, y: (4.5 + Math.floor(i / 2) * 5) * TILE })),
     altar: { x: 13 * TILE, y: 3.5 * TILE },
     wardrobe: { x: 18.5 * TILE, y: 3.5 * TILE },
     portals: [
@@ -62,7 +62,7 @@ const GRID = 5;
 export const CELL = 30; // 한 칸 = 30x30 타일
 
 export function generateDungeon(stageIdx, { roomBonus = 0, boss = false } = {}) {
-  const roomCount = Math.min(5 + Math.floor(stageIdx / 2) + roomBonus, GRID * GRID - 4);
+  const roomCount = Math.min(7 + Math.floor(stageIdx / 2) + roomBonus, GRID * GRID - 4);
   const cells = new Map();
   const key = (x, y) => `${x},${y}`;
   const first = { gx: rand(1, 3), gy: rand(1, 3), links: [] };
@@ -94,10 +94,19 @@ export function generateDungeon(stageIdx, { roomBonus = 0, boss = false } = {}) 
   }
   const last = list.reduce((best, c) => (dist.get(c) > dist.get(best) ? c : best), first);
 
+  // 상점방·상자방: 막다른 방(이웃이 하나)을 먼저 고릅니다. 시작 방 바로 옆은 피함.
+  const special = new Map();
+  const middle = list.filter((c) => c !== first && c !== last)
+    .sort((a, b) => (a.links.length - b.links.length) || (dist.get(b) - dist.get(a)));
+  const avoidStart = middle.filter((c) => dist.get(c) > 1);
+  const pool = avoidStart.length >= 2 ? avoidStart : middle;
+  if (pool[0]) special.set(pool[0], 'shop');
+  if (pool[1]) special.set(pool[1], 'chest');
+
   const m = emptyMap(GRID * CELL, GRID * CELL, 1);
   list.forEach((c, i) => {
-    const type = c === first ? 'start' : c === last ? (boss ? 'boss' : 'portal') : 'battle';
-    const small = type === 'start' || type === 'portal';
+    const type = c === first ? 'start' : c === last ? (boss ? 'boss' : 'portal') : special.get(c) || 'battle';
+    const small = type !== 'battle' && type !== 'boss';
     const w = type === 'boss' ? 25 : small ? 11 : rand(15, 21);
     const h = type === 'boss' ? 21 : small ? 11 : rand(13, 17);
     c.room = {

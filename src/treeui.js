@@ -117,11 +117,11 @@ export function createTreeUI(root, { getSave, onChange }) {
     const el = s.el ? ELEMENTS[s.el] : null;
     const saveBtns = s.saved
       ? `<button data-tree="reset" ${save.essence < RESET_COST ? 'disabled' : ''}>초기화 ◆${RESET_COST}</button>`
-      : '<button data-tree="save" class="primary">빌드 저장 (무료)</button>';
+      : '<button data-tree="save" class="primary">빌드 저장·잠금 (무료)</button>';
     return `<div class="bpanel">
       <div class="btabs">${tabs}</div>
       <div class="bel">캐릭터 속성: <b style="color:${el ? el.color : '#9e9e9e'}">${el ? el.name : '없음'}</b>
-        <span class="bstate">${s.saved ? '✔ 저장됨 · 이 빌드로 출발' : '* 저장해야 게임에 적용돼요'}</span></div>
+        <span class="bstate">${s.saved ? '✔ 저장됨(잠금) · 이 빌드로 출발' : '이 빌드로 출발 · 저장하면 잠겨요'}</span></div>
       <div class="eqslots">${slots}</div>
       <div class="bbtns">${saveBtns}</div>
     </div>`;
@@ -155,7 +155,11 @@ export function createTreeUI(root, { getSave, onChange }) {
         if (canUnlock(save.unlocked, n.id) && save.essence >= n.cost) {
           save.essence -= n.cost;
           save.unlocked.push(n.id);
-          commit(`${n.name} 해금!`);
+          // 해금하면 바로 쓰도록: 속성 각인 → 캐릭터 속성, 스킬 → 빈 장착 칸
+          let note = '';
+          if (editable() && n.kind === 'root' && !s.el) { s.el = n.el; note = ' 캐릭터 속성이 되었어요'; }
+          if (editable() && equipable(n.id) && s.eq.length < LOADOUT_SIZE && !s.eq.includes(n.id)) { s.eq.push(n.id); note = ` ${s.eq.length}번 칸에 장착했어요`; }
+          commit(`${n.name} 해금!${note}`);
         }
         break;
       case 'equip':

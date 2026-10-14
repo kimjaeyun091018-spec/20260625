@@ -124,11 +124,15 @@ export function writeSave(save) {
   try { localStorage.setItem(SAVE_KEY, JSON.stringify(save)); } catch { /* 무시 */ }
 }
 
-// 게임에 가져갈 빌드 (저장된 칸만 적용)
+// 게임에 가져갈 빌드: 지금 고른 칸을 그대로 적용 (저장은 '잠금'일 뿐, 저장 안 해도 적용됨)
+// 칸에 속성을 안 골랐으면 해금한 첫 속성 각인을 캐릭터 속성으로 씁니다.
 export function currentBuild(save) {
-  const slot = save.slots[save.active];
-  const ok = slot && slot.saved;
-  return { el: ok ? slot.el : null, eq: ok ? slot.eq : [], nodes: save.unlocked, skin: save.skin };
+  const slot = save.slots[save.active] || emptySlot();
+  const firstRoot = save.unlocked.map((id) => NODE[id]).find((n) => n?.kind === 'root');
+  const el = slot.el || firstRoot?.el || null;
+  // 장착 칸이 비어 있고 저장(잠금) 전이면, 해금한 스킬을 차례로 자동 장착
+  const eq = slot.eq.length || slot.saved ? [...slot.eq] : save.unlocked.filter(equipable).slice(0, LOADOUT_SIZE);
+  return { el, eq, nodes: save.unlocked, skin: save.skin };
 }
 
 // 방장이 받은 빌드를 검사 (없는 노드, 해금 안 된 장착 등은 버림)

@@ -1,23 +1,27 @@
 // 캔버스 그리기 전담 (게임 규칙 없음)
 import {
   TILE, VIEW_W, VIEW_H, STRUCTS, BUFFS, ELEMENTS, WEAPONS, SKILLS, SKINS, MAX_AUGMENT_TYPES, offerInfo, stageLabel, weaponFam,
+  CHARACTERS, weaponInfo, elColor, TIER_NAME, SHOP, reactionName, ENEMY_TYPES,
 } from './data.js';
 import { CELL } from './maps.js';
 import { NODE } from './tree.js';
 
 // tools/make_sprites.py의 WEAPON_ORDER와 같은 순서여야 합니다.
 export const WEAPON_SPRITES = [
-  'sword', 'greatsword', 'twinblades', 'spear', 'halberd', 'lance',
-  'hammer', 'warhammer', 'quakehammer', 'bow', 'crossbow', 'longbow',
-  'gun', 'shotgun', 'sniper', 'chest', 'chest_open',
+  'pistol', 'twin', 'machinegun', 'rifle', 'shotgun', 'triplet', 'minigun', 'sniper', 'combatshotgun',
+  'bow', 'longbow', 'crossbow', 'rapidbow', 'heavenbow', 'repeater', 'stormbow',
+  'sword', 'greatsword', 'twinblades', 'zanbato', 'bladestorm',
+  'spear', 'halberd', 'lance', 'trident', 'dragonlance',
+  'hammer', 'warhammer', 'quakehammer', 'titanhammer', 'earthshaker',
+  'chest', 'chest_open',
 ];
 const PIXEL = 2;            // 도트 1칸 = 화면 2픽셀
 const GRIP_X = 3, GRIP_Y = 6; // 무기 그림에서 손잡이 위치
 
 // ---------- 이미지 불러오기 ----------
-const sprites = { ready: false, player: new Image(), weapons: new Image(), enemies: new Image(), bosses: new Image() };
+const sprites = { ready: false, player: new Image(), weapons: new Image(), enemies: new Image(), bosses: new Image(), gear: new Image() };
 {
-  const list = ['player', 'weapons', 'enemies', 'bosses'];
+  const list = ['player', 'weapons', 'enemies', 'bosses', 'gear'];
   let left = list.length;
   const done = () => {
     if (--left > 0) return;
@@ -86,6 +90,9 @@ export function tintedPlayer(color, skin = 'shadow') {
   return c;
 }
 
+// 장비 스킨 그림 (옷장 미리보기용), 아직 못 불러왔으면 null
+export const gearSheet = () => (sprites.gear.complete && sprites.gear.naturalWidth ? sprites.gear : null);
+
 // 로비·보상 화면(HTML)에서 쓰는 무기 아이콘
 export function weaponIconHtml(key, scale = 2) {
   const i = WEAPON_SPRITES.indexOf(key);
@@ -94,6 +101,8 @@ export function weaponIconHtml(key, scale = 2) {
 }
 
 const ENEMY_COLORS = { slime: '#66bb6a', archer: '#9575cd', brute: '#e57373' };
+// 이름 글자색: 무기 속성 색 (속성 없으면 흰색)
+const weaponLabel = (k, el) => `${ELEMENTS[el] ? `${ELEMENTS[el].name}의 ` : ''}${WEAPONS[k]?.name ?? ''}`;
 
 export function createRenderer(canvas) {
   const ctx = canvas.getContext('2d');
@@ -291,9 +300,13 @@ export function createRenderer(canvas) {
     }
   }
 
-  // 몬스터 도트: enemies.png 24x24 (슬라임 0-1, 해골 궁수 2-3, 브루트 4-5), bosses.png 40x40 (월드 순서로 2프레임씩)
-  const ENEMY_FRAME = { slime: 0, archer: 2, brute: 4 };
-  const BOSS_FRAME = { '#66bb6a': 0, '#9575cd': 2, '#e57373': 4 };
+  // 몬스터 도트: enemies.png 24x24 (종류마다 [1, 2, 쓰러짐], 마지막 = 영혼), bosses.png 40x40 (월드마다 [1, 2, 쓰러짐])
+  const ENEMY_ORDER = ['slime', 'archer', 'brute', 'bat', 'spider', 'bomber', 'caster', 'shield', 'totem'];
+  const ENEMY_FRAME = Object.fromEntries(ENEMY_ORDER.map((k, i) => [k, i * 3]));
+  ENEMY_FRAME.bigslime = ENEMY_FRAME.slime;
+  const SOUL_FRAME = ENEMY_ORDER.length * 3;
+  const BASE_R = { bigslime: 13 };   // 큰 슬라임은 슬라임 그림을 크게
+  const BOSS_FRAME = { '#66bb6a': 0, '#9575cd': 3, '#e57373': 6 };
 
   function drawSprite(sheet, hitSheet, frame, size, scale, x, y, flip, hit) {
     ctx.save();
@@ -307,6 +320,7 @@ export function createRenderer(canvas) {
   function drawBoss(e, now, viewer) {
     const pulse = Math.sin(now / 160) * 2;
     circle(e.x, e.y + e.r * 0.75, e.r, 'rgba(0,0,0,.35)');
+    const lift = e.ai ? 60 : 0; // 점프 중엔 공중에
     if (e.ch) {
       ctx.strokeStyle = '#ff5252';
       ctx.lineWidth = 4;
@@ -316,7 +330,7 @@ export function createRenderer(canvas) {
     }
     if (sprites.ready) {
       const frame = (BOSS_FRAME[e.c] ?? 0) + (Math.floor(now / 350) % 2);
-      drawSprite(sprites.bosses, sprites.bossesHit, frame, 40, 2, e.x, e.y + e.r, viewer && viewer.x < e.x, e.h);
+      drawSprite(sprites.bosses, sprites.bossesHit, frame, 40, 2, e.x, e.y + e.r - lift, viewer && viewer.x < e.x, e.h);
     } else {
       circle(e.x, e.y, e.r, e.c || '#e57373');
     }
@@ -326,9 +340,13 @@ export function createRenderer(canvas) {
   function drawEnemy(e, now, viewer) {
     if (e.k === 'boss') { drawBoss(e, now, viewer); return; }
     circle(e.x, e.y + e.r * 0.7, e.r * 0.9, 'rgba(0,0,0,.25)');
-    if (sprites.ready) {
-      const frame = ENEMY_FRAME[e.k] + (Math.floor(now / 300 + e.id * 0.37) % 2);
-      drawSprite(sprites.enemies, sprites.enemiesHit, frame, 24, 2, e.x, e.y + e.r, viewer && viewer.x < e.x, e.h);
+    if (e.fu && Math.floor(now / 90) % 2) circle(e.x, e.y, e.r + 6, 'rgba(255,82,82,.5)'); // 폭탄 고블린 점화
+    if (sprites.ready && ENEMY_FRAME[e.k] !== undefined) {
+      const frame = ENEMY_FRAME[e.k] + (Math.floor(now / (e.k === 'bat' ? 120 : 300) + e.id * 0.37) % 2);
+      const scale = 2 * (BASE_R[e.k] ? e.r / BASE_R[e.k] : 1);
+      // 방패병·토템은 바라보는 방향, 나머지는 플레이어 쪽
+      const flip = e.k === 'shield' ? Math.cos(e.f) < 0 : viewer && viewer.x < e.x;
+      drawSprite(sprites.enemies, sprites.enemiesHit, frame, 24, scale, e.x, e.y + e.r * (scale / 2), flip, e.h);
     } else {
       circle(e.x, e.y, e.r, e.h ? '#fff' : ENEMY_COLORS[e.k] || '#ccc');
     }
@@ -396,25 +414,31 @@ export function createRenderer(canvas) {
       if (!p.al) frame = 12;
       else if (p.mv) frame = 4 + (Math.floor(now / 75) % 8);
       else frame = Math.floor(now / 220) % 4;
-      // 대시 잔상
-      if (p.ds && p.al) {
-        ctx.globalAlpha *= 0.35;
-        drawPlayerFrame(sheet, frame, p.x, p.y, facingLeft, true);
-        ctx.globalAlpha /= 0.35;
+      // 대시 잔상: 대시하기 전 자리에서 지금 자리까지 옅게
+      if (p.ds && p.al && (p.dx || p.dy)) {
+        for (let i = 0; i < 3; i++) {
+          const t = i / 3;
+          ctx.globalAlpha *= 0.3 - i * 0.07;
+          drawPlayerFrame(sheet, frame, lerp(p.dx, p.x, t), lerp(p.dy, p.y, t), facingLeft, false);
+          ctx.globalAlpha /= 0.3 - i * 0.07;
+        }
       }
       drawPlayerFrame(sheet, frame, p.x, p.y, facingLeft, false);
+      const gi = SKINS[p.sk]?.gear;
+      if (gi !== undefined && p.al && sprites.gear.complete) drawPlayerFrame(sprites.gear, gi, p.x, p.y, facingLeft, false);
     } else {
       circle(p.x, p.y, 12, p.c);
     }
     if (p.al && !weaponBehind) drawWeaponSprite(key, handX, handY, PIXEL, wa, facingLeft);
     ctx.restore();
 
-    // 강화 활 차지 게이지
-    if (p.ch > 0) {
-      ctx.fillStyle = 'rgba(0,0,0,.6)';
-      ctx.fillRect(p.x - 16, p.y + 26, 32, 4);
-      ctx.fillStyle = p.ch >= 0.99 ? '#ffd54f' : '#fff';
-      ctx.fillRect(p.x - 16, p.y + 26, 32 * p.ch, 4);
+    // 기사 방패 준비 표시
+    if (p.al && p.sh) {
+      ctx.strokeStyle = 'rgba(144,202,249,.7)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y - 2, 20, -2.4, -0.7);
+      ctx.stroke();
     }
 
     ctx.fillStyle = isMe ? '#fff' : p.c;
@@ -429,7 +453,6 @@ export function createRenderer(canvas) {
     ctx.save();
     ctx.translate(Math.round(x), Math.round(y + 12));
     if (flip) ctx.scale(-1, 1);
-    if (trail) ctx.translate(-10, 0);
     ctx.drawImage(sheet, frame * 32, 0, 32, 32, -16 * PIXEL, -25 * PIXEL, 32 * PIXEL, 32 * PIXEL);
     ctx.restore();
   }
@@ -482,7 +505,7 @@ export function createRenderer(canvas) {
       drawWeaponSprite('spear', b.x, b.y, 1.5, b.st ? b.a : b.a, false, 1);
       return;
     }
-    if (b.k === 'bow' || b.k === 'crossbow' || b.k === 'longbow') {
+    if (b.k && WEAPONS[b.k]?.fam === 'bow') {
       ctx.save();
       ctx.translate(b.x, b.y);
       ctx.rotate(b.a);
@@ -518,7 +541,38 @@ export function createRenderer(canvas) {
   function drawChest(c) {
     if (!sprites.ready) return;
     const i = WEAPON_SPRITES.indexOf(c.o ? 'chest_open' : 'chest');
-    ctx.drawImage(sprites.weapons, i * 24, 0, 24, 12, c.x - 24, c.y - 12, 48, 24);
+    const k = c.b ? 3 : 2; // 상자방의 큰 상자
+    ctx.drawImage(sprites.weapons, i * 24, 0, 24, 12, c.x - 12 * k, c.y - 6 * k, 24 * k, 12 * k);
+  }
+
+  // 무기 능력치 말풍선 (줍기 전·상점)
+  function weaponTip(k, el, lv, x, y, head, me) {
+    const W = WEAPONS[k];
+    if (!W) return;
+    const i = weaponInfo(k);
+    const E = ELEMENTS[el];
+    const lines = [
+      `${TIER_NAME[W.tier]} · ${W.kind === 'ranged' ? '원거리' : '근접'}${W.evo ? ' · 진화 가능' : ''}`,
+      `피해 ${i.dmg}${i.shots > 1 ? ` x${i.shots}` : ''} · 초당 ${i.aps}회 · 치명 ${i.crit}% (x${i.critX})`,
+      `${W.kind === 'ranged' ? `명중 ${i.acc}% · ` : ''}사거리 ${i.range}${i.pierce ? ` · 관통 ${i.pierce}` : ''}${i.blast ? ' · 폭발' : ''}${i.falloff ? ' · 가까울수록 강함' : ''}`,
+      `마나 ${i.mana ? `${i.mana}/발` : '없음'}${E ? ` · ${E.name} 속성 Lv${lv || 1}` : ''}`,
+    ];
+    if (E && me?.el) lines.push(E === ELEMENTS[me.el] ? '내 캐릭터 속성과 같음 → 공명 (피해 x1.2)' : `내 캐릭터 속성과 결합 → ${reactionName(el, me.el)}`);
+    const w = 270, h = 30 + lines.length * 15;
+    const bx = Math.round(x - w / 2), by = Math.round(y - h - 10);
+    ctx.fillStyle = 'rgba(14,12,26,.92)';
+    roundRect(bx, by, w, h, 8);
+    ctx.fill();
+    ctx.strokeStyle = E ? E.color : 'rgba(255,255,255,.4)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.textAlign = 'left';
+    ctx.font = 'bold 13px sans-serif';
+    ctx.fillStyle = elColor(el);
+    ctx.fillText(`${head} ${weaponLabel(k, el)}`, bx + 10, by + 18);
+    ctx.font = '11.5px sans-serif';
+    ctx.fillStyle = '#d7d1f0';
+    lines.forEach((t, n) => ctx.fillText(t, bx + 10, by + 36 + n * 15));
   }
 
   function drawPickup(o, now, near) {
@@ -532,13 +586,30 @@ export function createRenderer(canvas) {
     ctx.fill();
     ctx.restore();
     drawWeaponSprite(o.k, o.x - 13, o.y + bob, PIXEL * 0.75, 0, false);
-    if (near) {
-      ctx.fillStyle = '#fff';
-      ctx.font = 'bold 12px sans-serif';
+    if (!near) {
+      ctx.font = 'bold 11px sans-serif';
       ctx.textAlign = 'center';
-      const el = ELEMENTS[o.el];
-      ctx.fillText(`E 줍기: ${el ? `${el.name}의 ` : ''}${WEAPONS[o.k]?.name ?? ''}`, o.x, o.y - 18);
+      ctx.fillStyle = elColor(o.el);
+      ctx.fillText(WEAPONS[o.k]?.name ?? '', o.x, o.y - 12);
     }
+  }
+
+  // 상점 상품 (진열대 + 가격)
+  const SHOP_ICON = { heal: ['♥', '#ef5350'], mana: ['✦', '#42a5f5'], card: ['★', '#ffd54f'] };
+  function drawShopItem(o, now, me) {
+    ctx.fillStyle = '#4e342e';
+    ctx.fillRect(o.x - 22, o.y + 8, 44, 10);
+    ctx.fillStyle = '#6d4c41';
+    ctx.fillRect(o.x - 22, o.y + 6, 44, 3);
+    if (o.so) { label('판매 완료', o.x, o.y, '#757575', 10); return; }
+    const bob = Math.sin(now / 300 + o.id) * 2;
+    if (o.kd === 'weapon') drawWeaponSprite(o.k, o.x - 13, o.y - 4 + bob, PIXEL * 0.75, 0, false);
+    else {
+      const [ic, c] = SHOP_ICON[o.kd];
+      label(ic, o.x, o.y + 2 + bob, c, 20);
+    }
+    const afford = (me?.co ?? 0) >= o.pr;
+    label(`● ${o.pr}`, o.x, o.y + 32, afford ? '#ffd54f' : '#ef9a9a', 11);
   }
 
   function drawZone(z, now) {
@@ -602,6 +673,8 @@ export function createRenderer(canvas) {
 
   function drawOrb(o, now) {
     const bob = Math.sin(now / 200 + o.id) * 2;
+    if (o.k === 'm') { circle(o.x, o.y + bob, 5, '#fff'); circle(o.x, o.y + bob, 4, '#2196f3'); circle(o.x - 1, o.y - 1 + bob, 1.5, '#bbdefb'); return; }
+    if (o.k === 'g') { circle(o.x, o.y + bob, 5, '#8d6e00'); circle(o.x, o.y + bob, 4, '#ffd54f'); ctx.fillStyle = '#ffecb3'; ctx.fillRect(o.x - 1, o.y - 2 + bob, 1.5, 4); return; }
     ctx.fillStyle = '#69f0ae';
     ctx.beginPath();
     ctx.moveTo(o.x, o.y - 5 + bob);
@@ -693,8 +766,18 @@ export function createRenderer(canvas) {
         ctx.arc(f.x, f.y, f.r * (1.2 - k * 0.5), f.a - f.s / 2, f.a + f.s / 2);
         ctx.closePath();
         ctx.fill();
+      } else if (f.k === 'die') {
+        drawDeath(f, k);
       } else if (f.k === 'dn') {
         if (!showDamage) { ctx.restore(); continue; }
+        if (f.g === 'block') {
+          ctx.font = 'bold 12px sans-serif';
+          ctx.textAlign = 'center';
+          ctx.fillStyle = '#cfd8dc';
+          ctx.fillText(f.v, f.x, f.y - (1 - k) * 18);
+          ctx.restore();
+          continue;
+        }
         const crit = f.g === 'crit', dot = f.g === 'dot';
         const y = f.y - (1 - k) * 22;
         ctx.font = `bold ${crit ? 17 : dot ? 11 : 13}px sans-serif`;
@@ -717,6 +800,74 @@ export function createRenderer(canvas) {
       }
       ctx.restore();
     }
+  }
+
+  // 쓰러진 적: 눕은 몸이 바래 가고, 영혼이 위로 빠져나감 (k: 1 → 0)
+  function drawDeath(f, k) {
+    if (!sprites.ready) return;
+    const prog = 1 - k;
+    const boss = f.ek === 'boss';
+    ctx.globalAlpha = Math.min(1, k * 2.2);
+    if (boss) {
+      const fr = (BOSS_FRAME[f.c] ?? 0) + 2;
+      ctx.drawImage(sprites.bosses, fr * 40, 0, 40, 40, f.x - 40, f.y + f.r - 74, 80, 80);
+    } else if (ENEMY_FRAME[f.ek] !== undefined) {
+      const sc = 2 * (BASE_R[f.ek] ? f.r / BASE_R[f.ek] : 1);
+      const fr = ENEMY_FRAME[f.ek] + 2;
+      ctx.drawImage(sprites.enemies, fr * 24, 0, 24, 24, f.x - 12 * sc, f.y + f.r * (sc / 2) - 18 * sc, 24 * sc, 24 * sc);
+    }
+    // 영혼
+    ctx.globalAlpha = Math.max(0, Math.min(1, prog * 3)) * Math.min(1, k * 1.6) * 0.85;
+    const sx = f.x + Math.sin(prog * 9) * 5, sy = f.y - 8 - prog * 52;
+    const s = boss ? 3 : 1.5;
+    ctx.drawImage(sprites.enemies, SOUL_FRAME * 24, 0, 24, 24, sx - 12 * s, sy - 12 * s, 24 * s, 24 * s);
+  }
+
+  // 보스 위험 지역: 빨간 경고가 차오르고, 다 차면 터짐 / 레이저
+  function drawHazard(h, now) {
+    ctx.save();
+    if (h.k === 'circle') {
+      const c = h.c || '#ff5252';
+      if (!h.on) {
+        ctx.globalAlpha = 0.18;
+        circle(h.x, h.y, h.r, c);
+        ctx.globalAlpha = 0.45;
+        circle(h.x, h.y, h.r * h.p, c);
+        ctx.globalAlpha = 0.9;
+        ctx.strokeStyle = c;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(h.x, h.y, h.r, 0, Math.PI * 2);
+        ctx.stroke();
+      } else {
+        ctx.globalAlpha = 0.4 + Math.sin(now / 120) * 0.08;
+        circle(h.x, h.y, h.r, c);
+      }
+    } else {
+      const ux = Math.cos(h.a), uy = Math.sin(h.a);
+      ctx.lineCap = 'round';
+      if (!h.on) {
+        ctx.globalAlpha = 0.35 + 0.4 * h.p;
+        ctx.strokeStyle = '#ff5252';
+        ctx.lineWidth = h.k === 'line' ? h.w : 2 + 3 * h.p;
+        if (h.k === 'line') ctx.globalAlpha *= 0.4;
+        ctx.setLineDash(h.k === 'line' ? [] : [10, 8]);
+      } else {
+        ctx.globalAlpha = 0.9;
+        ctx.strokeStyle = '#ff8a80';
+        ctx.lineWidth = h.w;
+      }
+      ctx.beginPath();
+      ctx.moveTo(h.x, h.y);
+      ctx.lineTo(h.x + ux * h.len, h.y + uy * h.len);
+      ctx.stroke();
+      if (h.on) {
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = h.w * 0.35;
+        ctx.stroke();
+      }
+    }
+    ctx.restore();
   }
 
   // ---------- HUD ----------
@@ -751,7 +902,8 @@ export function createRenderer(canvas) {
       roundRect(x, y, w, h, 10);
       ctx.fillStyle = hover ? 'rgba(75,63,143,.97)' : 'rgba(30,27,52,.94)';
       ctx.fill();
-      const info = offerInfo(key, me.bf, me.el, me.elv);
+      const cur = me.ws?.[me.sl];
+      const info = offerInfo(key, me.bf, cur ? weaponLabel(cur.k, null) : '무기', cur?.el, cur?.lv);
       ctx.strokeStyle = info.color;
       ctx.lineWidth = 2;
       ctx.stroke();
@@ -763,7 +915,7 @@ export function createRenderer(canvas) {
       ctx.fillStyle = '#fff';
       ctx.font = 'bold 16px sans-serif';
       ctx.fillText(info.name, x + 26, y + 26);
-      const owned = key.startsWith('el:') ? me.el === key.slice(3) : !!me.bf?.[key];
+      const owned = key.startsWith('el:') ? me.ws?.[me.sl]?.el === key.slice(3) : !!me.bf?.[key];
       if (!owned) {
         ctx.fillStyle = '#80cbc4';
         ctx.font = 'bold 11px sans-serif';
@@ -785,31 +937,41 @@ export function createRenderer(canvas) {
     ctx.fillStyle = 'rgba(0,0,0,.45)';
     ctx.fillRect(x0 - 6, y0 - 6, size + 12, size + 12);
     const codes = snap.rs || '';
+    // '-' 모름 · 'k' 길만 앎(회색) · 's' 보임 · 'v' 가 봄 · 'c' 클리어 · 'a' 전투 중
     const known = (r) => codes[r.id] && codes[r.id] !== '-';
-    const visible = known; // 복도를 절반 넘게 건너야 보임
+    const typed = (r) => known(r) && codes[r.id] !== 'k';
     const center = (r) => [x0 + r.gx * cell + cell / 2, y0 + r.gy * cell + cell / 2];
-    ctx.strokeStyle = 'rgba(255,255,255,.35)';
     ctx.lineWidth = 3;
     for (const r of map.rooms) {
-      if (!known(r)) continue;
+      if (!typed(r)) continue;
       for (const id of r.links) {
-        if (!known(map.rooms[id])) continue;
-        const [ax, ay] = center(r), [bx, by] = center(map.rooms[id]);
+        const o = map.rooms[id];
+        if (!known(o)) continue;
+        ctx.strokeStyle = typed(o) ? 'rgba(255,255,255,.35)' : 'rgba(255,255,255,.15)';
+        const [ax, ay] = center(r), [bx, by] = center(o);
         ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke();
       }
     }
+    const ICON = { boss: ['★', '#ffd54f'], shop: ['$', '#ffd54f'], chest: ['▣', '#ffcc80'] };
     for (const r of map.rooms) {
-      if (!visible(r)) continue;
+      if (!known(r)) continue;
       const c = codes[r.id];
-      ctx.fillStyle = c === 'a' ? '#ef5350' : c === 'c' ? '#66bb6a' : c === 's' ? '#9e9e9e' : '#424242';
+      ctx.fillStyle = c === 'a' ? '#ef5350' : c === 'c' ? '#66bb6a' : c === 'v' ? '#8d84b5' : c === 's' ? '#9e9e9e' : '#3a3a44';
       ctx.fillRect(x0 + r.gx * cell + 4, y0 + r.gy * cell + 4, cell - 8, cell - 8);
-      if (r.type === 'boss' && visible(r)) {
-        ctx.fillStyle = '#ffd54f';
+      if (c === 'k') {
+        ctx.fillStyle = '#777';
+        ctx.font = 'bold 10px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('?', x0 + r.gx * cell + cell / 2, y0 + r.gy * cell + cell / 2 + 4);
+        continue;
+      }
+      if (ICON[r.type]) {
+        ctx.fillStyle = ICON[r.type][1];
         ctx.font = 'bold 12px sans-serif';
         ctx.textAlign = 'center';
-        ctx.fillText('★', x0 + r.gx * cell + cell / 2, y0 + r.gy * cell + cell / 2 + 4);
+        ctx.fillText(ICON[r.type][0], x0 + r.gx * cell + cell / 2, y0 + r.gy * cell + cell / 2 + 4);
       }
-      if (r.type === 'portal' && known(r)) {
+      if (r.type === 'portal') {
         ctx.fillStyle = '#b39ddb';
         ctx.fillRect(x0 + r.gx * cell + 9, y0 + r.gy * cell + 7, cell - 18, cell - 14);
       }
@@ -833,16 +995,16 @@ export function createRenderer(canvas) {
       const el = ELEMENTS[cur.el];
       ctx.textAlign = 'right';
       ctx.font = 'bold 13px sans-serif';
-      ctx.fillStyle = el ? el.color : '#fff';
-      ctx.fillText(`${el ? `${el.name}의 ` : ''}${WEAPONS[cur.k].name}${el && el.name === ELEMENTS[me.el]?.name ? ' · 공명!' : ''}`, VIEW_W - 14, y0 - 48);
-      ctx.font = '11.5px sans-serif';
+      ctx.fillStyle = elColor(cur.el);
+      const mix = el && me.el ? (cur.el === me.el ? ' · 공명!' : ` · 결합(${reactionName(cur.el, me.el)})`) : '';
+      ctx.fillText(`${weaponLabel(cur.k, cur.el)}${el ? ` Lv${cur.lv || 1}` : ''} [${TIER_NAME[WEAPONS[cur.k].tier]}]${mix}`, VIEW_W - 14, y0 - 48);
       ctx.font = '11.5px sans-serif';
       ctx.fillStyle = '#cfc8ee';
       ctx.fillText(`우클릭 ${S.skill.name} · Q ${S.ult.name} · 패시브 ${S.passive.name}${slots.length > 1 ? ' · Tab 교체' : ''}`, VIEW_W - 14, y0 - 30);
       const w = me.wst;
       if (w) {
         const W = WEAPONS[cur.k];
-        const extra = W.falloff ? ' · 거리 비례 150%→50%' : W.charge ? ` · 차지 60%→200%${me.ch > 0 ? ` (${Math.round(60 + 140 * me.ch)}%)` : ''}` : '';
+        const extra = W.falloff ? ' · 거리 비례 150%→50%' : '';
         ctx.fillStyle = '#ffe0b2';
         ctx.fillText(`피해 ${w.d} · 초당 ${w.a}회 · 명중 ${w.h}% · 치명 ${w.c}% (x${w.x})${w.m ? ` · 마나 ${w.m}` : ''}${extra}`, VIEW_W - 14, y0 - 12);
       }
@@ -860,6 +1022,10 @@ export function createRenderer(canvas) {
       drawWeaponSprite(s.k, x + 14, y + 22, PIXEL, 0, false);
       ctx.restore();
       if (s.el && ELEMENTS[s.el]) circle(x + bw - 9, y + 9, 5, ELEMENTS[s.el].color);
+      ctx.fillStyle = elColor(s.el);
+      ctx.font = 'bold 9px sans-serif';
+      ctx.textAlign = 'left';
+      ctx.fillText(WEAPONS[s.k].name, x + 5, y + bh - 4, bw - 10);
       // 스킬: 충전 개수 / 쿨타임
       if (s.c <= 0) {
         ctx.fillStyle = 'rgba(0,0,0,.55)';
@@ -868,7 +1034,7 @@ export function createRenderer(canvas) {
         ctx.fillStyle = '#fff';
         ctx.font = 'bold 14px sans-serif';
         ctx.textAlign = 'center';
-        ctx.fillText(`${Math.ceil(s.cd)}`, x + bw / 2, y + bh / 2 + 5);
+        ctx.fillText(me.cb ? `${Math.ceil(s.cd)}` : `${Math.ceil(s.cd)} ⏸`, x + bw / 2, y + bh / 2 + 5);
       } else if (s.cm > 1) {
         for (let k = 0; k < s.cm; k++) circle(x + 8 + k * 9, y + bh - 8, 3, k < s.c ? '#80deea' : '#455a64');
       }
@@ -901,15 +1067,15 @@ export function createRenderer(canvas) {
     ctx.fillStyle = '#fff';
     ctx.font = 'bold 16px sans-serif';
     ctx.fillText(adv ? `스테이지 ${stageLabel(snap.si)}` : `웨이브 ${snap.w}`, 20, 32);
-    if (!adv) {
-      ctx.fillStyle = '#ffd54f';
-      ctx.font = 'bold 15px sans-serif';
-      ctx.fillText(`💰 ${snap.g}`, 175, 32);
-    }
+    ctx.fillStyle = '#ffd54f';
+    ctx.font = 'bold 15px sans-serif';
+    if (!adv) ctx.fillText(`💰 ${snap.g}`, 175, 32);
+    else if (me) ctx.fillText(`● ${me.co}`, 185, 32);
     if (me) {
+      const hw = Math.min(11, 220 / Math.max(1, me.mh));
       for (let i = 0; i < me.mh; i++) {
         ctx.fillStyle = i < me.hp ? '#ef5350' : '#555';
-        ctx.fillRect(20 + i * 11, 39, 8, 10);
+        ctx.fillRect(20 + i * hw, 39, hw - 3, 10);
       }
       // 마나
       ctx.fillStyle = '#1a2340';
@@ -931,7 +1097,8 @@ export function createRenderer(canvas) {
       ctx.font = '12px sans-serif';
       const el = ELEMENTS[me.el];
       ctx.fillStyle = el ? el.color : '#888';
-      ctx.fillText(el ? `캐릭터 속성: ${el.name} Lv ${me.elv}` : '캐릭터 속성 없음', 20, 92);
+      const C = CHARACTERS[me.cr];
+      ctx.fillText(`${C ? C.name : ''} · ${el ? `${el.name} Lv ${me.elv}` : '속성 없음'}`, 20, 92);
       ctx.fillStyle = '#80deea';
       ctx.fillText(`◆ ${me.es}`, 190, 92);
       const owned = Object.entries(me.bf || {}).map(([k, n]) => `${BUFFS[k]?.name ?? k} ${n}`);
@@ -947,7 +1114,7 @@ export function createRenderer(canvas) {
     ctx.font = '13px sans-serif';
     snap.p.forEach((p, i) => {
       ctx.fillStyle = p.c;
-      ctx.fillText(`${p.rd ? '✔ ' : ''}${p.n} Lv${p.lv}  ${'♥'.repeat(Math.max(0, p.hp))}${p.al ? '' : ' ✕'}`, VIEW_W - 14, 52 + i * 18);
+      ctx.fillText(`${p.rd ? '✔ ' : ''}${p.n} · ${CHARACTERS[p.cr]?.name ?? ''} Lv${p.lv}  ${p.hp <= 10 ? '♥'.repeat(Math.max(0, p.hp)) : `♥${p.hp}`}${p.al ? '' : ' ✕'}`, VIEW_W - 14, 52 + i * 18);
     });
 
     if (me) drawWeaponPanel(me);
@@ -969,11 +1136,11 @@ export function createRenderer(canvas) {
       const ready = alive.filter((p) => p.rd).length;
       banner(snap.w === 0 ? '베이스캠프를 준비하세요' : `웨이브 ${snap.w} 클리어!`,
         `다음 웨이브까지 ${Math.ceil(snap.wt)}초 · G 준비 완료 (${ready}/${alive.length}) · 캠프 안에서 체력 회복`);
-    } else if (adv && snap.ar < 0 && snap.rs && !snap.rs.includes('-') && !snap.rs.includes('s')) {
+    } else if (adv && snap.ar < 0 && snap.rs && map.rooms.filter((r) => r.type === 'battle' || r.type === 'boss').every((r) => snap.rs[r.id] === 'c')) {
       banner('모든 방 정복!', '팀원 모두 포털 위에 모이면 다음 스테이지로 출발합니다');
     } else if (adv && snap.ar < 0 && map.boss && !snap.po && snap.rs?.length) {
       const bossRoom = map.rooms.find((r) => r.type === 'boss');
-      if (bossRoom && snap.rs[bossRoom.id] === '-' && performance.now() % 6000 < 2500) banner('보스 스테이지', '미니맵의 ★ 방에 보스가 기다리고 있어요');
+      if (bossRoom && ['-', 'k'].includes(snap.rs[bossRoom.id]) && performance.now() % 6000 < 2500) banner('보스 스테이지', '미니맵의 ★ 방에 보스가 기다리고 있어요');
     }
   }
 
@@ -1045,22 +1212,52 @@ export function createRenderer(canvas) {
     ctx.fillText(text, x, y);
   }
 
+  let nearStatue = null;
+  // 동상 설명 말풍선 (캐릭터 위에 그림)
+  function drawStatueTip(st) {
+    const C = CHARACTERS[st.key];
+    const lines = [`${C.name}  ·  체력 ${C.hp}  ·  마나 ${C.mana}`, `패시브 ${C.passive}: ${C.desc}`, 'E 이 캐릭터로 바꾸기'];
+    ctx.font = '12px sans-serif';
+    const w = Math.max(...lines.map((t) => ctx.measureText(t).width)) + 24;
+    const x = Math.max(8, st.x - w / 2), y = st.y - 112;
+    ctx.fillStyle = 'rgba(14,12,26,.92)';
+    roundRect(x, y, w, 62, 8);
+    ctx.fill();
+    ctx.strokeStyle = C.color;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.textAlign = 'left';
+    ctx.fillStyle = C.color;
+    ctx.font = 'bold 12px sans-serif';
+    ctx.fillText(lines[0], x + 12, y + 18);
+    ctx.fillStyle = '#ddd';
+    ctx.font = '12px sans-serif';
+    ctx.fillText(lines[1], x + 12, y + 36);
+    ctx.fillStyle = '#ffd54f';
+    ctx.font = 'bold 12px sans-serif';
+    ctx.fillText(lines[2], x + 12, y + 54);
+  }
+
   function drawLobbyStations(L, snap, me, now) {
+    nearStatue = null;
     const near = (o, r = 56) => me && Math.hypot(o.x - me.x, o.y - me.y) < r;
-    // 무기 거치대
-    for (const rack of L.racks) {
-      const taken = snap.p.filter((p) => p.wp === rack.key);
-      ctx.fillStyle = '#4e342e';
-      ctx.fillRect(rack.x - 26, rack.y + 6, 52, 10);
-      ctx.fillStyle = '#6d4c41';
-      ctx.fillRect(rack.x - 26, rack.y + 4, 52, 4);
-      ctx.fillStyle = '#3e2723';
-      ctx.fillRect(rack.x - 22, rack.y - 18, 4, 26);
-      ctx.fillRect(rack.x + 18, rack.y - 18, 4, 26);
-      drawWeaponSprite(rack.key, rack.x - 20, rack.y - 6, PIXEL, 0, false, taken.length ? 0.45 : 1);
-      label(WEAPONS[rack.key].name, rack.x, rack.y + 30, taken.length ? '#9e9e9e' : '#fff', 11);
-      taken.forEach((p, i) => circle(rack.x + 30 + i * 9, rack.y - 6, 4, p.c));
-      if (near(rack)) label('E 무기 들기', rack.x, rack.y - 26, '#ffd54f');
+    // 캐릭터 동상
+    for (const st of L.statues || []) {
+      const C = CHARACTERS[st.key];
+      const taken = snap.p.filter((p) => p.cr === st.key);
+      ctx.fillStyle = '#3a3556';
+      ctx.fillRect(st.x - 20, st.y + 8, 40, 10);
+      ctx.fillStyle = '#4a4470';
+      ctx.fillRect(st.x - 20, st.y + 6, 40, 4);
+      if (sprites.ready) {
+        ctx.save();
+        ctx.globalAlpha = taken.length ? 0.5 : 1;
+        drawPlayerFrame(tintedPlayer(C.color), Math.floor(now / 300) % 4, st.x, st.y - 8, false, false);
+        ctx.restore();
+      }
+      label(C.name, st.x, st.y + 30, taken.length ? '#9e9e9e' : C.color, 11);
+      taken.forEach((p, i) => circle(st.x + 22 + i * 9, st.y - 18, 4, p.c));
+      if (near(st, 50)) nearStatue = st;
     }
     // 옷장 (스킨)
     if (L.wardrobe) {
@@ -1133,9 +1330,9 @@ export function createRenderer(canvas) {
       ctx.fillStyle = p.c;
       ctx.font = 'bold 12px sans-serif';
       ctx.fillText(`${i + 1}P ${p.n}${p.id === snap.hid ? ' 👑' : ''}`, 20, y);
-      ctx.fillStyle = p.wp ? '#ddd' : '#ef9a9a';
+      ctx.fillStyle = CHARACTERS[p.cr]?.color || '#ddd';
       ctx.font = '12px sans-serif';
-      ctx.fillText(p.wp ? WEAPONS[p.wp].name : '무기 없음', 160, y);
+      ctx.fillText(CHARACTERS[p.cr]?.name || '', 160, y);
     });
     if (extra.build) {
       ctx.fillStyle = 'rgba(0,0,0,.55)';
@@ -1155,7 +1352,7 @@ export function createRenderer(canvas) {
     roundRect(VIEW_W / 2 - 300, VIEW_H - 64, 600, 24, 6);
     ctx.fill();
     ctx.fillStyle = '#eee';
-    ctx.fillText('거치대에서 E로 무기 · 제단(K) 스킬 트리 · 옷장 스킨 · 모두 포털에 들어가면 출발', VIEW_W / 2, VIEW_H - 48);
+    ctx.fillText('동상에서 E로 캐릭터 · 제단(K) 스킬 트리 · 옷장 스킨 · 1~4 스킬 시험 · 모두 포털에 들어가면 출발', VIEW_W / 2, VIEW_H - 48);
     if (snap.lp && snap.lpt) banner('출발할 수 없어요', snap.lp);
   }
 
@@ -1214,17 +1411,15 @@ export function createRenderer(canvas) {
     if (map.lobby) drawLobbyStations(map.lobby, snap, me, now);
     for (const o of snap.xo || []) if (!o.tk.includes(myId)) drawOrb(o, now);
     for (const z of snap.zn || []) drawZone(z, now);
+    for (const h of snap.hz || []) drawHazard(h, now);
     for (const c of snap.cs || []) drawChest(c);
-    for (const o of snap.pk || []) drawPickup(o, now, me?.al && Math.hypot(o.x - me.x, o.y - me.y) < 48);
-    if (me?.al) {
-      const chest = (snap.cs || []).find((c) => !c.o && Math.hypot(c.x - me.x, c.y - me.y) < 48);
-      if (chest) {
-        ctx.fillStyle = '#ffd54f';
-        ctx.font = 'bold 12px sans-serif';
-        ctx.textAlign = 'center';
-        ctx.fillText('E 열기', chest.x, chest.y - 20);
-      }
-    }
+    for (const o of snap.sh || []) drawShopItem(o, now, me);
+    const dist = (o) => (me ? Math.hypot(o.x - me.x, o.y - me.y) : 1e9);
+    // E로 상호작용할 대상 하나 (게임과 같은 순서: 상자 → 상점 → 무기)
+    const chest = me?.al && (snap.cs || []).find((c) => !c.o && dist(c) < 48);
+    const shopItem = me?.al && !chest && (snap.sh || []).filter((o) => !o.so && dist(o) < 38).sort((a, b) => dist(a) - dist(b))[0];
+    const pick = me?.al && !chest && !shopItem && (snap.pk || []).filter((o) => dist(o) < 48).sort((a, b) => dist(a) - dist(b))[0];
+    for (const o of snap.pk || []) drawPickup(o, now, o === pick);
     ctx.restore();
 
     for (const s of snap.st) drawStruct(s, cam);
@@ -1250,6 +1445,16 @@ export function createRenderer(canvas) {
     for (const e of snap.e) drawEnemy(e, now, me);
     for (const p of snap.p) drawPlayer(p, p.id === myId, now);
     drawFx(snap.fx);
+    if (map.lobby && nearStatue) drawStatueTip(nearStatue);
+    if (chest) label('E 열기', chest.x, chest.y - 24, '#ffd54f');
+    if (pick) weaponTip(pick.k, pick.el, pick.lv, pick.x, pick.y - 12, 'E 줍기:', me);
+    if (shopItem) {
+      if (shopItem.kd === 'weapon') weaponTip(shopItem.k, shopItem.el, shopItem.lv, shopItem.x, shopItem.y - 16, `E 사기 ●${shopItem.pr}:`, me);
+      else {
+        const it = SHOP[shopItem.kd];
+        label(`E 사기 ●${shopItem.pr}: ${it.name} (${it.desc})`, shopItem.x, shopItem.y - 26, '#ffd54f', 12);
+      }
+    }
     ctx.restore();
 
     if (snap.ph === 'lobby') drawLobbyHud(snap, me, extra);

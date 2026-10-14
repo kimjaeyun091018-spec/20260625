@@ -2,20 +2,19 @@
 // 멀티플레이에서는 방장(호스트)의 브라우저만 이 시뮬레이션을 돌리고,
 // 참가자들은 입력만 보내고 결과(스냅샷)를 받아서 그립니다.
 //
-// 흐름: lobby(걸어 다니는 방: 무기 거치대·포털) → playing → (모험) transition(스테이지 보상·전직) → … → over → lobby
+// 흐름: lobby(걸어 다니는 방: 캐릭터 동상·포털) → playing → (모험) transition(스테이지 보상·전직) → … → over → lobby
 
 import {
-  TILE, MAX_PLAYERS, WEAPONS, WEAPON_KEYS, weaponFam, SKILLS, WEAPON_SLOTS, SWAP_COOLDOWN, RESONANCE_ULT,
-  CHEST_CHANCE, sameWeaponLimit, ENEMY_TYPES, STRUCTS, BUFFS, ELEMENTS, ELEMENT_MAX, ELEMENT_MAX_BONUS,
-  MAX_AUGMENT_TYPES, STAGE_REWARDS, STAGES_PER_WORLD, WORLDS, ESSENCE, BOSSES, stageLabel, xpToNext,
-  enemyScale, MANA, activeManaCost, SKINS,
+  TILE, MAX_PLAYERS, WEAPONS, START_WEAPON, weaponFam, SKILLS, WEAPON_SLOTS, SWAP_COOLDOWN, RESONANCE, COMBO_EVERY,
+  DROP_TIERS, DROP_ELEMENT_CHANCE, CHARACTERS, CHARACTER_KEYS, sameCharLimit, ENEMY_TYPES, STRUCTS, BUFFS,
+  ELEMENTS, ELEMENT_MAX, ELEMENT_MAX_BONUS, MAX_AUGMENT_TYPES, STAGE_REWARDS, STAGES_PER_WORLD, WORLDS, ESSENCE,
+  BOSSES, SHOP, stageLabel, xpToNext, enemyScale, MANA, activeManaCost, SKINS,
 } from './data.js';
 import { buildCampMap, buildLobbyMap, generateDungeon, tileCenter } from './maps.js';
 import { ACTIVES, PERKS, NODE, LOADOUT_SIZE, sanitizeBuild, buildBonus } from './tree.js';
 
 const PLAYER_COLORS = ['#4fc3f7', '#ffb74d', '#f06292', '#aed581'];
 const PLAYER_RADIUS = 12;
-const PLAYER_MAX_HP = 6;
 const PLAYER_SPEED = 190;
 const DASH_SPEED = 560;
 const DASH_TIME = 0.14;
@@ -26,14 +25,16 @@ const OVER_DELAY = 4;
 const START_GOLD = 20;
 const CAMP_HEAL_EVERY = 1.5;
 const MAX_STRUCTS = 40;
-const MAX_ORBS = 160;
+const MAX_ORBS = 260;
+const ORB_RANGE = 42;
+const KNIGHT_SHIELD = 4;
 const ORB_LIFE = 45;
 const TRANSITION_TIME = 30;
 const INTERACT_RANGE = 48;
 const PORTAL_RANGE = 56;
 const SWING_TIME = 0.18;
 
-const ACTION_RE = /^(fence|turret|demolish|ready|skill|ult|swap|evoskip|evo[12]|cast[1-4]|pick[1-3]|reward[1-3])$/;
+const ACTION_RE = /^(fence|turret|demolish|ready|skill|ult|swap|evoskip|evo[1-4]|cast[1-4]|pick[1-3]|reward[1-3])$/;
 
 // ---------- 입력 ----------
 export const EMPTY_INPUT = Object.freeze({
@@ -55,14 +56,14 @@ export function sanitizeInput(i) {
 
 export function sanitizeName(name) {
   const s = String(name ?? '').trim().slice(0, 10);
-  return s || '기사';
+  return s || '모험가';
 }
 
 // ---------- 상태 ----------
 function runLists() {
   return {
     enemies: [], bullets: [], structs: [], structMap: new Map(), fx: [], orbs: [],
-    grenades: [], zones: [], chests: [], pickups: [],
+    grenades: [], zones: [], chests: [], pickups: [], shop: [], hazards: [],
     doorSet: new Set(), activeRoom: null, portalT: 0, chestsThisStage: 0,
     lobbyPortal: null, lobbyPortalT: 0,
   };
@@ -78,7 +79,7 @@ export function createState(hostId) {
     nextId: 1,
     players: {},
     ...runLists(),
-    map: buildLobbyMap(WEAPON_KEYS),
+    map: buildLobbyMap(CHARACTER_KEYS),
     stageIdx: 0,
     transT: 0,
     overT: 0,
@@ -192,25 +193,36 @@ function aimPoint(p, inp, maxD) {
 }
 
 // ---------- 무기 칸 ----------
-function newSlot(key, el = null) {
-  return { key, el, ult: 0, cd: 0, charges: WEAPONS[key].charges || 1 };
+// el/elv: 무기에 붙은 속성과 레벨 (속성 카드는 '들고 있는 무기'에 속성을 붙임)
+function newSlot(key, el = null, elv = 0) {
+  return { key, el: el || null, elv: el ? Math.max(1, elv || 1) : 0, ult: 0, cd: 0, charges: WEAPONS[key].charges || 1 };
 }
 
 const held = (p) => p.weapons[p.slot] || p.weapons[0];
 const heldFam = (p) => weaponFam(held(p)?.key);
 const skillCdOf = (key) => WEAPONS[key].skillCd || SKILLS[weaponFam(key)].skill.cd;
+const charOf = (p) => CHARACTERS[p.char] || CHARACTERS.knight;
 const maxHpOf = (p) => p.maxHp + (heldFam(p) === 'hammer' ? 2 : 0); // 해머 패시브: 강철 몸
 const weaponSlotsOf = (p) => WEAPON_SLOTS + (p.bonus.slot ? 1 : 0);
 const hasPerk = (p, k) => !!p?.perks?.includes(k);
 
-// 공격에 붙는 속성: 무기 속성이 우선. 무기 속성 = 캐릭터 속성이면 공명(레벨 +1)
-function attackElement(p) {
+// 공격 한 번(한 발 묶음)에 붙는 속성
+// - 무기 속성 = 캐릭터 속성: 공명 (레벨 +1, 피해 ×1.2)
+// - 무기 속성 ≠ 캐릭터 속성: 결합 (3번째 공격마다 캐릭터 속성도 함께 → 원소 반응)
+// - 무기에 속성이 없으면 캐릭터 속성
+// count=true면 결합 횟수를 셉니다 (실제 공격할 때만)
+function attackElement(p, count = false) {
   const s = held(p);
   if (s?.el) {
-    const resonance = s.el === p.element;
-    return { el: s.el, elv: resonance ? Math.min(ELEMENT_MAX_BONUS + 1, p.elementLv + 1) : 1, resonance };
+    const resonance = !!p.element && s.el === p.element;
+    let el2 = null, elv2 = 0;
+    if (!resonance && p.element) {
+      if (count) p.comboN = (p.comboN + 1) % COMBO_EVERY;
+      if (count && p.comboN === 0) { el2 = p.element; elv2 = p.elementLv; }
+    }
+    return { el: s.el, elv: resonance ? Math.min(ELEMENT_MAX_BONUS + 1, s.elv + 1) : s.elv, resonance, el2, elv2 };
   }
-  return { el: p.element, elv: p.elementLv, resonance: false };
+  return { el: p.element, elv: p.elementLv, resonance: false, el2: null, elv2: 0 };
 }
 
 // 궁극기 게이지 충전 (들고 있는 무기가 그 계열·방식일 때만)
@@ -219,7 +231,7 @@ function chargeUlt(p, fam, type, amount) {
   if (!s || weaponFam(s.key) !== fam) return;
   const def = SKILLS[fam].ult;
   if (def.type !== type || p.ultT > 0) return;
-  const mult = (attackElement(p).resonance ? RESONANCE_ULT : 1) * p.bonus.ultMul;
+  const mult = (attackElement(p).resonance ? RESONANCE.ult : 1) * p.bonus.ultMul;
   s.ult = Math.min(def.need, s.ult + amount * mult);
 }
 
@@ -229,14 +241,15 @@ function usedColor(state, color) {
 }
 
 function freshRunStats(p) {
+  const C = charOf(p);
   Object.assign(p, {
-    hp: PLAYER_MAX_HP, maxHp: PLAYER_MAX_HP, alive: true, score: 0, invuln: 1.5,
-    fireCd: 0, dashCd: 0, dashT: 0, healT: 0, moving: false, es: 0,
+    hp: C.hp, maxHp: C.hp, alive: true, score: 0, invuln: 1.5,
+    fireCd: 0, dashCd: 0, dashT: 0, healT: 0, moving: false, es: 0, coins: 0,
     buffs: {}, augTypes: [], offer: null, offerQueue: 0, element: null, elementLv: 0,
     level: 1, xp: 0, ready: false, reward: null, rewardDone: false, evo: null, evoDone: true, rewardsTaken: [],
-    bonus: { dmgPct: 0, rate: 0, speed: 0, xpMul: 1, iron: false, vamp: 0, slot: false, cdMul: 1, phoenix: false, essMul: 1, ultMul: 1 },
-    mana: MANA.max, manaMsgT: 0,
-    weapons: [newSlot(p.weapon || 'gun')], slot: 0, swapCd: 0,
+    bonus: { dmgPct: 0, rate: 0, speed: 0, xpMul: 1, iron: false, vamp: 0, slot: false, cdMul: 1, phoenix: false, essMul: 1, ultMul: 1, coinMul: 1 },
+    mana: C.mana, manaMsgT: 0, comboN: 0, shieldT: 0, dsx: 0, dsy: 0,
+    weapons: [newSlot(START_WEAPON)], slot: 0, swapCd: 0,
     parry: 0, markId: null, markN: 0, spin: 0, spinIdle: 0, chargeT: 0,
     sdash: null, dashHits: [], javelin: null, ultT: 0, ultTick: 0, ultStep: 0,
     loadout: [], casts: [0, 0, 0, 0], perks: [], staticT: 0, swingT: 0, swingDir: 1,
@@ -268,7 +281,9 @@ export function setBuild(state, id, build) {
   const p = state.players[id];
   if (!p) return;
   p.build = sanitizeBuild(build);
-  p.skin = SKINS[build?.skin] ? build.skin : 'shadow'; // 로비에서도 스킨이 바로 보이도록
+  p.skin = p.build.skin; // 로비에서도 스킨이 바로 보이도록
+  // 로비에서는 속성·장착 스킬을 바로 시험해 볼 수 있게 적용
+  if (state.phase === 'lobby') { freshRunStats(p); applyBuild(p); p.invuln = 0; }
 }
 
 export function addPlayer(state, id, name) {
@@ -277,13 +292,11 @@ export function addPlayer(state, id, name) {
   const color = PLAYER_COLORS.find((c) => !usedColor(state, c)) ?? PLAYER_COLORS[0];
   const p = {
     id, name: sanitizeName(name), color, x: 0, y: 0, r: PLAYER_RADIUS,
-    angle: 0, weapon: null, lastSeq: 0, paused: false, dashX: 0, dashY: 0, build: null, skin: 'shadow',
+    angle: 0, char: pickFreeChar(state), lastSeq: 0, paused: false, dashX: 0, dashY: 0, build: null, skin: 'shadow',
   };
   freshRunStats(p);
   // 게임 도중 들어오면 관전(쓰러진 상태)으로 시작해서 다음 부활 때 합류합니다.
   if (state.phase !== 'lobby') {
-    p.weapon = pickFreeWeapon(state);
-    p.weapons = [newSlot(p.weapon)];
     p.alive = false;
     p.hp = 0;
   }
@@ -303,41 +316,45 @@ function placeAtSpawn(state, p, index) {
   p.y = s.y + offs[1];
 }
 
-function weaponCount(state, key, exceptId) {
-  return Object.values(state.players).filter((p) => p.weapon === key && p.id !== exceptId).length;
+function charCount(state, key, exceptId) {
+  return Object.values(state.players).filter((p) => p.char === key && p.id !== exceptId).length;
 }
 
-function pickFreeWeapon(state) {
-  const limit = sameWeaponLimit(Object.keys(state.players).length + 1);
-  return WEAPON_KEYS.find((k) => weaponCount(state, k) < limit) || 'gun';
+function pickFreeChar(state) {
+  const limit = sameCharLimit(Object.keys(state.players).length + 1);
+  return CHARACTER_KEYS.find((k) => charCount(state, k) < limit) || 'knight';
 }
 
 function stats(p) {
   const b = p.buffs, B = p.bonus;
   const s = held(p);
-  const W = WEAPONS[s?.key] || WEAPONS.gun;
+  const W = WEAPONS[s?.key] || WEAPONS[START_WEAPON];
   const fam = W.fam;
   const gunUlt = fam === 'gun' && p.ultT > 0;
   const tail = hasPerk(p, 'tailwind');
-  const mul = 1 + 0.12 * (b.dmg || 0) + B.dmgPct;
+  const ch = p.char;
+  const ae = attackElement(p);
+  // 광전사: 잃은 체력 1칸마다 피해 +8%
+  const rage = ch === 'berserker' ? 0.08 * Math.max(0, maxHpOf(p) - p.hp) : 0;
+  const mul = (1 + 0.12 * (b.dmg || 0) + B.dmgPct + rage) * (ae.resonance ? RESONANCE.dmg : 1);
   const rate = (1 + 0.08 * (b.rate || 0) + B.rate) * (1 + (fam === 'gun' ? p.spin : 0)) * (gunUlt ? 3 : 1);
   return {
     W, fam, mul,
     dmg: W.dmg * mul,
     // 저격총·쇠뇌·샷건은 최소 간격(minCd)보다 빨라지지 않음
     cd: Math.max(gunUlt ? 0 : W.minCd || 0, W.cd / rate),
-    crit: Math.min(0.9, (W.crit || 0) + 0.05 * (b.crit || 0)),
-    critX: W.critX || 2,
+    crit: Math.min(0.9, (W.crit || 0) + 0.05 * (b.crit || 0) + (ch === 'rogue' ? 0.15 : 0)),
+    critX: (W.critX || 2) + (ch === 'rogue' ? 0.5 : 0),
     inacc: (W.inacc || 0) + (gunUlt ? 0.3 : 0),
     shots: 1 + (b.multi || 0),
-    speed: PLAYER_SPEED * (1 + 0.06 * (b.speed || 0) + B.speed + (tail ? 0.08 : 0)),
+    speed: PLAYER_SPEED * (1 + 0.06 * (b.speed || 0) + B.speed + (tail ? 0.08 : 0) + (ch === 'ranger' ? 0.15 : 0)),
     pierce: (W.pierce || 0) + (b.pierce || 0),
     bounce: b.bounce || 0,
     reach: 1 + 0.1 * (b.reach || 0),
-    dashCd: DASH_COOLDOWN * 0.88 ** (b.dash || 0) * (B.iron ? 0.7 : 1) * (tail ? 0.7 : 1),
+    dashCd: DASH_COOLDOWN * 0.88 ** (b.dash || 0) * (B.iron ? 0.7 : 1) * (tail ? 0.7 : 1) * (ch === 'ranger' ? 0.7 : 1),
     vamp: B.vamp,
-    maxMana: MANA.max + 20 * (b.mana || 0),
-    manaRegen: 1 + 0.15 * (b.mana || 0),
+    maxMana: charOf(p).mana + 25 * (b.mana || 0),
+    manaGain: (1 + 0.15 * (b.mana || 0)) * (ch === 'mage' ? 1.5 : 1),
   };
 }
 
@@ -396,12 +413,14 @@ function makeOffer(p) {
     if (full && !p.augTypes.includes(k)) return false;
     return (p.buffs[k] || 0) < d.max;
   });
+  // 속성 카드: 들고 있는 무기에 속성을 붙임 (같은 속성이면 레벨 업)
+  const w = held(p);
   let elements = Object.keys(ELEMENTS)
-    .filter((k) => !(p.element === k && p.elementLv >= ELEMENT_MAX))
+    .filter((k) => !(w.el === k && w.elv >= ELEMENT_MAX))
     .map((k) => `el:${k}`);
-  if (full) elements = p.augTypes.includes('el') && p.element && p.elementLv < ELEMENT_MAX ? [`el:${p.element}`] : [];
+  if (full) elements = p.augTypes.includes('el') && w.el && w.elv < ELEMENT_MAX ? [`el:${w.el}`] : [];
   const offer = shuffle([...buffs, ...elements]).slice(0, 3);
-  if (!p.element && elements.length && !offer.some((k) => k.startsWith('el:'))) {
+  if (!w.el && elements.length && !offer.some((k) => k.startsWith('el:'))) {
     offer[offer.length - 1] = shuffle(elements)[0];
   }
   return offer.length ? offer : null;
@@ -411,9 +430,9 @@ function applyBuff(p, key) {
   const type = key.startsWith('el:') ? 'el' : key;
   if (!p.augTypes.includes(type)) p.augTypes.push(type);
   if (key.startsWith('el:')) {
-    const k = key.slice(3);
-    if (p.element === k) p.elementLv = Math.min(ELEMENT_MAX_BONUS, p.elementLv + 1);
-    else { p.element = k; p.elementLv = 1; }
+    const k = key.slice(3), w = held(p);
+    if (w.el === k) w.elv = Math.min(ELEMENT_MAX, w.elv + 1);
+    else { w.el = k; w.elv = 1; }
     return;
   }
   p.buffs[key] = (p.buffs[key] || 0) + 1;
@@ -473,48 +492,49 @@ function applyReward(p, key) {
   else if (k === 'slot') B.slot = true;
   else if (k === 'focus') B.cdMul *= 0.75;
   else if (k === 'phoenix') B.phoenix = true;
-  else if (k === 'coin') B.essMul += 0.5;
+  else if (k === 'coin') { B.essMul += 0.5; B.coinMul += 0.5; }
   else if (k === 'surge') B.ultMul += 0.3;
 }
 
 function evolve(p, key) {
   const s = held(p);
   if (!s || !WEAPONS[s.key].evo?.includes(key)) return;
-  s.key = key;
+  s.key = key;            // 진화한 무기는 별개의 무기 (속성은 그대로)
   s.charges = WEAPONS[key].charges || 1;
   s.cd = 0;
+  s.ult = 0;
 }
 
 // ---------- 로비 ----------
 export function lobbyProblem(state) {
   const players = Object.values(state.players);
-  if (players.some((p) => !p.weapon)) return '모든 플레이어가 무기 거치대에서 무기를 골라야 해요.';
-  const limit = sameWeaponLimit(players.length);
-  for (const k of WEAPON_KEYS) {
-    if (players.filter((p) => p.weapon === k).length > limit) {
+  const limit = sameCharLimit(players.length);
+  for (const k of CHARACTER_KEYS) {
+    if (players.filter((p) => p.char === k).length > limit) {
       return players.length <= 2
-        ? `2인 플레이에서는 같은 무기(${WEAPONS[k].name})를 고를 수 없어요.`
-        : `같은 무기(${WEAPONS[k].name})는 최대 2명까지 고를 수 있어요.`;
+        ? `2인 플레이에서는 같은 캐릭터(${CHARACTERS[k].name})를 고를 수 없어요.`
+        : `같은 캐릭터(${CHARACTERS[k].name})는 최대 2명까지 고를 수 있어요.`;
     }
   }
   return null;
 }
 
-// 로비에서 E: 가까운 무기 거치대의 무기를 듭니다.
+// 로비에서 E: 가까운 캐릭터 동상의 캐릭터로 바꿉니다.
 function lobbyInteract(state, p) {
-  const rack = nearest(state.map.lobby.racks, p.x, p.y, INTERACT_RANGE + 8);
-  if (!rack) return;
-  const k = rack.key;
-  if (p.weapon === k) return;
-  const limit = sameWeaponLimit(Object.keys(state.players).length);
-  if (weaponCount(state, k, p.id) >= limit) {
-    floatText(state, rack.x, rack.y - 30, '다른 플레이어가 쓰는 중', '#ef9a9a', 1);
+  const st = nearest(state.map.lobby.statues, p.x, p.y, INTERACT_RANGE + 8);
+  if (!st) return;
+  const k = st.key;
+  if (p.char === k) return;
+  const limit = sameCharLimit(Object.keys(state.players).length);
+  if (charCount(state, k, p.id) >= limit) {
+    floatText(state, st.x, st.y - 30, '다른 플레이어가 고른 캐릭터', '#ef9a9a', 1);
     return;
   }
-  p.weapon = k;
-  p.weapons = [newSlot(k)];
-  p.slot = 0;
-  floatText(state, p.x, p.y - 34, WEAPONS[k].name, '#ffd54f', 0.8);
+  p.char = k;
+  freshRunStats(p);
+  applyBuild(p);
+  p.invuln = 0;
+  floatText(state, p.x, p.y - 34, CHARACTERS[k].name, CHARACTERS[k].color, 0.9);
 }
 
 // 로비 포털: 모두가 같은 포털 위에 모이면 그 모드로 출발
@@ -544,6 +564,7 @@ function startRun(state) {
   } else {
     state.stageIdx = 0;
     state.map = generateDungeon(0, { boss: isBossStage(0) });
+    setupStageRooms(state);
   }
   Object.values(state.players).forEach((p, i) => placeAtSpawn(state, p, i));
 }
@@ -559,7 +580,7 @@ function endRun(state, text) {
 function backToLobby(state) {
   Object.assign(state, runLists());
   state.phase = 'lobby';
-  state.map = buildLobbyMap(WEAPON_KEYS);
+  state.map = buildLobbyMap(CHARACTER_KEYS);
   Object.values(state.players).forEach((p, i) => { freshRunStats(p); placeAtSpawn(state, p, i); });
 }
 
@@ -600,39 +621,92 @@ function damageStruct(state, s, dmg) {
   }
 }
 
-// ---------- 보물상자 & 무기 줍기 ----------
-function spawnChest(state, x, y) {
+// ---------- 보물상자 & 무기 줍기 & 상점 ----------
+function spawnChest(state, x, y, big = false) {
   const spot = freeSpotNear(state, x, y);
-  state.chests.push({ id: state.nextId++, x: spot.x, y: spot.y, open: false });
+  state.chests.push({ id: state.nextId++, x: spot.x, y: spot.y, open: false, big });
   state.chestsThisStage++;
 }
 
-function randomWeaponDrop() {
-  const key = shuffle([...WEAPON_KEYS])[0];
-  const el = Math.random() < 0.6 ? shuffle(Object.keys(ELEMENTS))[0] : null;
-  return { key, el };
+// 지금 월드(모험) 또는 웨이브(캠프)에 맞는 무기 하나: 단계(1~3)와 속성(있음/없음)을 무작위로
+function worldOf(state) {
+  return state.mode === 'camp' ? Math.min(2, Math.floor(state.wave / 6)) : Math.min(2, Math.floor(state.stageIdx / STAGES_PER_WORLD));
 }
 
-// E 키: 가까운 상자 열기 → 가까운 무기 줍기 (칸이 꽉 차면 들고 있는 무기와 바꿈)
+function randomWeaponDrop(state, minTier = 1) {
+  const probs = DROP_TIERS[worldOf(state)];
+  let r = Math.random(), tier = 1;
+  for (let i = 0; i < probs.length; i++) { if (r < probs[i]) { tier = i + 1; break; } r -= probs[i]; tier = i + 2; }
+  tier = Math.max(minTier, Math.min(3, tier));
+  const keys = Object.keys(WEAPONS).filter((k) => WEAPONS[k].tier === tier && k !== START_WEAPON);
+  const key = shuffle(keys)[0];
+  const el = Math.random() < DROP_ELEMENT_CHANCE ? shuffle(Object.keys(ELEMENTS))[0] : null;
+  return { key, el, elv: el ? 1 : 0 };
+}
+
+const roomCenter = (r) => ({ x: (r.x0 + r.w / 2) * TILE, y: (r.y0 + r.h / 2) * TILE });
+
+// 새 스테이지: 상자방에는 큰 상자, 상점방에는 상품 4개
+function setupStageRooms(state) {
+  state.shop = [];
+  for (const r of state.map.rooms || []) {
+    const c = roomCenter(r);
+    if (r.type === 'chest') spawnChest(state, c.x, c.y, true);
+    if (r.type === 'shop') {
+      const items = [
+        { kind: 'weapon', ...randomWeaponDrop(state) },
+        { kind: 'weapon', ...randomWeaponDrop(state, 2) },
+        { kind: 'heal' },
+        { kind: Math.random() < 0.5 ? 'mana' : 'card' },
+      ];
+      items.forEach((it, i) => {
+        const price = it.kind === 'weapon' ? SHOP.weapon[WEAPONS[it.key].tier] + (it.el ? SHOP.elementExtra : 0) : SHOP[it.kind].price;
+        state.shop.push({ id: state.nextId++, x: c.x + (i - 1.5) * 52, y: c.y + 10, sold: false, price, ...it });
+      });
+    }
+  }
+}
+
+function buy(state, p, item) {
+  if (item.sold) return;
+  if (p.coins < item.price) {
+    floatText(state, item.x, item.y - 30, `동전이 모자라요 (${item.price})`, '#ffcc80', 1);
+    return;
+  }
+  p.coins -= item.price;
+  item.sold = true;
+  if (item.kind === 'weapon') state.pickups.push({ id: state.nextId++, x: item.x, y: item.y + 30, key: item.key, el: item.el, elv: item.elv });
+  else if (item.kind === 'heal') heal(p, 3);
+  else if (item.kind === 'mana') p.mana = Math.min(stats(p).maxMana, p.mana + 60);
+  else if (item.kind === 'card') { p.offerQueue++; nextOffer(p); }
+  floatText(state, item.x, item.y - 30, '구매!', '#ffd54f', 1);
+}
+
+// E 키: 가까운 상자 열기 → 상점 상품 사기 → 가까운 무기 줍기 (칸이 꽉 차면 들고 있는 무기와 바꿈)
 function interact(state, p) {
   const chest = nearest(state.chests.filter((c) => !c.open), p.x, p.y, INTERACT_RANGE);
   if (chest) {
     chest.open = true;
-    const drop = randomWeaponDrop();
+    const drop = randomWeaponDrop(state, chest.big ? 2 : 1);
     state.pickups.push({ id: state.nextId++, x: chest.x, y: chest.y + 26, ...drop });
+    // 상자에서 동전·마나도 쏟아짐
+    dropOrbs(state, chest.x, chest.y, 'g', chest.big ? 14 : 6, 30);
+    dropOrbs(state, chest.x, chest.y, 'm', 3, 30, 10);
     floatText(state, chest.x, chest.y - 18, '무기 획득!', '#ffd54f', 1);
     return;
   }
+  const item = nearest(state.shop.filter((o) => !o.sold), p.x, p.y, INTERACT_RANGE - 10);
+  if (item) { buy(state, p, item); return; }
   const pk = nearest(state.pickups, p.x, p.y, INTERACT_RANGE);
   if (!pk) return;
   state.pickups = state.pickups.filter((o) => o !== pk);
-  const slot = newSlot(pk.key, pk.el);
+  const slot = newSlot(pk.key, pk.el, pk.elv);
   if (p.weapons.length < weaponSlotsOf(p)) {
     p.weapons.push(slot);
     p.slot = p.weapons.length - 1;
   } else {
     const old = held(p);
-    state.pickups.push({ id: state.nextId++, x: p.x, y: p.y + 10, key: old.key, el: old.el });
+    state.pickups.push({ id: state.nextId++, x: p.x, y: p.y + 10, key: old.key, el: old.el, elv: old.elv });
     p.weapons[p.slot] = slot;
     if (p.javelin) p.javelin = null;
   }
@@ -656,6 +730,7 @@ function doAction(state, p, inp) {
     if (act === 'fence') lobbyInteract(state, p);
     else if (act === 'swap') swapWeapon(p);
     else if (act === 'skill') useSkill(state, p, inp);
+    else if (act.startsWith('cast')) castActive(state, p, Number(act[4]) - 1, inp); // 로비에서 스킬 시험
     return;
   }
   if (state.phase === 'transition') {
@@ -691,6 +766,7 @@ function doAction(state, p, inp) {
 
 // ---------- 마나 & 치명타 ----------
 function spendMana(state, p, cost) {
+  if (state.phase === 'lobby') return true; // 로비에서는 마나 무한
   if (cost <= 0 || p.mana >= cost) { p.mana -= Math.max(0, cost); return true; }
   if (p.manaMsgT <= 0) {
     floatText(state, p.x, p.y - 34, '마나 부족', '#64b5f6', 0.7);
@@ -714,26 +790,35 @@ function makeBullet(state, p, a, speed, extra) {
   };
 }
 
-function shoot(state, p, st, power = 1) {
+function shoot(state, p, st) {
   const W = st.W;
   // 마나: 한 번 쏠 때마다 (궁극기 '난사' 중에는 무료)
   if (!(st.fam === 'gun' && p.ultT > 0) && !spendMana(state, p, W.mana || 0)) return false;
-  const speed = W.speed * (attackElement(p).el === 'wind' ? 1.3 : 1) * (W.charge ? 0.7 + 0.5 * power : 1);
+  const ae = attackElement(p, true);
+  const speed = W.speed * (ae.el === 'wind' ? 1.3 : 1);
   const pellets = W.pellets || 1;
   const total = st.shots * pellets;
   const spread = (W.spread || 0.16);
-  for (let i = 0; i < total; i++) {
-    const a = p.angle + (total > 1 ? (i / (total - 1) - 0.5) * spread * Math.max(1, total / 3) : 0) + (Math.random() - 0.5) * st.inacc;
-    // 멀티샷으로 늘어난 총알은 피해 50%
-    const extra = pellets > 1 ? i >= pellets : i > 0;
-    let dmg = (W.charge ? st.dmg * (0.6 + 1.4 * power) : st.dmg) * (extra ? 0.5 : 1);
-    const crit = rollCrit(st, W.charge && power >= 0.99);
-    if (crit) dmg *= st.critX;
-    state.bullets.push(makeBullet(state, p, a, speed, {
-      r: W.fam === 'bow' ? 5 : 4, dmg, crit, sx: p.x, sy: p.y, falloff: !!W.falloff,
-      life: W.life * (W.charge ? 0.7 + 0.6 * power : 1),
-      pierce: st.pierce + (W.charge && power > 0.8 ? 2 : 0), bounce: st.bounce, blast: W.blast || 0,
-    }));
+  const barrels = W.barrels || [0];
+  // 한 번에 나가는 총알 묶음(산탄·쌍총열): 피해는 총알마다, 속성 효과(빙결·화상 등)는 적 하나당 한 번만
+  const vol = { hit: new Set(), el2: ae.el2, elv2: ae.elv2 };
+  const nx = -Math.sin(p.angle), ny = Math.cos(p.angle);
+  for (const off of barrels) {
+    for (let i = 0; i < total; i++) {
+      const a = p.angle + (total > 1 ? (i / (total - 1) - 0.5) * spread * Math.max(1, total / 3) : 0) + (Math.random() - 0.5) * st.inacc;
+      // 멀티샷으로 늘어난 총알은 피해 50%
+      const extra = pellets > 1 ? i >= pellets : i > 0;
+      let dmg = st.dmg * (extra ? 0.5 : 1);
+      const crit = rollCrit(st);
+      if (crit) dmg *= st.critX;
+      const b = makeBullet(state, p, a, speed, {
+        r: W.fam === 'bow' ? 5 : 4, dmg, crit, sx: p.x, sy: p.y, falloff: !!W.falloff,
+        life: W.life, pierce: st.pierce, bounce: st.bounce, blast: W.blast || 0, el: ae.el, elv: ae.elv, vol,
+      });
+      b.x += nx * off;
+      b.y += ny * off;
+      state.bullets.push(b);
+    }
   }
   return true;
 }
@@ -766,7 +851,7 @@ function chainLightning(state, from, count, dmg, src) {
 }
 
 // 근접 피해 한 번 (패시브·속성·궁극기 충전 포함)
-function meleeHit(state, p, e, dmg, ux, uy, knock) {
+function meleeHit(state, p, e, dmg, ux, uy, knock, ae = attackElement(p)) {
   const st = stats(p);
   const crit = rollCrit(st);
   damageEnemy(state, e, crit ? dmg * st.critX : dmg, p.id, crit ? 'crit' : '');
@@ -780,15 +865,16 @@ function meleeHit(state, p, e, dmg, ux, uy, knock) {
       return;
     }
     push(state, e, ux, uy, knock);
-    const { el, elv } = attackElement(p);
-    if (el) applyElement(state, e, { el, elv, shooter: p.id, vx: ux, vy: uy });
+    if (ae.el) applyElement(state, e, { el: ae.el, elv: ae.elv, shooter: p.id, vx: ux, vy: uy });
+    if (ae.el2 && e.hp > 0) comboHit(state, e, ae.el2, ae.elv2, p.id, ux, uy);
   }
 }
 
 function melee(state, p, st) {
   const W = st.W;
   const ax = Math.cos(p.angle), ay = Math.sin(p.angle);
-  const color = ELEMENTS[attackElement(p).el]?.color || '#ffffff';
+  const ae = attackElement(p, true);
+  const color = ELEMENTS[ae.el]?.color || '#ffffff';
   let dmg = st.dmg;
   if (st.fam === 'sword' && p.parry > 0) { dmg += p.parry * st.mul; p.parry = 0; } // 검 패시브: 반격 자세
   p.swingT = SWING_TIME;
@@ -800,7 +886,7 @@ function melee(state, p, st) {
     addFx(state, { k: 'r', x: cx, y: cy, r: rad, c: color, t: 0.25, life: 0.25 });
     for (const e of state.enemies.filter((o) => o.hp > 0 && (o.x - cx) ** 2 + (o.y - cy) ** 2 <= (rad + o.r) ** 2)) {
       const d = Math.hypot(e.x - p.x, e.y - p.y) || 1;
-      meleeHit(state, p, e, dmg, (e.x - p.x) / d, (e.y - p.y) / d, W.knock);
+      meleeHit(state, p, e, dmg, (e.x - p.x) / d, (e.y - p.y) / d, W.knock, ae);
     }
     if (W.quake) {
       for (let i = 0; i < 8; i++) {
@@ -813,7 +899,7 @@ function melee(state, p, st) {
 
   const range = W.range * st.reach;
   // 휘두르기 이펙트: 검 계열은 초승달 베기, 창 계열은 찌르기 섬광 (할버드는 둘 다)
-  if (st.fam === 'sword' || p.weapons[p.slot].key === 'halberd') {
+  if (st.fam === 'sword' || ['halberd', 'trident'].includes(held(p).key)) {
     addFx(state, { k: 'sw', x: p.x, y: p.y, a: p.angle, r: range, s: W.arc, d: p.swingDir, c: color, t: SWING_TIME, life: SWING_TIME });
   }
   if (st.fam === 'spear') {
@@ -825,7 +911,7 @@ function melee(state, p, st) {
     if (d > range + e.r || angleDiff(Math.atan2(e.y - p.y, e.x - p.x), p.angle) > W.arc / 2 + e.r / Math.max(d, 1)) continue;
     // 창 패시브: 창끝 일격
     const tip = st.fam === 'spear' && d > range * 0.6;
-    meleeHit(state, p, e, tip ? dmg * 1.5 : dmg, (e.x - p.x) / (d || 1), (e.y - p.y) / (d || 1), W.knock);
+    meleeHit(state, p, e, tip ? dmg * 1.5 : dmg, (e.x - p.x) / (d || 1), (e.y - p.y) / (d || 1), W.knock, ae);
   }
   // 검 계열: 적 총알을 베어 없앰 (대검은 범위 2배)
   if (st.fam === 'sword') {
@@ -897,7 +983,7 @@ function castActive(state, p, idx, inp) {
   p.casts[idx] = def.cd * p.bonus.cdMul;
   const el = def.el;
   const lv = Math.max(1, p.element === el ? p.elementLv : 1);
-  const power = stats(p).mul; // 스킬 피해 = 기본 수치 × 피해 배율
+  const power = stats(p).mul * (p.char === 'mage' ? 1.4 : 1); // 스킬 피해 = 기본 수치 × 피해 배율 (마법사 +40%)
   const ax = Math.cos(p.angle), ay = Math.sin(p.angle);
   const elOpt = { el, elv: lv };
   floatText(state, p.x, p.y - 34, def.name, ELEMENTS[el].color, 0.8);
@@ -1063,27 +1149,31 @@ function updatePlayer(state, p, inp, dt) {
   p.staticT = Math.max(0, p.staticT - dt);
   p.swingT = Math.max(0, p.swingT - dt);
   p.manaMsgT = Math.max(0, p.manaMsgT - dt);
-  for (let i = 0; i < p.casts.length; i++) p.casts[i] = Math.max(0, p.casts[i] - dt);
-  // 모든 무기 칸의 스킬 쿨타임은 들고 있지 않아도 충전, 시간형 궁극기도 계속 충전
+  p.shieldT = Math.max(0, p.shieldT - dt);
+  // 스킬 쿨타임·시간형 궁극기는 전투 중에만 충전 (로비에서는 시험용으로 항상)
+  const combat = lobby || inCombat(state);
+  const cdt = combat ? dt : 0;
+  for (let i = 0; i < p.casts.length; i++) p.casts[i] = Math.max(0, p.casts[i] - cdt);
+  // 모든 무기 칸의 스킬 쿨타임은 들고 있지 않아도 충전
   for (const s of p.weapons) {
     const maxC = WEAPONS[s.key].charges || 1;
     if (s.charges < maxC) {
-      s.cd -= dt;
+      s.cd -= cdt;
       if (s.cd <= 0) {
         s.charges++;
         s.cd = s.charges < maxC ? skillCdOf(s.key) : 0;
       }
     }
     const ult = SKILLS[weaponFam(s.key)].ult;
-    if (!lobby && ult.type === 'time' && !(p.ultT > 0 && s === held(p))) {
-      s.ult = Math.min(ult.need, s.ult + dt * (s.el && s.el === p.element ? RESONANCE_ULT : 1) * p.bonus.ultMul);
+    if (!lobby && combat && ult.type === 'time' && !(p.ultT > 0 && s === held(p))) {
+      s.ult = Math.min(ult.need, s.ult + dt * (s.el && s.el === p.element ? RESONANCE.ult : 1) * p.bonus.ultMul);
     }
   }
   if (!p.alive) { p.moving = false; return; }
   const st = stats(p);
-  // 마나 회복: 싸우는 중에는 천천히, 적이 없으면 빠르게, 로비에서는 가득
-  const calm = lobby || state.enemies.length === 0;
-  p.mana = Math.min(st.maxMana, lobby ? st.maxMana : p.mana + dt * (calm ? MANA.idleRegen : MANA.regen) * st.manaRegen);
+  // 마나는 저절로 차지 않음 (파란 구슬을 주워야 함). 로비에서는 가득.
+  if (lobby) p.mana = st.maxMana;
+  else p.mana = Math.min(st.maxMana, p.mana);
 
   let mx = (inp.right ? 1 : 0) - (inp.left ? 1 : 0);
   let my = (inp.down ? 1 : 0) - (inp.up ? 1 : 0);
@@ -1094,6 +1184,8 @@ function updatePlayer(state, p, inp, dt) {
   if (inp.dash && p.dashCd <= 0 && len > 0 && !p.sdash) {
     p.dashT = DASH_TIME;
     p.dashCd = st.dashCd;
+    p.dsx = p.x; // 잔상은 대시하기 전 자리에
+    p.dsy = p.y;
     p.dashX = mx;
     p.dashY = my;
     p.dashHits = [];
@@ -1139,15 +1231,7 @@ function updatePlayer(state, p, inp, dt) {
     else { p.spinIdle += dt; if (p.spinIdle > 1) p.spin = 0; }
   }
 
-  if (st.W.charge) {
-    // 강화 활: 누르고 있으면 차지, 떼면 발사
-    if (inp.fire && p.fireCd <= 0) p.chargeT = Math.min(st.W.charge, p.chargeT + dt);
-    else if (!inp.fire && p.chargeT > 0) {
-      shoot(state, p, st, p.chargeT / st.W.charge);
-      p.chargeT = 0;
-      p.fireCd = st.cd;
-    }
-  } else if (inp.fire && p.fireCd <= 0 && p.dashT <= 0 && !p.sdash) {
+  if (inp.fire && p.fireCd <= 0 && p.dashT <= 0 && !p.sdash) {
     if (st.W.kind === 'ranged') p.fireCd = shoot(state, p, st) ? st.cd : 0.25;
     else { p.fireCd = st.cd; melee(state, p, st); }
   }
@@ -1155,12 +1239,14 @@ function updatePlayer(state, p, inp, dt) {
   if (lobby) return;
   updateUlt(state, p, st, dt);
 
-  // 경험치 구슬: 플레이어마다 따로 줍습니다 (1P가 먹어도 2P 몫은 남아 있음)
+  // 구슬(경험치 초록·마나 파랑·동전 노랑): 플레이어마다 따로 줍습니다 (1P가 먹어도 2P 몫은 남아 있음)
   for (const o of state.orbs) {
     if (o.taken.includes(p.id)) continue;
-    if ((o.x - p.x) ** 2 + (o.y - p.y) ** 2 < 36 * 36) {
+    if ((o.x - p.x) ** 2 + (o.y - p.y) ** 2 < ORB_RANGE * ORB_RANGE) {
       o.taken.push(p.id);
-      gainXp(p, o.v);
+      if (o.k === 'm') p.mana = Math.min(st.maxMana, p.mana + o.v * st.manaGain);
+      else if (o.k === 'g') p.coins += o.v * p.bonus.coinMul;
+      else gainXp(p, o.v);
     }
   }
 
@@ -1199,17 +1285,31 @@ function enemiesNear(state, x, y, radius) {
 
 function newStatus() {
   return {
-    burn: 0, burnTick: 0, burnBy: null, wet: 0, chill: 0, chillN: 0, frozen: 0,
+    burn: 0, burnTick: 0, burnBy: null, wet: 0, chill: 0, chillN: 0, frozen: 0, fImm: 0,
     poison: 0, poisonN: 0, poisonTick: 0, poisonBy: null, stun: 0,
   };
 }
 
-const reactText = (state, e, text, color) => floatText(state, e.x, e.y - e.r - 6, text, color);
+// 원소 반응 글자 + 연금술사 패시브(촉매: 반응하면 마나 +3)
+function reactText(state, e, text, color, src) {
+  floatText(state, e.x, e.y - e.r - 6, text, color);
+  const p = state.players[src];
+  if (p?.char === 'alchemist' && p.alive) p.mana = Math.min(stats(p).maxMana, p.mana + 3);
+}
+// 반응 피해 (연금술사 +60%)
+const reactDmg = (state, src, n) => n * (state.players[src]?.char === 'alchemist' ? 1.6 : 1);
+
+// 결합 효과: 무기 속성과 다른 캐릭터 속성이 함께 들어감
+function comboHit(state, e, el, elv, src, vx, vy) {
+  applyElement(state, e, { el, elv, shooter: src, vx, vy });
+  addFx(state, { k: 'r', x: e.x, y: e.y, r: e.r + 8, c: ELEMENTS[el].color, t: 0.2, life: 0.2 });
+}
+
 
 function explode(state, e, lv, src) {
-  reactText(state, e, '폭발!', '#ffab40');
+  reactText(state, e, '폭발!', '#ffab40', src);
   addFx(state, { k: 'r', x: e.x, y: e.y, r: 80, c: '#ffab40', t: 0.35, life: 0.35 });
-  for (const o of enemiesNear(state, e.x, e.y, 80)) damageEnemy(state, o, 1 + lv, src);
+  for (const o of enemiesNear(state, e.x, e.y, 80)) damageEnemy(state, o, reactDmg(state, src, 1 + lv), src);
 }
 
 function applyElement(state, e, b) {
@@ -1217,16 +1317,16 @@ function applyElement(state, e, b) {
   switch (b.el) {
     case 'fire':
       if (s.frozen > 0 || s.chill > 0) {
-        reactText(state, e, '녹임!', '#ff8a65');
+        reactText(state, e, '녹임!', '#ff8a65', src);
         Object.assign(s, { frozen: 0, chill: 0, chillN: 0 });
-        damageEnemy(state, e, 2 + lv, src);
+        damageEnemy(state, e, reactDmg(state, src, 2 + lv), src);
       } else if (s.poison > 0) {
         Object.assign(s, { poison: 0, poisonN: 0 });
         explode(state, e, lv, src);
       } else if (s.wet > 0) {
-        reactText(state, e, '증발!', '#e0e0e0');
+        reactText(state, e, '증발!', '#e0e0e0', src);
         s.wet = 0;
-        damageEnemy(state, e, 1 + lv, src);
+        damageEnemy(state, e, reactDmg(state, src, 1 + lv), src);
       } else {
         s.burn = Math.max(s.burn, 1.5 + lv * 0.5);
         s.burnBy = src;
@@ -1234,18 +1334,18 @@ function applyElement(state, e, b) {
       break;
     case 'water':
       if (s.burn > 0) {
-        reactText(state, e, '증발!', '#e0e0e0');
+        reactText(state, e, '증발!', '#e0e0e0', src);
         s.burn = 0;
-        damageEnemy(state, e, 1 + lv, src);
+        damageEnemy(state, e, reactDmg(state, src, 1 + lv), src);
       }
       s.wet = Math.max(s.wet, 2.5 + lv);
       break;
     case 'electric':
       if (s.wet > 0) {
-        reactText(state, e, '감전!', '#fff176');
+        reactText(state, e, '감전!', '#fff176', src);
         for (const o of enemiesNear(state, e.x, e.y, 130)) {
           if (o.st.wet <= 0) continue;
-          damageEnemy(state, o, 1 + lv, src);
+          damageEnemy(state, o, reactDmg(state, src, 1 + lv), src);
           o.st.stun = 0.6;
           o.st.wet = 0;
           if (o !== e) addFx(state, { k: 'l', x: e.x, y: e.y, x2: o.x, y2: o.y, c: '#fff176', t: 0.25, life: 0.25 });
@@ -1256,19 +1356,23 @@ function applyElement(state, e, b) {
       break;
     case 'ice':
       if (s.burn > 0) {
-        reactText(state, e, '녹임!', '#ff8a65');
+        reactText(state, e, '녹임!', '#ff8a65', src);
         s.burn = 0;
-        damageEnemy(state, e, 2 + lv, src);
+        damageEnemy(state, e, reactDmg(state, src, 2 + lv), src);
+      } else if (s.frozen > 0 || s.fImm > 0) {
+        s.chill = 2; // 얼어 있거나 막 풀린 적은 다시 얼지 않음 (무한 빙결 방지)
       } else if (s.wet > 0) {
-        reactText(state, e, '빙결!', '#b2ebf2');
+        reactText(state, e, '빙결!', '#b2ebf2', src);
         s.wet = 0;
         s.frozen = 1 + 0.5 * lv;
+        s.fImm = s.frozen + 1.5;
       } else {
         s.chill = 2;
         s.chillN++;
         if (s.chillN >= 3) {
-          reactText(state, e, '빙결!', '#b2ebf2');
+          reactText(state, e, '빙결!', '#b2ebf2', src);
           Object.assign(s, { frozen: 0.8 + 0.3 * lv, chill: 0, chillN: 0 });
+          s.fImm = s.frozen + 1.5;
         }
       }
       break;
@@ -1277,7 +1381,7 @@ function applyElement(state, e, b) {
       push(state, e, b.vx / len, b.vy / len, 30 + 12 * lv);
       if (s.burn > 0 || s.poison > 0 || s.wet > 0 || s.chill > 0) {
         const others = enemiesNear(state, e.x, e.y, 90 + 20 * lv).filter((o) => o !== e);
-        if (others.length) reactText(state, e, '확산!', '#dcedc8');
+        if (others.length) reactText(state, e, '확산!', '#dcedc8', src);
         for (const o of others) {
           const t = o.st;
           if (s.burn > 0) { t.burn = Math.max(t.burn, s.burn); t.burnBy = src; }
@@ -1312,6 +1416,7 @@ function updateStatus(state, e, dt) {
   if (s.chill <= 0) s.chillN = 0;
   s.frozen = Math.max(0, s.frozen - dt * cc);
   s.stun = Math.max(0, s.stun - dt * cc);
+  s.fImm = Math.max(0, s.fImm - dt);
   if (s.burn > 0) {
     s.burn -= dt;
     s.burnTick -= dt;
@@ -1336,14 +1441,16 @@ function makeEnemy(state, kind, x, y, lvl) {
   return {
     id: state.nextId++, kind, x, y, r: T.r, hp, maxHp: hp, sc,
     cd: 1 + Math.random(), hitT: 0, strafe: Math.random() < 0.5 ? 1 : -1,
-    st: newStatus(), lastHit: null,
+    st: newStatus(), lastHit: null, t: Math.random() * 10, face: 0, mode: 0, modeT: 0.5 + Math.random(), fuse: 0,
   };
 }
 
+// 나오는 몬스터: 스테이지가 오를수록 종류가 늘어납니다 (ENEMY_TYPES의 from)
+const KIND_WEIGHT = { slime: 3, bat: 2.2, archer: 2, spider: 2, bomber: 1.4, brute: 1.1, bigslime: 1.1, caster: 1, shield: 1, totem: 0.6 };
 function pickKind(level) {
-  const r = Math.random();
-  if (level >= 3 && r < 0.18) return 'brute';
-  if (level >= 2 && r < 0.45) return 'archer';
+  const pool = Object.keys(KIND_WEIGHT).filter((k) => ENEMY_TYPES[k].from <= level);
+  let r = Math.random() * pool.reduce((a, k) => a + KIND_WEIGHT[k], 0);
+  for (const k of pool) { r -= KIND_WEIGHT[k]; if (r <= 0) return k; }
   return 'slime';
 }
 
@@ -1356,6 +1463,76 @@ function enemyBullet(state, e, a, speed, extra = {}) {
   });
 }
 
+// 바닥 위험 지역 (보스): 빨간 경고 원/선이 먼저 보이고, warn초 뒤에 피해
+function addHazard(state, h) {
+  if (state.hazards.length < 60) state.hazards.push({ id: state.nextId++, t: 0, fired: false, linger: 0, tick: 0, ...h });
+}
+
+function ring(state, e, x, y, n, speed, off = 0, gap = 0, extra = {}) {
+  const g0 = Math.floor(Math.random() * n);
+  for (let i = 0; i < n; i++) {
+    if (gap && ((i - g0 + n) % n) < gap) continue; // 빈틈 (피할 수 있는 길)
+    enemyBullet(state, { ...e, x, y }, (i / n) * Math.PI * 2 + off, speed, extra);
+  }
+}
+
+function playersInCircle(state, x, y, r) {
+  return Object.values(state.players).filter((p) => p.alive && (p.x - x) ** 2 + (p.y - y) ** 2 < (r + p.r) ** 2);
+}
+
+function updateHazards(state, dt) {
+  for (const h of state.hazards) {
+    h.t += dt;
+    const src = state.enemies.find((o) => o.id === h.src) || { id: h.src, x: h.x, y: h.y, sc: h.sc };
+    if (h.k === 'circle') {
+      if (!h.fired && h.t >= h.warn) {
+        h.fired = true;
+        addFx(state, { k: 'r', x: h.x, y: h.y, r: h.r, c: h.c || '#ff7043', t: 0.3, life: 0.3 });
+        for (const p of playersInCircle(state, h.x, h.y, h.r)) damagePlayer(state, p, h.dmg);
+        if (h.after === 'shards') ring(state, src, h.x, h.y, 6, 170, Math.random(), 0, { r: 5 });
+        if (h.after === 'ring') ring(state, src, h.x, h.y, 12, 190, Math.random());
+      }
+      if (h.fired && h.linger > 0) {
+        h.tick -= dt;
+        if (h.tick <= 0) { h.tick = 0.5; for (const p of playersInCircle(state, h.x, h.y, h.r * 0.9)) damagePlayer(state, p, h.dmg); }
+      }
+      if (h.t >= h.warn + h.linger + 0.05) h.dead = true;
+    } else if (h.k === 'laser') {
+      const boss = state.enemies.find((o) => o.id === h.src);
+      if (!boss) { h.dead = true; continue; }
+      h.x = boss.x; h.y = boss.y;
+      if (h.t >= h.warn) {
+        h.a += h.spin * dt;
+        const ux = Math.cos(h.a), uy = Math.sin(h.a);
+        for (const p of Object.values(state.players)) {
+          if (!p.alive) continue;
+          const rx = p.x - h.x, ry = p.y - h.y;
+          const along = rx * ux + ry * uy, side = Math.abs(rx * uy - ry * ux);
+          if (along > 0 && along < h.len && side < h.w / 2 + p.r) damagePlayer(state, p, h.dmg);
+        }
+      }
+      if (h.t >= h.warn + h.dur) h.dead = true;
+    } else if (h.t >= h.warn) h.dead = true; // 'line': 돌진 예고선
+  }
+  state.hazards = state.hazards.filter((h) => !h.dead);
+}
+
+// 플레이어 쪽으로 천천히 꺾이는 탄 (해골 마법사, 보스)
+function steerBullet(state, b, dt) {
+  b.home -= dt;
+  const t = nearest(Object.values(state.players).filter((p) => p.alive), b.x, b.y, 600);
+  if (!t) return;
+  const sp = Math.hypot(b.vx, b.vy);
+  let a = Math.atan2(b.vy, b.vx);
+  const want = Math.atan2(t.y - b.y, t.x - b.x);
+  let d = want - a;
+  while (d > Math.PI) d -= Math.PI * 2;
+  while (d < -Math.PI) d += Math.PI * 2;
+  a += Math.max(-2.2 * dt, Math.min(2.2 * dt, d));
+  b.vx = Math.cos(a) * sp;
+  b.vy = Math.sin(a) * sp;
+}
+
 // ---------- 보스 ----------
 function spawnBoss(state, room) {
   const world = Math.min(BOSSES.length - 1, Math.floor(state.stageIdx / STAGES_PER_WORLD));
@@ -1363,9 +1540,146 @@ function spawnBoss(state, room) {
   const n = Object.keys(state.players).length;
   const hp = Math.round(def.hp * (1 + 0.6 * (n - 1)));
   const cx = (room.x0 + room.w / 2) * TILE, cy = (room.y0 + 3.5) * TILE;
-  const boss = { ...makeEnemy(state, 'boss', cx, cy, state.stageIdx), hp, maxHp: hp, world, name: def.name, color: def.color, pattern: 0, patT: 2, act: null, actT: 0, spin: 0 };
+  const boss = {
+    ...makeEnemy(state, 'boss', cx, cy, state.stageIdx), hp, maxHp: hp, world, name: def.name, color: def.color,
+    pats: def.patterns, last: null, patT: 2, act: null, actT: 0, spin: 0, sched: [], room,
+  };
   state.enemies.push(boss);
   floatText(state, cx, cy - 60, def.name, '#ff8a80', 2);
+}
+
+const SUMMON_KIND = [['slime', 'bat'], ['archer', 'spider', 'bat'], ['brute', 'bomber', 'caster']];
+
+// 시간차로 쏘는 탄 예약 (e.sched)
+function later(e, at, fn) { e.sched.push({ at, fn }); }
+
+function randomRoomSpot(state, room, awayFrom, minD) {
+  for (let i = 0; i < 40; i++) {
+    const tx = room.x0 + 2 + Math.floor(Math.random() * (room.w - 4));
+    const ty = room.y0 + 2 + Math.floor(Math.random() * (room.h - 4));
+    if (isWallTile(state, tx, ty)) continue;
+    const x = tileCenter(tx), y = tileCenter(ty);
+    if (!awayFrom || Math.hypot(x - awayFrom.x, y - awayFrom.y) >= minD) return { x, y };
+  }
+  return { x: (room.x0 + room.w / 2) * TILE, y: (room.y0 + room.h / 2) * TILE };
+}
+
+function bossPattern(state, e, pat, target, half) {
+  const angle = Math.atan2(target.y - e.y, target.x - e.x);
+  const dmg = e.sc.dmg;
+  const more = half ? 1.4 : 1;
+  switch (pat) {
+    case 'jump': {
+      const spot = freeSpotNear(state, target.x, target.y);
+      e.act = 'jump'; e.actT = 0.9; e.jx = e.x; e.jy = e.y; e.tx = spot.x; e.ty = spot.y;
+      addHazard(state, { k: 'circle', x: spot.x, y: spot.y, r: 95, warn: 0.9, dmg: dmg + 1, src: e.id, after: 'ring' });
+      break;
+    }
+    case 'ring':
+      for (let i = 0; i < (half ? 3 : 2); i++) later(e, i * 0.35, () => ring(state, e, e.x, e.y, Math.round(16 * more), 200, i * 0.2, 0, { r: 6 }));
+      break;
+    case 'fan':
+      for (let w = 0; w < 5; w++) {
+        later(e, w * 0.16, () => {
+          const a0 = Math.atan2(target.y - e.y, target.x - e.x) + (w - 2) * 0.12;
+          for (let i = -3; i <= 3; i++) enemyBullet(state, e, a0 + i * 0.16, 240);
+        });
+      }
+      break;
+    case 'summon': {
+      const minions = state.enemies.filter((o) => o.kind !== 'boss').length;
+      const pool = SUMMON_KIND[e.world] || SUMMON_KIND[0];
+      for (let i = 0; i < Math.max(0, (half ? 5 : 3) - minions); i++) {
+        const a = Math.random() * Math.PI * 2;
+        const spot = freeSpotNear(state, e.x + Math.cos(a) * 80, e.y + Math.sin(a) * 80);
+        state.enemies.push(makeEnemy(state, pool[i % pool.length], spot.x, spot.y, state.stageIdx));
+        addFx(state, { k: 'r', x: spot.x, y: spot.y, r: 18, c: '#ef5350', t: 0.3, life: 0.3 });
+      }
+      break;
+    }
+    case 'puddle': {
+      const alive = Object.values(state.players).filter((p) => p.alive);
+      for (let i = 0; i < (half ? 6 : 4); i++) {
+        const t = alive[i % alive.length];
+        const x = t.x + (i < alive.length ? 0 : (Math.random() - 0.5) * 260), y = t.y + (i < alive.length ? 0 : (Math.random() - 0.5) * 260);
+        addHazard(state, { k: 'circle', x, y, r: 52, warn: 0.8, linger: 3.5, dmg, src: e.id, c: e.color });
+      }
+      break;
+    }
+    case 'bounce':
+      for (let i = 0; i < (half ? 12 : 8); i++) enemyBullet(state, e, angle + (i / (half ? 12 : 8)) * Math.PI * 2, 230, { bounce: 3, life: 4.5, r: 7 });
+      break;
+    case 'volley':
+      for (let v = 0; v < (half ? 4 : 3); v++) later(e, v * 0.22, () => {
+        const a = Math.atan2(target.y - e.y, target.x - e.x);
+        for (let i = -1; i <= 1; i++) enemyBullet(state, e, a + i * 0.15, 300);
+      });
+      break;
+    case 'arrowRain':
+      for (let i = 0; i < (half ? 14 : 10); i++) {
+        const a = Math.random() * Math.PI * 2, d = i === 0 ? 0 : 40 + Math.random() * 170;
+        addHazard(state, { k: 'circle', x: target.x + Math.cos(a) * d, y: target.y + Math.sin(a) * d, r: 38, warn: 0.8 + i * 0.06, dmg, src: e.id, c: '#ce93d8' });
+      }
+      break;
+    case 'teleport': {
+      addFx(state, { k: 'r', x: e.x, y: e.y, r: e.r + 20, c: e.color, t: 0.4, life: 0.4 });
+      const spot = randomRoomSpot(state, e.room, target, 170);
+      e.x = spot.x; e.y = spot.y;
+      addFx(state, { k: 'r', x: e.x, y: e.y, r: e.r + 20, c: e.color, t: 0.4, life: 0.4 });
+      later(e, 0.35, () => ring(state, e, e.x, e.y, Math.round(14 * more), 190, Math.random(), 0, { r: 6 }));
+      break;
+    }
+    case 'homing':
+      for (let i = 0; i < (half ? 7 : 5); i++) later(e, i * 0.12, () => enemyBullet(state, e, angle + Math.PI + (i - 2) * 0.5, 175, { home: 2.2, life: 4, r: 7 }));
+      break;
+    case 'spiral':
+      e.act = 'spiral'; e.actT = 2.2;
+      break;
+    case 'wall': {
+      // 빈틈이 있는 탄막 벽
+      const n = 15, gap = 2 + Math.floor(Math.random() * (n - 5));
+      const nx = -Math.sin(angle), ny = Math.cos(angle);
+      for (let i = 0; i < n; i++) {
+        if (i >= gap && i < gap + 3) continue;
+        const off = (i - (n - 1) / 2) * 24;
+        enemyBullet(state, { ...e, x: e.x + nx * off, y: e.y + ny * off }, angle, 170, { life: 4, r: 7 });
+      }
+      break;
+    }
+    case 'laser': {
+      e.act = 'laser'; e.actT = 3;
+      const dir = Math.random() < 0.5 ? 1 : -1;
+      for (let i = 0; i < (half ? 4 : 3); i++) {
+        addHazard(state, { k: 'laser', x: e.x, y: e.y, a: angle + 0.6 + (i / (half ? 4 : 3)) * Math.PI * 2, len: 640, w: 18, warn: 0.9, dur: 2.1, spin: 0.7 * dir, dmg, src: e.id });
+      }
+      break;
+    }
+    case 'shockwave':
+      for (let i = 0; i < 3; i++) later(e, i * 0.5, () => {
+        addFx(state, { k: 'r', x: e.x, y: e.y, r: e.r + 30, c: '#ffab40', t: 0.3, life: 0.3 });
+        ring(state, e, e.x, e.y, 30, 150, i * 0.1, 4, { r: 7, life: 3.5 });
+      });
+      break;
+    case 'rock': {
+      const alive = Object.values(state.players).filter((p) => p.alive);
+      for (let i = 0; i < (half ? 9 : 6); i++) {
+        const t = i < alive.length ? alive[i] : randomRoomSpot(state, e.room);
+        addHazard(state, { k: 'circle', x: t.x, y: t.y, r: 48, warn: 1.1 + i * 0.08, dmg: dmg + 1, src: e.id, after: 'shards', c: '#a1887f' });
+      }
+      break;
+    }
+    case 'charge':
+      e.act = 'chargeWarn'; e.actT = 0.6; e.chargeA = angle;
+      addHazard(state, { k: 'line', x: e.x, y: e.y, a: angle, len: 520, w: e.r * 2, warn: 0.6, src: e.id });
+      break;
+    case 'sweep': {
+      e.act = 'laser'; e.actT = 2.6;
+      const dir = Math.random() < 0.5 ? 1 : -1;
+      addHazard(state, { k: 'laser', x: e.x, y: e.y, a: angle - dir * 1.5, len: 720, w: 24, warn: 0.75, dur: 1.8, spin: dir * 1.7, dmg: dmg + 1, src: e.id });
+      break;
+    }
+    default:
+  }
 }
 
 function updateBoss(state, e, alivePlayers, dt) {
@@ -1375,55 +1689,63 @@ function updateBoss(state, e, alivePlayers, dt) {
   const angle = Math.atan2(target.y - e.y, target.x - e.x);
   const T = ENEMY_TYPES.boss;
 
-  // 진행 중인 행동
-  if (e.act === 'charge') {
+  // 예약된 탄
+  for (const s of e.sched) s.at -= dt;
+  const due = e.sched.filter((s) => s.at <= 0);
+  e.sched = e.sched.filter((s) => s.at > 0);
+  for (const s of due) s.fn();
+
+  if (e.act === 'jump') {
     e.actT -= dt;
-    moveCircle(state, e, Math.cos(e.chargeA) * 430 * dt, Math.sin(e.chargeA) * 430 * dt, true);
-    if (e.actT <= 0) e.act = null;
+    const k = 1 - Math.max(0, e.actT) / 0.9;
+    e.x = e.jx + (e.tx - e.jx) * k;
+    e.y = e.jy + (e.ty - e.jy) * k;
+    e.air = e.actT > 0.1;
+    if (e.actT <= 0) { e.act = null; e.air = false; }
+  } else if (e.act === 'chargeWarn') {
+    e.actT -= dt;
+    if (e.actT <= 0) { e.act = 'charge'; e.actT = 0.7; }
+  } else if (e.act === 'charge') {
+    e.actT -= dt;
+    const bx = e.x, by = e.y;
+    moveCircle(state, e, Math.cos(e.chargeA) * 480 * dt, Math.sin(e.chargeA) * 480 * dt, true);
+    const stuck = Math.hypot(e.x - bx, e.y - by) < 2;
+    if (stuck) {
+      ring(state, e, e.x, e.y, 10, 180, Math.random());
+      addFx(state, { k: 'r', x: e.x, y: e.y, r: 70, c: '#ffab40', t: 0.3, life: 0.3 });
+    }
+    if (e.actT <= 0 || stuck) e.act = null;
   } else if (e.act === 'spiral') {
     e.actT -= dt;
     e.spin += dt;
     e.tick = (e.tick || 0) - dt;
     if (e.tick <= 0) {
       e.tick = half ? 0.07 : 0.1;
-      for (let k = 0; k < (half ? 3 : 2); k++) enemyBullet(state, e, e.spin * 4 + (k * Math.PI * 2) / (half ? 3 : 2), 200);
+      const arms = half ? 3 : 2;
+      for (let k = 0; k < arms; k++) enemyBullet(state, e, e.spin * 4 + (k * Math.PI * 2) / arms, 200);
     }
+    if (e.actT <= 0) e.act = null;
+  } else if (e.act === 'laser') {
+    e.actT -= dt; // 레이저를 쏘는 동안 제자리
     if (e.actT <= 0) e.act = null;
   } else {
     // 천천히 다가옴
     const d = Math.hypot(target.x - e.x, target.y - e.y);
-    if (d > 120) moveCircle(state, e, Math.cos(angle) * T.speed * dt * (e.st.chill > 0 ? 0.6 : 1), Math.sin(angle) * T.speed * dt, true);
-    e.patT -= dt * (half ? 1.5 : 1);
+    const slow = e.st.chill > 0 ? 0.6 : 1;
+    if (d > 130) moveCircle(state, e, Math.cos(angle) * T.speed * dt * slow, Math.sin(angle) * T.speed * dt * slow, true);
+    e.patT -= dt;
     if (e.patT <= 0) {
-      const pats = ['burst', 'volley', 'charge', 'summon', 'spiral'].slice(0, e.world >= 1 ? 5 : 4);
-      const pat = pats[e.pattern % pats.length];
-      e.pattern++;
-      e.patT = 2.2;
-      if (pat === 'burst') {
-        const n = half ? 22 : 16;
-        for (let i = 0; i < n; i++) enemyBullet(state, e, (i / n) * Math.PI * 2 + e.pattern * 0.2, 210, { r: 6 });
-      } else if (pat === 'volley') {
-        for (let v = 0; v < 3; v++) for (let i = -1; i <= 1; i++) enemyBullet(state, e, angle + i * 0.18, 280 - v * 40);
-      } else if (pat === 'charge') {
-        e.act = 'charge';
-        e.actT = 0.75;
-        e.chargeA = angle;
-        floatText(state, e.x, e.y - e.r - 10, '!', '#ff5252', 0.6);
-      } else if (pat === 'summon') {
-        const minions = state.enemies.filter((o) => o.kind !== 'boss').length;
-        for (let i = 0; i < Math.max(0, 3 - minions); i++) {
-          const a = Math.random() * Math.PI * 2;
-          const spot = freeSpotNear(state, e.x + Math.cos(a) * 70, e.y + Math.sin(a) * 70);
-          state.enemies.push(makeEnemy(state, e.world >= 2 ? 'brute' : e.world >= 1 ? 'archer' : 'slime', spot.x, spot.y, state.stageIdx));
-          addFx(state, { k: 'r', x: spot.x, y: spot.y, r: 18, c: '#ef5350', t: 0.3, life: 0.3 });
-        }
-      } else if (pat === 'spiral') {
-        e.act = 'spiral';
-        e.actT = 2;
-      }
+      // 같은 패턴을 연달아 쓰지 않음. 체력이 절반 아래면 더 자주, 가끔 두 패턴을 겹침
+      const choices = e.pats.filter((p) => p !== e.last);
+      const pat = choices[Math.floor(Math.random() * choices.length)];
+      e.last = pat;
+      e.patT = half ? 1.7 : 2.4;
+      bossPattern(state, e, pat, target, half);
+      if (half && !e.act && Math.random() < 0.35) bossPattern(state, e, Math.random() < 0.5 ? 'volley' : 'ring', target, half);
     }
   }
-  // 몸으로 부딪히면 피해
+  // 몸으로 부딪히면 피해 (공중에 뜬 동안은 X)
+  if (e.air) return;
   for (const p of alivePlayers) {
     if (Math.hypot(p.x - e.x, p.y - e.y) < e.r + p.r && e.cd <= 0) { damagePlayer(state, p, T.touch + e.sc.dmg - 1); e.cd = 0.8; }
   }
@@ -1434,6 +1756,7 @@ function updateEnemy(state, e, alivePlayers, dt) {
   e.hitT = Math.max(0, e.hitT - dt);
   if (!updateStatus(state, e, dt) || e.hp <= 0) return; // 빙결/기절 중엔 아무것도 못 함
   e.cd -= dt;
+  e.t += dt;
   if (!e.sc) e.sc = enemyScale(0);
   if (e.kind === 'boss') { updateBoss(state, e, alivePlayers, dt); return; }
   const slow = (e.st.wet > 0 ? 0.8 : 1) * (e.st.chill > 0 ? 0.6 : 1);
@@ -1443,25 +1766,96 @@ function updateEnemy(state, e, alivePlayers, dt) {
   const dx = target.x - e.x, dy = target.y - e.y;
   const d = Math.hypot(dx, dy) || 1;
   const ux = dx / d, uy = dy / d;
-  let vx = ux, vy = uy;
+  let vx = ux, vy = uy, spMul = 1;
+  let touch = !!T.touch;
 
-  if (e.kind === 'archer') {
-    if (Math.random() < dt * 0.5) e.strafe *= -1;
-    if (d > 260) { vx = ux; vy = uy; }
-    else if (d < 170) { vx = -ux; vy = -uy; }
-    else { vx = -uy * e.strafe; vy = ux * e.strafe; }
-    if (e.cd <= 0 && d < 420) {
-      e.cd = (T.fireEvery + Math.random() * 0.5) / e.sc.speed;
-      enemyBullet(state, e, Math.atan2(dy, dx), T.bulletSpeed);
+  switch (e.kind) {
+    case 'archer':
+      if (Math.random() < dt * 0.5) e.strafe *= -1;
+      if (d > 260) { vx = ux; vy = uy; } else if (d < 170) { vx = -ux; vy = -uy; } else { vx = -uy * e.strafe; vy = ux * e.strafe; }
+      if (e.cd <= 0 && d < 420) {
+        e.cd = (T.fireEvery + Math.random() * 0.5) / e.sc.speed;
+        enemyBullet(state, e, Math.atan2(dy, dx), T.bulletSpeed);
+      }
+      break;
+    case 'bat': {
+      // 지그재그로 날아옴
+      const w = Math.sin(e.t * 7) * 0.9;
+      vx = ux - uy * w; vy = uy + ux * w;
+      break;
     }
-  } else if (d < e.r + PLAYER_RADIUS + 2 && e.cd <= 0) {
+    case 'spider':
+      // 멈춰서 노리다가 순간 도약
+      e.modeT -= dt;
+      if (e.modeT <= 0) { e.mode = e.mode ? 0 : 1; e.modeT = e.mode ? 0.35 : 0.9 + Math.random() * 0.5; e.lx = ux; e.ly = uy; }
+      if (e.mode) { vx = e.lx; vy = e.ly; spMul = 3.6; } else spMul = 0.25;
+      break;
+    case 'bomber':
+      if (e.fuse > 0) {
+        e.fuse -= dt;
+        spMul = 0;
+        if (e.fuse <= 0) {
+          addFx(state, { k: 'r', x: e.x, y: e.y, r: 70, c: '#ff7043', t: 0.4, life: 0.4 });
+          for (const p of playersInCircle(state, e.x, e.y, 70)) damagePlayer(state, p, e.sc.dmg + 1);
+          for (const o of enemiesNear(state, e.x, e.y, 70)) if (o !== e) damageEnemy(state, o, 3);
+          e.hp = 0;
+          e.lastHit = null; // 스스로 터지면 점수 없음
+          return;
+        }
+      } else if (d < 52) {
+        e.fuse = 0.7;
+        floatText(state, e.x, e.y - e.r - 8, '!', '#ff5252', 0.6);
+      }
+      break;
+    case 'caster':
+      if (d > 300) { vx = ux; vy = uy; } else if (d < 200) { vx = -ux; vy = -uy; } else { vx = -uy * e.strafe * 0.5; vy = ux * e.strafe * 0.5; }
+      if (e.cd <= 0 && d < 460) {
+        e.cd = (T.fireEvery + Math.random() * 0.6) / e.sc.speed;
+        const a = Math.atan2(dy, dx);
+        for (let i = -1; i <= 1; i++) enemyBullet(state, e, a + i * 0.35, T.bulletSpeed, { home: 1.6, life: 3.5, r: 6 });
+      }
+      e.modeT -= dt;
+      if (e.modeT <= 0) {
+        // 순간이동: 플레이어 근처 다른 곳으로
+        e.modeT = 4 + Math.random() * 2;
+        const a = Math.random() * Math.PI * 2;
+        const spot = freeSpotNear(state, target.x + Math.cos(a) * 230, target.y + Math.sin(a) * 230);
+        if (!circleBlocked(state, spot.x, spot.y, e.r, true) && roomAt(state, spot.x, spot.y) === roomAt(state, e.x, e.y)) {
+          addFx(state, { k: 'r', x: e.x, y: e.y, r: 22, c: '#9575cd', t: 0.3, life: 0.3 });
+          e.x = spot.x; e.y = spot.y;
+          addFx(state, { k: 'r', x: e.x, y: e.y, r: 22, c: '#9575cd', t: 0.3, life: 0.3 });
+        }
+      }
+      break;
+    case 'shield': {
+      // 방패를 플레이어 쪽으로 천천히 돌림 (앞에서 오는 총알을 막음)
+      let da = Math.atan2(dy, dx) - e.face;
+      while (da > Math.PI) da -= Math.PI * 2;
+      while (da < -Math.PI) da += Math.PI * 2;
+      e.face += Math.max(-1.8 * dt, Math.min(1.8 * dt, da));
+      break;
+    }
+    case 'totem':
+      spMul = 0;
+      if (e.cd <= 0) {
+        e.cd = T.fireEvery / e.sc.speed;
+        e.face += 0.45;
+        for (let k = 0; k < 3; k++) enemyBullet(state, e, e.face + (k * Math.PI * 2) / 3, T.bulletSpeed);
+      }
+      break;
+    default:
+  }
+  if (e.kind !== 'shield' && e.kind !== 'totem') e.face = Math.atan2(dy, dx);
+
+  if (touch && d < e.r + PLAYER_RADIUS + 2 && e.cd <= 0) {
     damagePlayer(state, target, T.touch + e.sc.dmg - 1);
     e.cd = 0.8;
   }
 
-  const sp = T.speed * e.sc.speed * slow * dt;
+  const sp = T.speed * e.sc.speed * slow * spMul * dt;
+  if (sp <= 0) return;
   const blocker = moveCircle(state, e, vx * sp, vy * sp, true);
-  if (blocker && e.kind !== 'archer' && e.cd <= 0) {
+  if (blocker && touch && e.cd <= 0) {
     damageStruct(state, blocker, T.touch);
     e.cd = 0.8;
   }
@@ -1505,13 +1899,38 @@ function updateTurrets(state, dt) {
   }
 }
 
+// 구슬 뿌리기: k = 'x' 경험치, 'm' 마나, 'g' 동전
+function dropOrbs(state, x, y, k, count, spread, value = 1) {
+  for (let i = 0; i < count && state.orbs.length < MAX_ORBS; i++) {
+    const a = Math.random() * Math.PI * 2, r = 4 + Math.random() * spread;
+    const spot = { x: x + Math.cos(a) * r, y: y + Math.sin(a) * r };
+    const ok = !wallAtPoint(state, spot.x, spot.y);
+    state.orbs.push({ id: state.nextId++, k, x: ok ? spot.x : x, y: ok ? spot.y : y, v: value, taken: [], t: ORB_LIFE });
+  }
+}
+
 function killEnemy(state, e) {
   const T = ENEMY_TYPES[e.kind];
+  const boss = e.kind === 'boss';
+  // 쓰러진 모습 + 빠져나가는 영혼
+  addFx(state, { k: 'die', x: e.x, y: e.y, ek: e.kind, r: e.r, c: e.color || 0, t: 1.4, life: 1.4 });
   if (state.mode === 'camp') state.gold += T.gold;
-  giveEssence(state, ESSENCE[e.kind] || 1);
-  for (let i = 0; i < T.xp && state.orbs.length < MAX_ORBS; i++) {
-    const a = Math.random() * Math.PI * 2, r = 4 + Math.random() * (e.kind === 'boss' ? 40 : 14);
-    state.orbs.push({ id: state.nextId++, x: e.x + Math.cos(a) * r, y: e.y + Math.sin(a) * r, v: 1, taken: [], t: ORB_LIFE });
+  giveEssence(state, ESSENCE[e.kind] ?? ESSENCE.default);
+  const spread = boss ? 46 : 14;
+  dropOrbs(state, e.x, e.y, 'x', T.xp, spread);
+  const mn = Math.max(1, Math.round(T.mp / 4));
+  dropOrbs(state, e.x, e.y, 'm', boss ? 8 : mn, spread, boss ? T.mp / 8 : T.mp / mn);
+  if (state.mode !== 'camp') {
+    const gn = Math.min(boss ? 12 : 4, T.gold);
+    dropOrbs(state, e.x, e.y, 'g', gn, spread, T.gold / gn);
+  }
+  // 큰 슬라임: 작은 슬라임 둘로 갈라짐
+  if (e.kind === 'bigslime') {
+    for (const s of [-1, 1]) {
+      const spot = freeSpotNear(state, e.x + s * 14, e.y);
+      const kid = makeEnemy(state, 'slime', spot.x, spot.y, state.mode === 'camp' ? state.wave * 0.6 : state.stageIdx);
+      state.enemies.push(kid);
+    }
   }
   // 불씨 특성: 화상 걸린 적이 쓰러지면 작은 폭발
   if (e.st.burn > 0) {
@@ -1553,6 +1972,12 @@ function blastAt(state, b, x, y, except) {
 
 // 플레이어 총알이 적에게 맞았을 때 (패시브·전직 특성)
 function bulletHitEnemy(state, b, e) {
+  // 방패병: 앞에서 오는 총알은 막음
+  if (e.kind === 'shield' && b.kind !== 'javelin' && angleDiff(Math.atan2(-b.vy, -b.vx), e.face) < 1.15) {
+    addFx(state, { k: 'r', x: b.x, y: b.y, r: 10, c: '#cfd8dc', t: 0.15, life: 0.15 });
+    if (state.fx.length < 220) state.fx.push({ k: 'dn', x: e.x, y: e.y - e.r, v: '막음', g: 'block', t: 0.5, life: 0.5 });
+    return false;
+  }
   let dmg = b.dmg;
   const p = state.players[b.shooter];
   if (p && b.fam === 'bow' && b.kind !== 'wave') {
@@ -1568,9 +1993,14 @@ function bulletHitEnemy(state, b, e) {
   }
   damageEnemy(state, e, dmg, b.shooter, b.crit ? 'crit' : '');
   if (p && !['icespike', 'icelance', 'fireball'].includes(b.kind)) staticChain(state, p, e);
-  if (b.el && e.hp > 0) applyElement(state, e, b);
+  // 산탄·여러 총열: 피해는 총알마다, 속성 효과는 한 묶음에 적 하나당 한 번
+  const first = !b.vol || !b.vol.hit.has(e.id);
+  if (b.vol) b.vol.hit.add(e.id);
+  if (first && b.el && e.hp > 0) applyElement(state, e, b);
+  if (first && b.vol?.el2 && e.hp > 0) comboHit(state, e, b.vol.el2, b.vol.elv2, b.shooter, b.vx, b.vy);
   if (b.freeze && e.hp > 0) e.st.frozen = Math.max(e.st.frozen, b.freeze);
   if (b.blast) blastAt(state, b, e.x, e.y, e);
+  return true;
 }
 
 function updateJavelin(state, b, dt) {
@@ -1608,6 +2038,7 @@ function updateBullets(state, dt) {
   for (const b of state.bullets) {
     if (b.dead) continue;
     if (b.kind === 'javelin') { updateJavelin(state, b, dt); continue; }
+    if (b.home > 0) steerBullet(state, b, dt);
     b.x += b.vx * dt;
     b.y += b.vy * dt;
     b.life -= dt;
@@ -1621,8 +2052,8 @@ function updateBullets(state, dt) {
       for (const e of state.enemies) {
         if (e.hp <= 0 || b.hits.includes(e.id)) continue;
         if ((e.x - b.x) ** 2 + (e.y - b.y) ** 2 < (e.r + b.r) ** 2) {
-          bulletHitEnemy(state, b, e);
-          if (b.pierce > 0) { b.pierce--; b.hits.push(e.id); }
+          const hit = bulletHitEnemy(state, b, e);
+          if (hit && b.pierce > 0) { b.pierce--; b.hits.push(e.id); }
           else { b.dead = true; break; }
         }
       }
@@ -1632,8 +2063,15 @@ function updateBullets(state, dt) {
       for (const p of Object.values(state.players)) {
         if (!p.alive || p.invuln > 0) continue;
         if ((p.x - b.x) ** 2 + (p.y - b.y) ** 2 < (p.r + b.r) ** 2) {
-          damagePlayer(state, p, b.dmg);
           b.dead = true;
+          // 기사 패시브: 방패가 준비돼 있으면 한 발 막음
+          if (p.char === 'knight' && p.shieldT <= 0) {
+            p.shieldT = KNIGHT_SHIELD;
+            addFx(state, { k: 'r', x: p.x, y: p.y, r: 22, c: '#90caf9', t: 0.3, life: 0.3 });
+            floatText(state, p.x, p.y - 30, '막음!', '#90caf9', 0.6);
+            break;
+          }
+          damagePlayer(state, p, b.dmg);
           break;
         }
       }
@@ -1739,6 +2177,12 @@ function updateCamp(state, players, dt) {
 }
 
 // ---------- 모험 모드: 방 / 포털 / 스테이지 ----------
+// 전투 중: 스킬 쿨타임·시간형 궁극기가 이때만 찹니다.
+function inCombat(state) {
+  if (state.phase !== 'playing') return false;
+  return state.mode === 'camp' ? state.enemies.length > 0 : !!state.activeRoom;
+}
+
 function roomAt(state, x, y) {
   const tx = Math.floor(x / TILE), ty = Math.floor(y / TILE);
   return state.map.rooms.find((r) => tx >= r.x0 + 1 && tx <= r.x0 + r.w - 2 && ty >= r.y0 + 1 && ty <= r.y0 + r.h - 2) || null;
@@ -1816,14 +2260,10 @@ function clearRoom(state, room) {
   const boss = room.type === 'boss';
   floatText(state, alive[0]?.x ?? 0, (alive[0]?.y ?? 0) - 30, boss ? '보스 처치!' : '방 클리어!', boss ? '#ffd54f' : '#a5d6a7', 1.6);
   for (const p of Object.values(state.players)) if (!p.alive && alive[0]) revive(state, p, 0.5, alive[0]);
-  for (const p of alive) {
-    if (hasPerk(p, 'tide')) heal(p, 1);
-    p.mana = Math.min(stats(p).maxMana, p.mana + MANA.roomRestore);
-  }
+  for (const p of alive) if (hasPerk(p, 'tide')) heal(p, 1);
   giveEssence(state, ESSENCE.room);
-  // 보물상자: 보스방은 반드시, 일반 방은 확률로 (스테이지의 마지막 전투 방에서 아직 없었다면 반드시)
-  const left = state.map.rooms.filter((r) => (r.type === 'battle' || r.type === 'boss') && r.state !== 'cleared').length;
-  if (boss || Math.random() < CHEST_CHANCE || (left === 0 && state.chestsThisStage === 0)) {
+  // 보물상자: 보스방은 반드시, 일반 방은 가끔 (상자방이 따로 있음)
+  if (boss || Math.random() < 0.2) {
     const cx = (room.x0 + room.w / 2) * TILE, cy = (room.y0 + room.h / 2) * TILE;
     spawnChest(state, cx + (boss ? 80 : 0), cy);
   }
@@ -1833,7 +2273,7 @@ function updateAdventure(state, players, dt) {
   const alive = players.filter((p) => p.alive);
   for (const p of alive) {
     const r = roomAt(state, p.x, p.y);
-    if (r) { r.seen = true; continue; }
+    if (r) { r.seen = true; r.visited = true; continue; }
     revealByCorridor(state, p);
   }
 
@@ -1865,11 +2305,11 @@ function beginTransition(state) {
   state.transT = TRANSITION_TIME;
   state.portalT = 0;
   giveEssence(state, ESSENCE.stage);
-  Object.assign(state, { enemies: [], bullets: [], orbs: [], fx: [], grenades: [], zones: [], chests: [], pickups: [] });
+  Object.assign(state, { enemies: [], bullets: [], orbs: [], fx: [], grenades: [], zones: [], chests: [], pickups: [], shop: [], hazards: [] });
   for (const p of Object.values(state.players)) {
     p.reward = makeReward(p);
     p.rewardDone = false;
-    // 들고 있는 무기가 1단계면 전직 선택지 2개 (안 해도 됨)
+    // 들고 있는 무기의 다음 진화 (diep.io 탱크처럼 갈래 중 하나, 안 해도 됨)
     const W = WEAPONS[held(p).key];
     p.evo = W.evo ? [...W.evo] : null;
     p.evoDone = !p.evo;
@@ -1895,6 +2335,7 @@ function updateTransition(state, players, dt) {
   state.doorSet = new Set();
   state.activeRoom = null;
   state.chestsThisStage = 0;
+  setupStageRooms(state);
   state.phase = 'playing';
   players.forEach((p, i) => {
     if (!p.alive) revive(state, p, 0.5);
@@ -1935,6 +2376,7 @@ export function step(state, inputs, dt) {
   separateEnemies(state);
   updateTurrets(state, dt);
   updateBullets(state, dt);
+  updateHazards(state, dt);
   updateGrenadesAndZones(state, dt);
   // 총알·스킬·지속 피해·반응 어떤 이유로든 쓰러진 적은 마지막으로 때린 사람에게 점수를 줍니다.
   for (const e of state.enemies) if (e.hp <= 0) killEnemy(state, e);
@@ -1959,10 +2401,13 @@ function statusCode(s) {
     + (s.frozen > 0 ? 'f' : '') + (s.poison > 0 ? 'p' : '') + (s.stun > 0 ? 'z' : '');
 }
 
-function roomCode(r) {
+// 미니맵: '-' 모름 · 'k' 길은 알지만 안 가 본 방(회색) · 's' 보임(종류 표시) · 'v' 가 봄 · 'c' 클리어 · 'a' 전투 중
+function roomCode(r, rooms) {
   if (r.state === 'active') return 'a';
-  if (r.state === 'cleared' || (r.seen && r.type !== 'battle' && r.type !== 'boss')) return 'c';
-  return r.seen ? 's' : '-';
+  if (r.state === 'cleared') return 'c';
+  if (r.visited) return r.type === 'battle' || r.type === 'boss' ? 's' : 'v';
+  if (r.seen) return 's';
+  return r.links.some((id) => rooms[id].visited) ? 'k' : '-';
 }
 
 function bulletSnap(b) {
@@ -1998,7 +2443,7 @@ export function snapshot(state) {
     lp: state.phase === 'lobby' ? lobbyProblem(state) : null,
     lpt: state.lobbyPortal ? { m: state.lobbyPortal, t: r1(state.lobbyPortalT) } : null,
     si: state.stageIdx,
-    rs: state.map.rooms.map(roomCode).join(''),
+    rs: state.map.rooms.map((r) => roomCode(r, state.map.rooms)).join(''),
     ar: state.activeRoom ? state.activeRoom.id : -1,
     pt: r1(state.portalT),
     po: !state.map.boss || bossRoom?.state === 'cleared' ? 1 : 0,
@@ -2013,21 +2458,28 @@ export function snapshot(state) {
       a: r2(p.angle), hp: p.hp, mh: maxHpOf(p),
       al: p.alive ? 1 : 0, s: p.score, iv: p.invuln > 0 ? 1 : 0, mv: p.moving ? 1 : 0, ds: p.dashT > 0 || p.sdash ? 1 : 0,
       bf: p.buffs, at: p.augTypes.length, of: p.offer, oq: p.offerQueue, rd: p.ready ? 1 : 0,
-      el: p.element, elv: p.elementLv, pz: p.paused ? 1 : 0, wp: p.weapon,
+      el: p.element, elv: p.elementLv, pz: p.paused ? 1 : 0, cr: p.char, co: Math.floor(p.coins),
+      sh: p.char === 'knight' && p.shieldT <= 0 ? 1 : 0, dx: r1(p.dsx), dy: r1(p.dsy),
       lv: p.level, xp: Math.floor(p.xp), xn: xpToNext(p.level), es: Math.floor(p.es),
       rw: p.reward, rwd: p.rewardDone ? 1 : 0, ev: p.evo, evd: p.evoDone ? 1 : 0,
       ws: p.weapons.map((s) => ({
-        k: s.key, el: s.el, u: Math.floor((s.ult / SKILLS[weaponFam(s.key)].ult.need) * 100),
+        k: s.key, el: s.el, lv: s.elv, u: Math.floor((s.ult / SKILLS[weaponFam(s.key)].ult.need) * 100),
         cd: r1(Math.max(0, s.cd)), c: s.charges, cm: WEAPONS[s.key].charges || 1,
       })),
-      sl: p.slot, sw: r1(p.swapCd), ut: r1(p.ultT), ch: WEAPONS[held(p).key].charge ? r2(p.chargeT / WEAPONS[held(p).key].charge) : 0,
+      sl: p.slot, sw: r1(p.swapCd), ut: r1(p.ultT), cb: inCombat(state) ? 1 : 0,
       jv: p.javelin ? 1 : 0, ld: p.loadout, cs: p.casts.map(r1), sgt: r2(p.swingT / SWING_TIME), sgd: p.swingDir,
       mp: Math.floor(p.mana), mm: stats(p).maxMana, sk: p.skin, wst: weaponStats(p),
     })),
     e: state.enemies.map((e) => ({
       id: e.id, k: e.kind, x: r1(e.x), y: r1(e.y), r: e.r,
       hp: e.hp, mh: e.maxHp, h: e.hitT > 0 ? 1 : 0, s: statusCode(e.st), c: e.color || 0, ch: e.act === 'charge' ? 1 : 0,
+      f: r2(e.face || 0), fu: e.fuse > 0 ? 1 : 0, ai: e.air ? 1 : 0, w: e.world ?? 0,
     })),
+    hz: state.hazards.map((h) => ({
+      k: h.k, x: r1(h.x), y: r1(h.y), r: h.r || 0, a: r2(h.a || 0), len: h.len || 0, w: h.w || 0,
+      p: r2(Math.min(1, h.t / h.warn)), on: h.t >= h.warn ? 1 : 0, c: h.c || 0,
+    })),
+    sh: state.shop.map((o) => ({ id: o.id, x: o.x, y: o.y, kd: o.kind, k: o.key || 0, el: o.el || 0, lv: o.elv || 0, pr: o.price, so: o.sold ? 1 : 0 })),
     st: state.structs.map((s) => ({
       id: s.id, k: s.kind, tx: s.tx, ty: s.ty, hp: s.hp, mh: s.maxHp,
       a: s.angle !== undefined ? r2(s.angle) : 0,
@@ -2041,9 +2493,9 @@ export function snapshot(state) {
       }),
     ],
     zn: state.zones.map((z) => ({ k: z.kind, x: r1(z.x), y: r1(z.y), r: z.r, t: r1(z.t), el: z.el || 0 })),
-    cs: state.chests.map((c) => ({ id: c.id, x: c.x, y: c.y, o: c.open ? 1 : 0 })),
-    pk: state.pickups.map((o) => ({ id: o.id, x: r1(o.x), y: r1(o.y), k: o.key, el: o.el || 0 })),
-    xo: state.orbs.map((o) => ({ id: o.id, x: r1(o.x), y: r1(o.y), tk: o.taken })),
+    cs: state.chests.map((c) => ({ id: c.id, x: c.x, y: c.y, o: c.open ? 1 : 0, b: c.big ? 1 : 0 })),
+    pk: state.pickups.map((o) => ({ id: o.id, x: r1(o.x), y: r1(o.y), k: o.key, el: o.el || 0, lv: o.elv || 0 })),
+    xo: state.orbs.map((o) => ({ id: o.id, k: o.k, x: r1(o.x), y: r1(o.y), tk: o.taken })),
     fx: state.fx.map((f) => ({ ...f, x: r1(f.x), y: r1(f.y), t: r1(f.t) })),
   };
 }

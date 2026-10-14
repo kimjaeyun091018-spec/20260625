@@ -1,10 +1,11 @@
-import { VIEW_W, VIEW_H, MAX_PLAYERS, WEAPONS, ELEMENTS, stageLabel, offerInfo } from './data.js';
+import { VIEW_W, VIEW_H, MAX_PLAYERS, WEAPONS, ELEMENTS, CHARACTERS, TIER_NAME, stageLabel, offerInfo, elColor, weaponInfo } from './data.js';
 import {
   createState, addPlayer, removePlayer, step, snapshot, sanitizeInput, sanitizeName, setBuild,
 } from './game.js';
 import { packMap, unpackMap } from './maps.js';
 import { makeRoomCode, hostRoom, joinRoom, describeError } from './net.js';
-import { createRenderer, weaponIconHtml, tintedPlayer } from './render.js';
+import { createRenderer, weaponIconHtml, tintedPlayer, gearSheet } from './render.js';
+import { SKINS } from './data.js';
 import { loadSave, writeSave, currentBuild, setSaveAccount, NODE } from './tree.js';
 import { createTreeUI } from './treeui.js';
 import { settings, createSettingsUI, createWardrobeUI, createAccountUI, currentAccount } from './panels.js';
@@ -81,6 +82,12 @@ function skinPreview(skin) {
     const g = c.getContext('2d');
     g.imageSmoothingEnabled = false;
     g.drawImage(sheet, 0, 0, 32, 32, 0, 0, 64, 64);
+    const gi = SKINS[skin]?.gear;
+    if (gi !== undefined) {
+      const gear = gearSheet();
+      if (!gear) return c.toDataURL(); // 아직 로딩 중: 저장하지 않고 다음에 다시
+      g.drawImage(gear, gi * 32, 0, 32, 32, 0, 0, 64, 64);
+    }
     previewCache[skin] = c.toDataURL();
   } catch { return ''; }
   return previewCache[skin];
@@ -102,10 +109,9 @@ function bankEssence(rid, amount) {
 }
 
 function buildSummary() {
-  const s = save.slots[save.active];
-  if (!s.saved) return { title: `빌드 ${save.active + 1}: 저장 안 됨`, sub: '제단에서 스킬 트리를 열어 빌드를 저장하세요', color: '#ffcc80' };
-  const el = s.el ? ELEMENTS[s.el] : null;
-  const names = s.eq.map((id) => NODE[id]?.name).filter(Boolean).join(' · ') || '장착 없음';
+  const b = currentBuild(save);
+  const el = b.el ? ELEMENTS[b.el] : null;
+  const names = b.eq.map((id) => NODE[id]?.name).filter(Boolean).join(' · ') || '장착 없음 (제단에서 스킬 트리)';
   return { title: `빌드 ${save.active + 1}: ${el ? `${el.name} 속성` : '속성 없음'}`, sub: names, color: el ? el.color : '#fff' };
 }
 
@@ -181,7 +187,7 @@ window.addEventListener('keydown', (e) => {
   }
   const n = NUMBER_KEYS[e.code];
   if (n) {
-    if (phase === 'playing') pushAction(`cast${n}`);
+    if (phase === 'playing' || phase === 'lobby') pushAction(`cast${n}`);
     else if (phase === 'transition' && n <= 3) pushAction(`reward${n}`);
     e.preventDefault();
     return;
@@ -416,13 +422,16 @@ function slotHtml(snap, extra) {
   for (let i = 0; i < MAX_PLAYERS; i++) {
     const p = snap.p[i];
     if (!p) { html += `<div class="slot empty"><b>${i + 1}P</b><span>비어 있음</span></div>`; continue; }
-    const k = p.ws?.[p.sl]?.k || p.wp;
+    const w = p.ws?.[p.sl];
+    const C = CHARACTERS[p.cr];
     html += `<div class="slot" style="--c:${p.c}"><b>${i + 1}P</b>
-      <span class="pname">${esc(p.n)}${p.id === snap.hid ? ' 👑' : ''}</span>
-      <span class="pweap">${k ? `${weaponIconHtml(k, 1.5)} ${WEAPONS[k].name}` : ''}</span>${extra ? extra(p) : ''}</div>`;
+      <span class="pname">${esc(p.n)}${p.id === snap.hid ? ' 👑' : ''}${C ? ` · ${C.name}` : ''}</span>
+      <span class="pweap" style="color:${elColor(w?.el)}">${w ? `${weaponIconHtml(w.k, 1.5)} ${weaponName(w)}` : ''}</span>${extra ? extra(p) : ''}</div>`;
   }
   return html;
 }
+
+const weaponName = (w) => `${ELEMENTS[w.el] ? `${ELEMENTS[w.el].name}의 ` : ''}${WEAPONS[w.k].name}`;
 
 function updateStage(snap, myId) {
   const me = snap.p.find((p) => p.id === myId);
@@ -441,11 +450,13 @@ function updateStage(snap, myId) {
         <span class="rkey">${i + 1}</span><b>${info.name}</b><small>${info.desc}</small></button>`;
     }).join('')}</div>`;
   const evoHtml = me?.ev && !me.evd
-    ? `<h3 class="evo-title">무기 전직 (선택 안 해도 돼요)</h3><div class="reward-row">${me.ev.map((k, i) => {
+    ? `<h3 class="evo-title">무기 진화: ${esc(weaponName(me.ws[me.sl]))} → (속성은 그대로, 선택 안 해도 돼요)</h3><div class="reward-row">${me.ev.map((k, i) => {
       const info = offerInfo(`evo:${k}`);
-      return `<button class="reward evo" style="--c:${info.color}" data-act="evo${i + 1}">
-        ${weaponIconHtml(k, 3)}<b>${info.name}</b><small>${info.desc}</small></button>`;
-    }).join('')}<button class="reward skip" data-act="evoskip"><b>전직 안 함</b><small>지금 무기 그대로</small></button></div>`
+      const wi = weaponInfo(k), W = WEAPONS[k];
+      const more = `${TIER_NAME[W.tier]} · 명중 ${wi.acc}% · 마나 ${wi.mana || 0}${W.evo ? ` · 다음: ${W.evo.map((e) => WEAPONS[e].name).join('/')}` : ''}`;
+      return `<button class="reward evo" style="--c:${elColor(me.ws[me.sl].el)}" data-act="evo${i + 1}">
+        ${weaponIconHtml(k, 3)}<b>${info.name}</b><small>${info.desc}</small><small>${more}</small></button>`;
+    }).join('')}<button class="reward skip" data-act="evoskip"><b>진화 안 함</b><small>지금 무기 그대로</small></button></div>`
     : '';
   ui.rewards.innerHTML = rewardHtml + evoHtml + (me?.rwd && me?.evd ? '<p class="sub">다른 팀원을 기다리는 중…</p>' : '');
 }
@@ -530,12 +541,12 @@ function clientFrame(s, now) {
   }
   // 카드·골드·단계는 최신 상태로 (보간 X)
   const view = {
-    ...snap, g: latest.g, ph: latest.ph, lp: latest.lp, lpt: latest.lpt, md: latest.md, tt: latest.tt, rid: latest.rid,
+    ...snap, g: latest.g, ph: latest.ph, sh: latest.sh, hz: latest.hz, lp: latest.lp, lpt: latest.lpt, md: latest.md, tt: latest.tt, rid: latest.rid,
     p: snap.p.map((p) => {
       const q = latest.p.find((o) => o.id === p.id) || p;
       return {
-        ...p, of: q.of, oq: q.oq, at: q.at, rw: q.rw, rwd: q.rwd, ev: q.ev, evd: q.evd, wp: q.wp, xp: q.xp, lv: q.lv, xn: q.xn,
-        ws: q.ws, sl: q.sl, sw: q.sw, ld: q.ld, cs: q.cs, es: q.es, mp: q.mp, mm: q.mm, wst: q.wst, sk: q.sk,
+        ...p, of: q.of, oq: q.oq, at: q.at, rw: q.rw, rwd: q.rwd, ev: q.ev, evd: q.evd, cr: q.cr, xp: q.xp, lv: q.lv, xn: q.xn,
+        ws: q.ws, sl: q.sl, sw: q.sw, ld: q.ld, cs: q.cs, es: q.es, mp: q.mp, mm: q.mm, wst: q.wst, sk: q.sk, co: q.co, sh: q.sh, cb: q.cb,
       };
     }),
   };
