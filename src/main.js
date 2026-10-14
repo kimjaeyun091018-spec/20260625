@@ -1,5 +1,5 @@
 import {
-  WIDTH, HEIGHT, TILE, COLS, ROWS, MAP, MAX_PLAYERS,
+  WIDTH, HEIGHT, TILE, COLS, ROWS, MAP, MAX_PLAYERS, CAMP, STRUCTS, BUFFS, inCamp,
   createState, addPlayer, removePlayer, step, snapshot, sanitizeInput, sanitizeName,
 } from './game.js';
 import { makeRoomCode, hostRoom, joinRoom, describeError } from './net.js';
@@ -26,24 +26,36 @@ const ui = {
 };
 
 // ---------- 입력 (키보드 + 마우스) ----------
-const KEYMAP = {
+// 누르고 있는 동안 유지되는 키
+const HOLD_KEYS = {
   KeyW: 'up', ArrowUp: 'up',
   KeyS: 'down', ArrowDown: 'down',
   KeyA: 'left', ArrowLeft: 'left',
   KeyD: 'right', ArrowRight: 'right',
   Space: 'dash', ShiftLeft: 'dash', ShiftRight: 'dash',
 };
+// 한 번 누르면 한 번 실행되는 키
+const ACTION_KEYS = {
+  KeyE: 'fence', KeyR: 'turret', KeyF: 'demolish', KeyG: 'ready',
+  Digit1: 'pick1', Digit2: 'pick2', Digit3: 'pick3',
+  Numpad1: 'pick1', Numpad2: 'pick2', Numpad3: 'pick3',
+};
 const keys = new Set();
 const mouse = { x: WIDTH / 2, y: HEIGHT / 2, down: false };
+const actionQueue = [];
+let actionSeq = 0;
+let cardRects = []; // 화면에 그려진 강화 카드 위치 (클릭 선택용)
 
 window.addEventListener('keydown', (e) => {
   if (!session) return;
   if (e.code === 'Escape') { leave(); return; }
-  const k = KEYMAP[e.code];
-  if (k) { keys.add(k); e.preventDefault(); }
+  const hold = HOLD_KEYS[e.code];
+  if (hold) { keys.add(hold); e.preventDefault(); }
+  const act = ACTION_KEYS[e.code];
+  if (act && !e.repeat) { actionQueue.push(act); e.preventDefault(); }
 });
 window.addEventListener('keyup', (e) => {
-  const k = KEYMAP[e.code];
+  const k = HOLD_KEYS[e.code];
   if (k) keys.delete(k);
 });
 window.addEventListener('blur', () => { keys.clear(); mouse.down = false; });
@@ -57,18 +69,25 @@ function toWorld(ev) {
 canvas.addEventListener('pointermove', toWorld);
 canvas.addEventListener('pointerdown', (e) => {
   toWorld(e);
-  if (e.button === 0) mouse.down = true;
+  if (e.button !== 0) return;
+  const card = cardRects.findIndex((c) => mouse.x >= c.x && mouse.x <= c.x + c.w && mouse.y >= c.y && mouse.y <= c.y + c.h);
+  if (card >= 0) { actionQueue.push(`pick${card + 1}`); return; }
+  mouse.down = true;
   canvas.setPointerCapture?.(e.pointerId);
 });
 canvas.addEventListener('pointerup', (e) => { if (e.button === 0) mouse.down = false; });
 canvas.addEventListener('pointercancel', () => { mouse.down = false; });
 canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
+// 호출할 때마다 쌓인 행동을 하나씩 꺼내 보냅니다(seq가 바뀌면 방장이 한 번 실행).
 function readInput(me) {
+  const act = actionQueue.shift() || null;
+  if (act) actionSeq++;
   return {
     up: keys.has('up'), down: keys.has('down'), left: keys.has('left'), right: keys.has('right'),
     dash: keys.has('dash'), fire: mouse.down,
     aim: me ? Math.atan2(mouse.y - me.y, mouse.x - me.x) : 0,
+    act, seq: actionSeq, bx: Math.round(mouse.x), by: Math.round(mouse.y),
   };
 }
 
@@ -88,6 +107,7 @@ function enterGame(label) {
   setStatus('');
   setBusy(false);
   keys.clear();
+  actionQueue.length = 0;
   mouse.down = false;
 }
 
@@ -95,6 +115,7 @@ function leave(reason = '') {
   if (!session) return;
   session.net?.close();
   session = null;
+  cardRects = [];
   ui.menu.hidden = false;
   ui.roomInfo.hidden = true;
   setBusy(false);
@@ -222,7 +243,9 @@ function clientFrame(s, now) {
     s.net.send({ t: 'in', i: readInput(me) });
     s.lastSend = now;
   }
-  if (snap) render(snap, s.myId);
+  // 강화 카드/골드는 최신 상태로 보여 줍니다(보간 X).
+  const latest = s.buffer[s.buffer.length - 1]?.s;
+  if (snap && latest) render({ ...snap, g: latest.g, p: snap.p.map((p) => ({ ...p, of: latest.p.find((q) => q.id === p.id)?.of ?? p.of })) }, s.myId);
   else { drawMap(); centerText('상태를 받는 중…'); }
 }
 
@@ -248,15 +271,32 @@ mapCanvas.height = HEIGHT;
         m.fillStyle = '#3d3460';
         m.fillRect(px, py, TILE, 6);
       } else {
-        m.fillStyle = (x + y) % 2 ? '#1b1a2e' : '#1f1e34';
+        const camp = inCamp(x, y);
+        m.fillStyle = camp
+          ? ((x + y) % 2 ? '#262035' : '#2a2339')
+          : ((x + y) % 2 ? '#1b1a2e' : '#1f1e34');
         m.fillRect(px, py, TILE, TILE);
       }
     }
   }
+  // 캠프 경계선
+  m.strokeStyle = 'rgba(255, 183, 77, .35)';
+  m.setLineDash([8, 8]);
+  m.lineWidth = 2;
+  m.beginPath();
+  m.arc(CAMP.x, CAMP.y, CAMP.r + TILE / 2, 0, Math.PI * 2);
+  m.stroke();
 })();
 
 function drawMap() {
   ctx.drawImage(mapCanvas, 0, 0);
+}
+
+function drawCampfire(now) {
+  const flick = Math.sin(now / 90) * 2;
+  circle(CAMP.x, CAMP.y + 6, 12, '#5d4037');
+  circle(CAMP.x, CAMP.y, 9 + flick * 0.5, '#ff7043');
+  circle(CAMP.x, CAMP.y - 3, 5 + flick * 0.3, '#ffd54f');
 }
 
 function circle(x, y, r, color) {
@@ -271,6 +311,44 @@ function hpBar(x, y, w, hp, max) {
   ctx.fillRect(x - w / 2, y, w, 4);
   ctx.fillStyle = '#ef5350';
   ctx.fillRect(x - w / 2, y, (w * Math.max(0, hp)) / max, 4);
+}
+
+function drawStruct(s) {
+  const x = s.tx * TILE, y = s.ty * TILE, cx = x + TILE / 2, cy = y + TILE / 2;
+  if (s.k === 'fence') {
+    ctx.fillStyle = '#8d6e63';
+    ctx.fillRect(x + 3, y + 6, 4, 22);
+    ctx.fillRect(x + 14, y + 6, 4, 22);
+    ctx.fillRect(x + 25, y + 6, 4, 22);
+    ctx.fillStyle = '#a1887f';
+    ctx.fillRect(x + 1, y + 10, 30, 4);
+    ctx.fillRect(x + 1, y + 20, 30, 4);
+  } else {
+    ctx.fillStyle = '#546e7a';
+    ctx.fillRect(x + 4, y + 4, 24, 24);
+    circle(cx, cy, 8, '#90a4ae');
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(s.a);
+    ctx.fillStyle = '#cfd8dc';
+    ctx.fillRect(0, -3, 16, 6);
+    ctx.restore();
+  }
+  if (s.hp < s.mh) hpBar(cx, y - 2, 26, s.hp, s.mh);
+}
+
+// 마우스가 캠프 안이면 건설 가능 여부를 칸으로 보여 줍니다.
+function drawBuildPreview(snap, me) {
+  if (!me?.al) return;
+  const tx = Math.floor(mouse.x / TILE), ty = Math.floor(mouse.y / TILE);
+  if (tx < 0 || ty < 0 || tx >= COLS || ty >= ROWS || !inCamp(tx, ty)) return;
+  const occupied = snap.st.find((s) => s.tx === tx && s.ty === ty);
+  const ok = !MAP[ty][tx] && !occupied;
+  ctx.strokeStyle = occupied ? 'rgba(255,138,101,.9)' : ok ? 'rgba(129,199,132,.9)' : 'rgba(229,115,115,.9)';
+  ctx.lineWidth = 2;
+  ctx.setLineDash([4, 4]);
+  ctx.strokeRect(tx * TILE + 1, ty * TILE + 1, TILE - 2, TILE - 2);
+  ctx.setLineDash([]);
 }
 
 const ENEMY_COLORS = { slime: '#66bb6a', archer: '#9575cd', brute: '#e57373' };
@@ -312,61 +390,133 @@ function drawPlayer(p, isMe, now) {
   ctx.fillStyle = '#fff';
   ctx.font = '12px sans-serif';
   ctx.textAlign = 'center';
-  ctx.fillText(p.al ? p.n : `${p.n} (다음 웨이브에 부활)`, p.x, p.y - 20);
+  const tag = p.al ? `${p.n}${p.rd ? ' ✔' : ''}` : `${p.n} (다음 웨이브에 부활)`;
+  ctx.fillText(tag, p.x, p.y - 20);
 }
 
 function centerText(text, sub = '') {
   ctx.fillStyle = 'rgba(0,0,0,.45)';
-  ctx.fillRect(0, HEIGHT / 2 - 44, WIDTH, sub ? 88 : 64);
+  roundRect(WIDTH / 2 - 280, 100, 560, sub ? 76 : 52, 10);
+  ctx.fill();
   ctx.fillStyle = '#fff';
   ctx.textAlign = 'center';
-  ctx.font = 'bold 28px sans-serif';
-  ctx.fillText(text, WIDTH / 2, HEIGHT / 2 - 4);
+  ctx.font = 'bold 26px sans-serif';
+  ctx.fillText(text, WIDTH / 2, 134);
   if (sub) {
-    ctx.font = '16px sans-serif';
-    ctx.fillText(sub, WIDTH / 2, HEIGHT / 2 + 26);
+    ctx.font = '15px sans-serif';
+    ctx.fillText(sub, WIDTH / 2, 162);
   }
 }
 
+function roundRect(x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.roundRect ? ctx.roundRect(x, y, w, h, r) : ctx.rect(x, y, w, h);
+}
+
+function drawBuffCards(me) {
+  cardRects = [];
+  if (!me?.of) return;
+  const w = 200, h = 84, gap = 14;
+  const total = me.of.length * w + (me.of.length - 1) * gap;
+  const y = HEIGHT - h - 44;
+  ctx.textAlign = 'left';
+  ctx.fillStyle = '#ffe082';
+  ctx.font = 'bold 14px sans-serif';
+  ctx.fillText('강화를 골라 주세요 (숫자키 또는 클릭)', (WIDTH - total) / 2, y - 8);
+  me.of.forEach((key, i) => {
+    const x = (WIDTH - total) / 2 + i * (w + gap);
+    const hover = mouse.x >= x && mouse.x <= x + w && mouse.y >= y && mouse.y <= y + h;
+    roundRect(x, y, w, h, 10);
+    ctx.fillStyle = hover ? 'rgba(75,63,143,.97)' : 'rgba(30,27,52,.94)';
+    ctx.fill();
+    ctx.strokeStyle = '#ffd54f';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    const def = BUFFS[key];
+    const lv = (me.bf?.[key] || 0) + 1;
+    ctx.fillStyle = '#ffd54f';
+    ctx.font = 'bold 13px sans-serif';
+    ctx.fillText(`[${i + 1}]`, x + 12, y + 24);
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 16px sans-serif';
+    ctx.fillText(def.name, x + 44, y + 24);
+    ctx.fillStyle = '#b0aacc';
+    ctx.font = '13px sans-serif';
+    ctx.fillText(def.desc, x + 12, y + 50);
+    ctx.fillText(`Lv ${lv} / ${def.max}`, x + 12, y + 70);
+    cardRects.push({ x, y, w, h });
+  });
+}
+
 function drawHud(snap, me) {
+  // 왼쪽 위: 웨이브, 체력, 점수, 골드
   ctx.textAlign = 'left';
   ctx.fillStyle = 'rgba(0,0,0,.5)';
-  ctx.fillRect(10, 10, 190, 58);
+  ctx.fillRect(10, 10, 230, 80);
   ctx.fillStyle = '#fff';
   ctx.font = 'bold 16px sans-serif';
   ctx.fillText(`웨이브 ${snap.w}`, 20, 32);
+  ctx.fillStyle = '#ffd54f';
+  ctx.font = 'bold 15px sans-serif';
+  ctx.fillText(`💰 ${snap.g}`, 170, 32);
   if (me) {
     for (let i = 0; i < me.mh; i++) {
       ctx.fillStyle = i < me.hp ? '#ef5350' : '#555';
-      ctx.fillRect(20 + i * 18, 42, 14, 14);
+      ctx.fillRect(20 + i * 13, 42, 10, 12);
     }
-    ctx.fillStyle = '#ffd54f';
-    ctx.font = '14px sans-serif';
-    ctx.fillText(`점수 ${me.s}`, 130, 32);
+    ctx.fillStyle = '#ddd';
+    ctx.font = '12px sans-serif';
+    ctx.fillText(`점수 ${me.s}`, 20, 76);
+    // 보유 강화
+    const owned = Object.entries(me.bf || {}).map(([k, n]) => `${BUFFS[k]?.name ?? k} ${n}`);
+    if (owned.length) {
+      ctx.fillStyle = 'rgba(0,0,0,.45)';
+      ctx.fillRect(10, 94, 230, 16 * owned.length + 8);
+      ctx.fillStyle = '#c5b8ff';
+      owned.forEach((t, i) => ctx.fillText(t, 20, 112 + i * 16));
+    }
   }
 
-  // 팀원 목록
+  // 오른쪽 위: 팀원
   ctx.textAlign = 'right';
   ctx.font = '13px sans-serif';
   snap.p.forEach((p, i) => {
     ctx.fillStyle = p.c;
-    ctx.fillText(`${p.n}  ${'♥'.repeat(p.hp)}${p.al ? '' : ' ✕'}`, WIDTH - 14, 52 + i * 18);
+    ctx.fillText(`${p.rd ? '✔ ' : ''}${p.n}  ${'♥'.repeat(p.hp)}${p.al ? '' : ' ✕'}`, WIDTH - 14, 52 + i * 18);
   });
 
+  // 왼쪽 아래: 건설 안내
+  ctx.textAlign = 'left';
+  ctx.font = '12px sans-serif';
+  ctx.fillStyle = 'rgba(0,0,0,.5)';
+  ctx.fillRect(10, HEIGHT - 34, 330, 24);
+  ctx.fillStyle = '#eee';
+  ctx.fillText(
+    `캠프 안에서  E 울타리(${STRUCTS.fence.cost})  R 터렛(${STRUCTS.turret.cost})  F 철거(반값 환불)`,
+    18, HEIGHT - 18,
+  );
+
+  const alive = snap.p.filter((p) => p.al);
   if (snap.go) centerText('전멸!', '잠시 후 다시 시작합니다');
   else if (snap.e.length === 0) {
-    const sec = Math.ceil(snap.wt);
-    centerText(snap.w === 0 ? '곧 시작합니다' : `웨이브 ${snap.w} 클리어!`, `다음 웨이브까지 ${sec}초`);
+    const ready = alive.filter((p) => p.rd).length;
+    const title = snap.w === 0 ? '베이스캠프를 준비하세요' : `웨이브 ${snap.w} 클리어!`;
+    centerText(title, `다음 웨이브까지 ${Math.ceil(snap.wt)}초 · G 준비 완료 (${ready}/${alive.length}) · 캠프 안에서 체력 회복`);
   }
 }
 
 function render(snap, myId) {
   const now = performance.now();
+  const me = snap.p.find((p) => p.id === myId);
   drawMap();
+  drawCampfire(now);
+  for (const s of snap.st) drawStruct(s);
+  drawBuildPreview(snap, me);
   for (const b of snap.b) circle(b.x, b.y, b.r, b.o ? '#ff5252' : '#ffee58');
   for (const e of snap.e) drawEnemy(e);
   for (const p of snap.p) drawPlayer(p, p.id === myId, now);
-  drawHud(snap, snap.p.find((p) => p.id === myId));
+  drawHud(snap, me);
+  drawBuffCards(me);
 }
 
 requestAnimationFrame(loop);

@@ -9,6 +9,31 @@ export const WIDTH = TILE * COLS;
 export const HEIGHT = TILE * ROWS;
 export const MAX_PLAYERS = 4;
 
+// 베이스캠프: 맵 중앙의 원형 구역. 이 안에만 건설할 수 있고, 쉬는 시간에 이 안에 있으면 체력이 찹니다.
+export const CAMP = { x: 15 * TILE, y: 10 * TILE, r: 6 * TILE };
+
+export const STRUCTS = {
+  fence: { name: '울타리', cost: 5, hp: 10 },
+  turret: { name: '터렛', cost: 30, hp: 6, range: 280, fireEvery: 0.45, bulletSpeed: 520 },
+};
+const MAX_STRUCTS = 40;
+
+// Soul Knight식 강화 (웨이브 클리어마다 3개 중 1개 선택)
+export const BUFFS = {
+  dmg: { name: '공격력 강화', desc: '총알 피해 +1', max: 5 },
+  rate: { name: '빠른 손', desc: '연사 속도 +25%', max: 5 },
+  multi: { name: '멀티샷', desc: '총알 +1발', max: 3 },
+  speed: { name: '날쌘 발', desc: '이동 속도 +12%', max: 4 },
+  hp: { name: '튼튼한 몸', desc: '최대 체력 +2', max: 5 },
+  pierce: { name: '관통탄', desc: '적을 1명 더 관통', max: 3 },
+  bounce: { name: '도탄', desc: '벽에 1번 더 튕김', max: 3 },
+  dash: { name: '그림자 대시', desc: '대시 쿨타임 -25%', max: 3 },
+  vamp: { name: '흡혈', desc: '처치 시 12% 확률로 체력 +1', max: 3 },
+};
+
+// 한 번 누르면 한 번 실행되는 행동들 (입력의 act 값)
+export const ACTIONS = ['fence', 'turret', 'demolish', 'pick1', 'pick2', 'pick3', 'ready'];
+
 const PLAYER_COLORS = ['#4fc3f7', '#ffb74d', '#f06292', '#aed581'];
 const PLAYER_RADIUS = 12;
 const PLAYER_MAX_HP = 6;
@@ -18,16 +43,19 @@ const DASH_TIME = 0.14;
 const DASH_COOLDOWN = 0.9;
 const FIRE_COOLDOWN = 0.16;
 const BULLET_SPEED = 600;
-const WAVE_BREAK = 3;
+const WAVE_BREAK = 12;
+const FIRST_BREAK = 10;
 const RESTART_DELAY = 3.5;
+const START_GOLD = 20;
+const CAMP_HEAL_EVERY = 1.5;
 
 const ENEMY_TYPES = {
-  slime: { r: 13, hp: 3, speed: 85, touch: 1, score: 10 },
-  archer: { r: 12, hp: 2, speed: 95, fireEvery: 1.7, bulletSpeed: 260, score: 15 },
-  brute: { r: 18, hp: 9, speed: 60, touch: 2, score: 30 },
+  slime: { r: 13, hp: 3, speed: 85, touch: 1, score: 10, gold: 3 },
+  archer: { r: 12, hp: 2, speed: 95, fireEvery: 1.7, bulletSpeed: 260, score: 15, gold: 4 },
+  brute: { r: 18, hp: 9, speed: 60, touch: 2, score: 30, gold: 10 },
 };
 
-const SPAWN_TILES = [[12, 9], [17, 9], [12, 10], [17, 10]];
+const SPAWN_TILES = [[14, 9], [15, 9], [14, 10], [15, 10]];
 
 export const MAP = buildMap();
 
@@ -40,8 +68,8 @@ function buildMap() {
     }
     map.push(row);
   }
-  // 2x2 기둥
-  const blocks = [[6, 4], [22, 4], [6, 14], [22, 14], [14, 9]];
+  // 2x2 기둥 (가운데는 베이스캠프라 비워 둡니다)
+  const blocks = [[5, 4], [23, 4], [5, 14], [23, 14]];
   for (const [bx, by] of blocks) {
     for (let dy = 0; dy < 2; dy++) for (let dx = 0; dx < 2; dx++) map[by + dy][bx + dx] = 1;
   }
@@ -53,44 +81,65 @@ function isWallTile(tx, ty) {
   return MAP[ty][tx] === 1;
 }
 
-function pointInWall(x, y) {
-  return isWallTile(Math.floor(x / TILE), Math.floor(y / TILE));
+const tileCenter = (t) => t * TILE + TILE / 2;
+const tileKey = (tx, ty) => ty * COLS + tx;
+
+export function inCamp(tx, ty) {
+  return Math.hypot(tileCenter(tx) - CAMP.x, tileCenter(ty) - CAMP.y) <= CAMP.r;
 }
 
-function circleHitsWall(x, y, r) {
+function structAt(state, tx, ty) {
+  return state.structMap.get(tileKey(tx, ty)) || null;
+}
+
+function rebuildStructMap(state) {
+  state.structMap = new Map(state.structs.map((s) => [tileKey(s.tx, s.ty), s]));
+}
+
+// 원이 벽(또는 적에게는 건물)과 겹치는지. 겹치면 'wall' 또는 그 건물을 돌려줍니다.
+function circleBlocked(state, x, y, r, structsBlock) {
   const x0 = Math.floor((x - r) / TILE), x1 = Math.floor((x + r) / TILE);
   const y0 = Math.floor((y - r) / TILE), y1 = Math.floor((y + r) / TILE);
   for (let ty = y0; ty <= y1; ty++) {
     for (let tx = x0; tx <= x1; tx++) {
-      if (!isWallTile(tx, ty)) continue;
+      const wall = isWallTile(tx, ty);
+      const st = !wall && structsBlock ? structAt(state, tx, ty) : null;
+      if (!wall && !st) continue;
       const cx = Math.max(tx * TILE, Math.min(x, (tx + 1) * TILE));
       const cy = Math.max(ty * TILE, Math.min(y, (ty + 1) * TILE));
-      if ((x - cx) ** 2 + (y - cy) ** 2 < r * r) return true;
+      if ((x - cx) ** 2 + (y - cy) ** 2 < r * r) return wall ? 'wall' : st;
     }
   }
-  return false;
+  return null;
 }
 
 // 축을 나눠서 움직이면 벽에 비스듬히 부딪혀도 미끄러지듯 이동합니다.
-function moveCircle(e, dx, dy) {
-  if (!circleHitsWall(e.x + dx, e.y, e.r)) e.x += dx;
-  if (!circleHitsWall(e.x, e.y + dy, e.r)) e.y += dy;
+// 적은 건물에 막히며, 막은 건물을 돌려줍니다(공격 대상).
+function moveCircle(state, e, dx, dy, structsBlock) {
+  let hitStruct = null;
+  const hx = circleBlocked(state, e.x + dx, e.y, e.r, structsBlock);
+  if (!hx) e.x += dx; else if (hx !== 'wall') hitStruct = hx;
+  const hy = circleBlocked(state, e.x, e.y + dy, e.r, structsBlock);
+  if (!hy) e.y += dy; else if (hy !== 'wall') hitStruct = hy;
+  return hitStruct;
 }
 
-const tileCenter = (t) => t * TILE + TILE / 2;
-
 export const EMPTY_INPUT = Object.freeze({
-  up: false, down: false, left: false, right: false, fire: false, dash: false, aim: 0,
+  up: false, down: false, left: false, right: false, fire: false, dash: false,
+  aim: 0, act: null, seq: 0, bx: 0, by: 0,
 });
 
 // 네트워크로 들어온 입력은 믿지 않고 정리해서 씁니다.
 export function sanitizeInput(i) {
   if (!i || typeof i !== 'object') return EMPTY_INPUT;
-  const aim = Number(i.aim);
+  const num = (v) => (Number.isFinite(Number(v)) ? Number(v) : 0);
   return {
     up: !!i.up, down: !!i.down, left: !!i.left, right: !!i.right,
     fire: !!i.fire, dash: !!i.dash,
-    aim: Number.isFinite(aim) ? aim : 0,
+    aim: num(i.aim),
+    act: ACTIONS.includes(i.act) ? i.act : null,
+    seq: Math.trunc(num(i.seq)),
+    bx: num(i.bx), by: num(i.by),
   };
 }
 
@@ -106,28 +155,69 @@ export function createState() {
     players: {},
     enemies: [],
     bullets: [],
+    structs: [],
+    structMap: new Map(),
+    gold: START_GOLD,
     wave: 0,
-    waveTimer: 2,
+    waveTimer: FIRST_BREAK,
+    cleared: true,
     gameOverTimer: 0,
   };
+}
+
+// ---------- 플레이어 & 강화 ----------
+function stats(p) {
+  const b = p.buffs;
+  return {
+    dmg: 1 + (b.dmg || 0),
+    fireCd: FIRE_COOLDOWN / (1 + 0.25 * (b.rate || 0)),
+    shots: 1 + (b.multi || 0),
+    speed: PLAYER_SPEED * (1 + 0.12 * (b.speed || 0)),
+    pierce: b.pierce || 0,
+    bounce: b.bounce || 0,
+    dashCd: DASH_COOLDOWN * 0.75 ** (b.dash || 0),
+    vamp: 0.12 * (b.vamp || 0),
+  };
+}
+
+function makeOffer(p) {
+  const pool = Object.keys(BUFFS).filter((k) => (p.buffs[k] || 0) < BUFFS[k].max);
+  for (let i = pool.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [pool[i], pool[j]] = [pool[j], pool[i]];
+  }
+  return pool.length ? pool.slice(0, 3) : null;
+}
+
+function applyBuff(p, key) {
+  p.buffs[key] = (p.buffs[key] || 0) + 1;
+  if (key === 'hp') {
+    p.maxHp += 2;
+    if (p.alive) p.hp += 2;
+  }
 }
 
 function usedColor(state, color) {
   return Object.values(state.players).some((p) => p.color === color);
 }
 
+function placeAtSpawn(p, index) {
+  const [tx, ty] = SPAWN_TILES[index % SPAWN_TILES.length];
+  p.x = tileCenter(tx);
+  p.y = tileCenter(ty);
+}
+
 export function addPlayer(state, id, name) {
   if (state.players[id]) return state.players[id];
   if (Object.keys(state.players).length >= MAX_PLAYERS) return null;
   const color = PLAYER_COLORS.find((c) => !usedColor(state, c)) ?? PLAYER_COLORS[0];
-  const idx = Object.keys(state.players).length % SPAWN_TILES.length;
-  const [tx, ty] = SPAWN_TILES[idx];
   const p = {
-    id, name: sanitizeName(name), color,
-    x: tileCenter(tx), y: tileCenter(ty), r: PLAYER_RADIUS,
+    id, name: sanitizeName(name), color, x: 0, y: 0, r: PLAYER_RADIUS,
     angle: 0, hp: PLAYER_MAX_HP, maxHp: PLAYER_MAX_HP, alive: true, score: 0,
     fireCd: 0, dashCd: 0, dashT: 0, dashX: 0, dashY: 0, invuln: 1,
+    buffs: {}, offer: null, ready: false, lastSeq: 0, healT: 0,
   };
+  placeAtSpawn(p, Object.keys(state.players).length);
   state.players[id] = p;
   return p;
 }
@@ -143,25 +233,99 @@ function damagePlayer(p, dmg) {
   if (p.hp <= 0) {
     p.hp = 0;
     p.alive = false;
+    p.ready = false;
   }
 }
 
-function nearestAlivePlayer(players, x, y) {
-  let best = null, bestD = Infinity;
-  for (const p of players) {
-    if (!p.alive) continue;
-    const d = (p.x - x) ** 2 + (p.y - y) ** 2;
-    if (d < bestD) { bestD = d; best = p; }
+function nearest(list, x, y, maxDist = Infinity) {
+  let best = null, bestD = maxDist * maxDist;
+  for (const o of list) {
+    const d = (o.x - x) ** 2 + (o.y - y) ** 2;
+    if (d < bestD) { bestD = d; best = o; }
   }
   return best;
 }
 
+const isBreak = (state) => state.enemies.length === 0;
+
+// ---------- 건설 ----------
+export function canBuildAt(state, tx, ty) {
+  if (isWallTile(tx, ty) || !inCamp(tx, ty) || structAt(state, tx, ty)) return false;
+  if (state.structs.length >= MAX_STRUCTS) return false;
+  // 적이 건물 안에 갇히지 않도록
+  const x0 = tx * TILE, y0 = ty * TILE;
+  return !state.enemies.some((e) => {
+    const cx = Math.max(x0, Math.min(e.x, x0 + TILE));
+    const cy = Math.max(y0, Math.min(e.y, y0 + TILE));
+    return (e.x - cx) ** 2 + (e.y - cy) ** 2 < e.r * e.r;
+  });
+}
+
+function build(state, p, kind, bx, by) {
+  const tx = Math.floor(bx / TILE), ty = Math.floor(by / TILE);
+  const def = STRUCTS[kind];
+  if (state.gold < def.cost || !canBuildAt(state, tx, ty)) return;
+  state.gold -= def.cost;
+  state.structs.push({ id: state.nextId++, kind, tx, ty, hp: def.hp, maxHp: def.hp, cd: 0, owner: p.id });
+  rebuildStructMap(state);
+}
+
+function demolish(state, bx, by) {
+  const s = structAt(state, Math.floor(bx / TILE), Math.floor(by / TILE));
+  if (!s) return;
+  state.gold += Math.floor(STRUCTS[s.kind].cost / 2);
+  state.structs = state.structs.filter((o) => o !== s);
+  rebuildStructMap(state);
+}
+
+function damageStruct(state, s, dmg) {
+  s.hp -= dmg;
+  if (s.hp <= 0) {
+    state.structs = state.structs.filter((o) => o !== s);
+    rebuildStructMap(state);
+  }
+}
+
+function doAction(state, p, inp) {
+  const act = inp.act;
+  if (act === 'pick1' || act === 'pick2' || act === 'pick3') {
+    const key = p.offer?.[Number(act[4]) - 1];
+    if (key) { applyBuff(p, key); p.offer = null; }
+    return;
+  }
+  if (act === 'ready') { if (p.alive) p.ready = !p.ready; return; }
+  if (!p.alive) return;
+  if (act === 'fence' || act === 'turret') build(state, p, act, inp.bx, inp.by);
+  else if (act === 'demolish') demolish(state, inp.bx, inp.by);
+}
+
+// ---------- 갱신 ----------
+function fire(state, p, st) {
+  p.fireCd = st.fireCd;
+  const spread = 0.16;
+  for (let i = 0; i < st.shots; i++) {
+    const a = p.angle + (i - (st.shots - 1) / 2) * spread + (Math.random() - 0.5) * 0.06;
+    state.bullets.push({
+      id: state.nextId++, owner: 'p', shooter: p.id,
+      x: p.x + Math.cos(a) * 16, y: p.y + Math.sin(a) * 16,
+      vx: Math.cos(a) * BULLET_SPEED, vy: Math.sin(a) * BULLET_SPEED,
+      r: 4, dmg: st.dmg, life: 1.1, pierce: st.pierce, bounce: st.bounce, hits: [],
+    });
+  }
+}
+
 function updatePlayer(state, p, inp, dt) {
+  if (inp.seq !== p.lastSeq) {
+    p.lastSeq = inp.seq;
+    if (inp.act) doAction(state, p, inp);
+  }
+
   p.fireCd = Math.max(0, p.fireCd - dt);
   p.dashCd = Math.max(0, p.dashCd - dt);
   p.dashT = Math.max(0, p.dashT - dt);
   p.invuln = Math.max(0, p.invuln - dt);
   if (!p.alive) return;
+  const st = stats(p);
 
   let mx = (inp.right ? 1 : 0) - (inp.left ? 1 : 0);
   let my = (inp.down ? 1 : 0) - (inp.up ? 1 : 0);
@@ -170,34 +334,33 @@ function updatePlayer(state, p, inp, dt) {
 
   if (inp.dash && p.dashCd <= 0 && len > 0) {
     p.dashT = DASH_TIME;
-    p.dashCd = DASH_COOLDOWN;
+    p.dashCd = st.dashCd;
     p.dashX = mx;
     p.dashY = my;
     p.invuln = Math.max(p.invuln, DASH_TIME + 0.05);
   }
 
-  if (p.dashT > 0) moveCircle(p, p.dashX * DASH_SPEED * dt, p.dashY * DASH_SPEED * dt);
-  else moveCircle(p, mx * PLAYER_SPEED * dt, my * PLAYER_SPEED * dt);
+  // 플레이어는 자기 편 건물을 통과합니다 (적만 막힘).
+  if (p.dashT > 0) moveCircle(state, p, p.dashX * DASH_SPEED * dt, p.dashY * DASH_SPEED * dt, false);
+  else moveCircle(state, p, mx * st.speed * dt, my * st.speed * dt, false);
 
   p.angle = inp.aim;
+  if (inp.fire && p.fireCd <= 0 && p.dashT <= 0) fire(state, p, st);
 
-  if (inp.fire && p.fireCd <= 0 && p.dashT <= 0) {
-    p.fireCd = FIRE_COOLDOWN;
-    const a = p.angle + (Math.random() - 0.5) * 0.08;
-    state.bullets.push({
-      id: state.nextId++, owner: 'p', shooter: p.id,
-      x: p.x + Math.cos(a) * 16, y: p.y + Math.sin(a) * 16,
-      vx: Math.cos(a) * BULLET_SPEED, vy: Math.sin(a) * BULLET_SPEED,
-      r: 4, dmg: 1, life: 1.1,
-    });
+  // 쉬는 시간에 캠프 안에 있으면 체력 회복
+  if (isBreak(state) && Math.hypot(p.x - CAMP.x, p.y - CAMP.y) <= CAMP.r && p.hp < p.maxHp) {
+    p.healT += dt;
+    if (p.healT >= CAMP_HEAL_EVERY) { p.healT = 0; p.hp++; }
+  } else {
+    p.healT = 0;
   }
 }
 
-function updateEnemy(state, e, players, dt) {
+function updateEnemy(state, e, alivePlayers, dt) {
   const T = ENEMY_TYPES[e.kind];
   e.hitT = Math.max(0, e.hitT - dt);
   e.cd -= dt;
-  const target = nearestAlivePlayer(players, e.x, e.y);
+  const target = nearest(alivePlayers, e.x, e.y);
   if (!target) return;
 
   const dx = target.x - e.x, dy = target.y - e.y;
@@ -214,10 +377,9 @@ function updateEnemy(state, e, players, dt) {
       e.cd = T.fireEvery + Math.random() * 0.5;
       const a = Math.atan2(dy, dx);
       state.bullets.push({
-        id: state.nextId++, owner: 'e', shooter: e.id,
-        x: e.x, y: e.y,
+        id: state.nextId++, owner: 'e', shooter: e.id, x: e.x, y: e.y,
         vx: Math.cos(a) * T.bulletSpeed, vy: Math.sin(a) * T.bulletSpeed,
-        r: 5, dmg: 1, life: 2.5,
+        r: 5, dmg: 1, life: 2.5, pierce: 0, bounce: 0, hits: [],
       });
     }
   } else if (d < e.r + PLAYER_RADIUS + 2 && e.cd <= 0) {
@@ -225,24 +387,76 @@ function updateEnemy(state, e, players, dt) {
     e.cd = 0.8;
   }
 
-  moveCircle(e, vx * T.speed * dt, vy * T.speed * dt);
+  const blocker = moveCircle(state, e, vx * T.speed * dt, vy * T.speed * dt, true);
+  // 근접 적은 길을 막는 건물을 부숩니다.
+  if (blocker && e.kind !== 'archer' && e.cd <= 0) {
+    damageStruct(state, blocker, T.touch);
+    e.cd = 0.8;
+  }
 }
 
 // 적끼리 한 점에 겹치지 않도록 살짝 밀어냅니다.
-function separateEnemies(enemies) {
-  for (let i = 0; i < enemies.length; i++) {
-    for (let j = i + 1; j < enemies.length; j++) {
-      const a = enemies[i], b = enemies[j];
+function separateEnemies(state) {
+  const list = state.enemies;
+  for (let i = 0; i < list.length; i++) {
+    for (let j = i + 1; j < list.length; j++) {
+      const a = list[i], b = list[j];
       const dx = b.x - a.x, dy = b.y - a.y;
       const d = Math.hypot(dx, dy);
       const min = a.r + b.r;
       if (d > 0 && d < min) {
         const push = (min - d) / 2;
-        moveCircle(a, (-dx / d) * push, (-dy / d) * push);
-        moveCircle(b, (dx / d) * push, (dy / d) * push);
+        moveCircle(state, a, (-dx / d) * push, (-dy / d) * push, true);
+        moveCircle(state, b, (dx / d) * push, (dy / d) * push, true);
       }
     }
   }
+}
+
+function updateTurrets(state, dt) {
+  const T = STRUCTS.turret;
+  for (const s of state.structs) {
+    if (s.kind !== 'turret') continue;
+    s.cd -= dt;
+    if (s.cd > 0) continue;
+    const x = tileCenter(s.tx), y = tileCenter(s.ty);
+    const target = nearest(state.enemies, x, y, T.range);
+    if (!target) continue;
+    s.cd = T.fireEvery;
+    const a = Math.atan2(target.y - y, target.x - x);
+    s.angle = a;
+    state.bullets.push({
+      id: state.nextId++, owner: 'p', shooter: s.owner, x, y,
+      vx: Math.cos(a) * T.bulletSpeed, vy: Math.sin(a) * T.bulletSpeed,
+      r: 4, dmg: 1, life: 0.8, pierce: 0, bounce: 0, hits: [], turret: true,
+    });
+  }
+}
+
+function killEnemy(state, e, shooterId) {
+  const T = ENEMY_TYPES[e.kind];
+  state.gold += T.gold;
+  const shooter = state.players[shooterId];
+  if (!shooter) return;
+  shooter.score += T.score;
+  const st = stats(shooter);
+  if (st.vamp > 0 && shooter.alive && Math.random() < st.vamp) {
+    shooter.hp = Math.min(shooter.maxHp, shooter.hp + 1);
+  }
+}
+
+function bulletHitsWall(b, dt) {
+  const px = b.x - b.vx * dt, py = b.y - b.vy * dt;
+  const wallAt = (x, y) => isWallTile(Math.floor(x / TILE), Math.floor(y / TILE));
+  if (!wallAt(b.x, b.y)) return false;
+  if (b.bounce <= 0) return true;
+  b.bounce--;
+  const hitX = wallAt(b.x, py), hitY = wallAt(px, b.y);
+  if (hitX || !hitY) b.vx = -b.vx;
+  if (hitY || !hitX) b.vy = -b.vy;
+  b.x = px;
+  b.y = py;
+  return false;
 }
 
 function updateBullets(state, dt) {
@@ -250,23 +464,23 @@ function updateBullets(state, dt) {
     b.x += b.vx * dt;
     b.y += b.vy * dt;
     b.life -= dt;
-    if (b.life <= 0 || pointInWall(b.x, b.y)) { b.dead = true; continue; }
+    if (b.life <= 0 || bulletHitsWall(b, dt)) { b.dead = true; continue; }
 
     if (b.owner === 'p') {
       for (const e of state.enemies) {
-        if (e.hp <= 0) continue;
+        if (e.hp <= 0 || b.hits.includes(e.id)) continue;
         if ((e.x - b.x) ** 2 + (e.y - b.y) ** 2 < (e.r + b.r) ** 2) {
           e.hp -= b.dmg;
           e.hitT = 0.08;
-          b.dead = true;
-          if (e.hp <= 0) {
-            const shooter = state.players[b.shooter];
-            if (shooter) shooter.score += ENEMY_TYPES[e.kind].score;
-          }
-          break;
+          if (e.hp <= 0) killEnemy(state, e, b.shooter);
+          if (b.pierce > 0) { b.pierce--; b.hits.push(e.id); }
+          else { b.dead = true; break; }
         }
       }
     } else {
+      // 적 총알은 울타리/터렛에 막힙니다.
+      const s = structAt(state, Math.floor(b.x / TILE), Math.floor(b.y / TILE));
+      if (s) { damageStruct(state, s, b.dmg); b.dead = true; continue; }
       for (const p of Object.values(state.players)) {
         // 대시 중(무적)이면 총알이 통과합니다.
         if (!p.alive || p.invuln > 0) continue;
@@ -281,47 +495,47 @@ function updateBullets(state, dt) {
   state.bullets = state.bullets.filter((b) => !b.dead);
 }
 
+// ---------- 웨이브 ----------
 function findSpawn(state) {
   const alive = Object.values(state.players).filter((p) => p.alive);
-  let x = 0, y = 0;
-  for (let tries = 0; tries < 80; tries++) {
+  let x = tileCenter(2), y = tileCenter(2);
+  for (let tries = 0; tries < 100; tries++) {
     const tx = 1 + Math.floor(Math.random() * (COLS - 2));
     const ty = 1 + Math.floor(Math.random() * (ROWS - 2));
-    if (isWallTile(tx, ty)) continue;
+    if (isWallTile(tx, ty) || Math.hypot(tileCenter(tx) - CAMP.x, tileCenter(ty) - CAMP.y) < CAMP.r + TILE * 2) continue;
     x = tileCenter(tx); y = tileCenter(ty);
-    if (alive.every((p) => (p.x - x) ** 2 + (p.y - y) ** 2 > 220 ** 2)) return { x, y };
+    if (alive.every((p) => (p.x - x) ** 2 + (p.y - y) ** 2 > 220 ** 2)) break;
   }
-  return { x: x || tileCenter(2), y: y || tileCenter(2) };
+  return { x, y };
 }
 
 function spawnWave(state) {
-  const count = Math.min(3 + state.wave * 2, 24);
+  const count = Math.min(3 + state.wave * 2, 26);
   for (let i = 0; i < count; i++) {
     const r = Math.random();
     let kind = 'slime';
-    if (state.wave >= 3 && r < 0.15) kind = 'brute';
+    if (state.wave >= 3 && r < 0.18) kind = 'brute';
     else if (state.wave >= 2 && r < 0.45) kind = 'archer';
     const T = ENEMY_TYPES[kind];
+    const hp = T.hp + Math.floor(state.wave / 5); // 5웨이브마다 체력 +1
     const { x, y } = findSpawn(state);
     state.enemies.push({
-      id: state.nextId++, kind, x, y, r: T.r,
-      hp: T.hp, maxHp: T.hp, cd: 1 + Math.random(), hitT: 0,
-      strafe: Math.random() < 0.5 ? 1 : -1,
+      id: state.nextId++, kind, x, y, r: T.r, hp, maxHp: hp,
+      cd: 1 + Math.random(), hitT: 0, strafe: Math.random() < 0.5 ? 1 : -1,
     });
   }
 }
 
 function resetRun(state) {
-  state.enemies = [];
-  state.bullets = [];
-  state.wave = 0;
-  state.waveTimer = 2;
-  state.gameOverTimer = 0;
+  Object.assign(state, {
+    enemies: [], bullets: [], structs: [], structMap: new Map(),
+    gold: START_GOLD, wave: 0, waveTimer: FIRST_BREAK, cleared: true, gameOverTimer: 0,
+  });
   Object.values(state.players).forEach((p, i) => {
-    const [tx, ty] = SPAWN_TILES[i % SPAWN_TILES.length];
+    placeAtSpawn(p, i);
     Object.assign(p, {
-      x: tileCenter(tx), y: tileCenter(ty), hp: p.maxHp, alive: true,
-      score: 0, invuln: 1.5, dashT: 0,
+      hp: PLAYER_MAX_HP, maxHp: PLAYER_MAX_HP, alive: true, score: 0, invuln: 1.5,
+      dashT: 0, buffs: {}, offer: null, ready: false,
     });
   });
 }
@@ -333,26 +547,38 @@ function updateWaves(state, players, dt) {
     if (state.gameOverTimer >= RESTART_DELAY) resetRun(state);
     return;
   }
-  if (state.enemies.length > 0) return;
+  if (!isBreak(state)) return;
+
+  // 방금 웨이브를 깼다면: 보상 골드 + 강화 카드
+  if (!state.cleared) {
+    state.cleared = true;
+    state.waveTimer = WAVE_BREAK;
+    state.gold += 5 + state.wave * 2;
+    for (const p of players) if (!p.offer) p.offer = makeOffer(p);
+  }
 
   state.waveTimer -= dt;
-  if (state.waveTimer > 0) return;
+  const alive = players.filter((p) => p.alive);
+  const allReady = alive.every((p) => p.ready);
+  if (state.waveTimer > 0 && !allReady) return;
 
   state.wave++;
+  state.cleared = false;
   for (const p of players) {
-    if (p.alive) p.hp = Math.min(p.maxHp, p.hp + 1);
-    else Object.assign(p, { alive: true, hp: Math.ceil(p.maxHp / 2), invuln: 1.5 });
+    p.ready = false;
+    if (!p.alive) Object.assign(p, { alive: true, hp: Math.ceil(p.maxHp / 2), invuln: 1.5 });
   }
   spawnWave(state);
-  state.waveTimer = WAVE_BREAK;
 }
 
 export function step(state, inputs, dt) {
   state.time += dt;
   const players = Object.values(state.players);
   for (const p of players) updatePlayer(state, p, inputs[p.id] || EMPTY_INPUT, dt);
-  for (const e of state.enemies) updateEnemy(state, e, players, dt);
-  separateEnemies(state.enemies);
+  const alive = players.filter((p) => p.alive);
+  for (const e of state.enemies) updateEnemy(state, e, alive, dt);
+  separateEnemies(state);
+  updateTurrets(state, dt);
   updateBullets(state, dt);
   state.enemies = state.enemies.filter((e) => e.hp > 0);
   updateWaves(state, players, dt);
@@ -366,14 +592,20 @@ export function snapshot(state) {
     w: state.wave,
     wt: r1(Math.max(0, state.waveTimer)),
     go: state.gameOverTimer > 0 ? 1 : 0,
+    g: state.gold,
     p: Object.values(state.players).map((p) => ({
       id: p.id, n: p.name, c: p.color, x: r1(p.x), y: r1(p.y),
       a: Math.round(p.angle * 100) / 100, hp: p.hp, mh: p.maxHp,
       al: p.alive ? 1 : 0, s: p.score, iv: p.invuln > 0 ? 1 : 0,
+      bf: p.buffs, of: p.offer, rd: p.ready ? 1 : 0,
     })),
     e: state.enemies.map((e) => ({
       id: e.id, k: e.kind, x: r1(e.x), y: r1(e.y), r: e.r,
       hp: e.hp, mh: e.maxHp, h: e.hitT > 0 ? 1 : 0,
+    })),
+    st: state.structs.map((s) => ({
+      id: s.id, k: s.kind, tx: s.tx, ty: s.ty, hp: s.hp, mh: s.maxHp,
+      a: s.angle !== undefined ? Math.round(s.angle * 100) / 100 : 0,
     })),
     b: state.bullets.map((b) => ({ x: r1(b.x), y: r1(b.y), r: b.r, o: b.owner === 'p' ? 0 : 1 })),
   };
