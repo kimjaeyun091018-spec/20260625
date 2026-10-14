@@ -78,7 +78,17 @@ export const ENEMY_TYPES = {
   slime: { r: 13, hp: 3, speed: 85, touch: 1, score: 10, gold: 3, xp: 2 },
   archer: { r: 12, hp: 2, speed: 95, fireEvery: 1.7, bulletSpeed: 260, score: 15, gold: 4, xp: 3 },
   brute: { r: 18, hp: 9, speed: 60, touch: 2, score: 30, gold: 10, xp: 6 },
+  boss: { r: 34, hp: 0, speed: 70, touch: 2, score: 300, gold: 50, xp: 30 },
 };
+// 정수(로비에서 스킬 트리를 해금하는 재화): 처치하면 모든 플레이어가 똑같이 받음
+export const ESSENCE = { slime: 0.5, archer: 1, brute: 2, boss: 30, room: 2, stage: 8, wave: 1 };
+
+// 월드마다 다른 보스 (x-5 스테이지)
+export const BOSSES = [
+  { name: '거대 슬라임', color: '#66bb6a', hp: 220 },
+  { name: '해골 궁수 대장', color: '#9575cd', hp: 340 },
+  { name: '심연의 골렘', color: '#e57373', hp: 480 },
+];
 
 // ---------- 베이스캠프 건물 ----------
 export const STRUCTS = {
@@ -96,7 +106,6 @@ export const BUFFS = {
   pierce: { name: '관통탄', desc: '적을 1명 더 관통', max: 3, ranged: true },
   bounce: { name: '도탄', desc: '벽에 1번 더 튕김', max: 3, ranged: true },
   dash: { name: '그림자 대시', desc: '대시 쿨타임 -25%', max: 3 },
-  vamp: { name: '흡혈', desc: '처치 시 12% 확률로 체력 +1', max: 3 },
   reach: { name: '긴 팔', desc: '근접 공격 범위 +20%', max: 3, melee: true },
 };
 
@@ -111,9 +120,17 @@ export const ELEMENTS = {
 };
 export const ELEMENT_MAX = 3;        // 증강 카드로 올릴 수 있는 최대 레벨
 export const ELEMENT_MAX_BONUS = 5;  // 스테이지 보상까지 포함한 최대 레벨
+export const MAX_AUGMENT_TYPES = 5;  // 한 판에 가질 수 있는 증강 종류 수 (속성 카드도 1종류)
 
 // ---------- 스테이지 보상 (모험 모드에서 포털을 탈 때, 경험치보다 강력) ----------
+// 종류마다 한 판에 1번만 얻을 수 있습니다. 남은 게 3개보다 적으면 '휴식'(반복 가능)으로 채웁니다.
 export const STAGE_REWARDS = {
+  vamp: { name: '흡혈', desc: '적 처치 시 15% 확률로 체력 +1', color: '#e53935' },
+  slot: { name: '무기 벨트', desc: '무기 칸 +1 (3칸)', color: '#a1887f' },
+  focus: { name: '집중', desc: '장착 스킬 쿨타임 -25%', color: '#7986cb' },
+  phoenix: { name: '불사조의 깃털', desc: '쓰러지면 한 번, 체력 절반으로 바로 부활', color: '#ff8a65' },
+  coin: { name: '행운의 동전', desc: '정수 획득 +50%', color: '#ffd54f' },
+  surge: { name: '궁극 증폭', desc: '궁극기 충전 +30%', color: '#ba68c8' },
   awaken: { name: '속성 각성', desc: '속성 레벨 +1 (없으면 무작위 속성 Lv2)', color: '#ce93d8' },
   heart: { name: '거인의 심장', desc: '최대 체력 +3, 체력 완전 회복', color: '#ef5350' },
   might: { name: '전사의 혼', desc: '피해 +2', color: '#ffb74d' },
@@ -121,6 +138,7 @@ export const STAGE_REWARDS = {
   wisdom: { name: '배움의 서', desc: '경험치 획득 +50%', color: '#4fc3f7' },
   iron: { name: '철의 의지', desc: '피격 후 무적 시간 2배, 대시 쿨타임 -30%', color: '#b0bec5' },
 };
+export const REST_REWARD = { name: '휴식', desc: '체력 완전 회복 (반복 가능)', color: '#81c784' };
 
 export const STAGES_PER_WORLD = 5;
 export const WORLDS = 3; // 3-5를 깨면 클리어
@@ -135,14 +153,13 @@ export function offerInfo(key, buffs = {}, element = null, elementLv = 0) {
     return { name: `전직: ${w.name}`, desc: w.desc, lv: null, max: null, color: '#ffd54f', weapon: key.slice(4) };
   }
   if (key.startsWith('rw:')) {
-    const def = STAGE_REWARDS[key.slice(3)];
+    const def = key === 'rw:rest' ? REST_REWARD : STAGE_REWARDS[key.slice(3)];
     return { name: def.name, desc: def.desc, lv: null, max: null, color: def.color };
   }
   if (key.startsWith('el:')) {
     const k = key.slice(3), def = ELEMENTS[k];
     const lv = element === k ? elementLv + 1 : 1;
-    const desc = element && element !== k ? `${def.desc} (현재 속성과 교체)` : def.desc;
-    return { name: `${def.name} 속성`, desc, lv, max: ELEMENT_MAX, color: def.color };
+    return { name: `${def.name} 속성`, desc: def.desc, lv, max: ELEMENT_MAX, color: def.color };
   }
   const def = BUFFS[key];
   return { name: def.name, desc: def.desc, lv: (buffs[key] || 0) + 1, max: def.max, color: '#ffd54f' };

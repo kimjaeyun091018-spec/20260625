@@ -1,10 +1,12 @@
-import { VIEW_W, VIEW_H, MAX_PLAYERS, WEAPONS, WEAPON_KEYS, MODES, sameWeaponLimit, stageLabel, offerInfo } from './data.js';
+import { VIEW_W, VIEW_H, MAX_PLAYERS, WEAPONS, ELEMENTS, stageLabel, offerInfo } from './data.js';
 import {
-  createState, addPlayer, removePlayer, step, snapshot, sanitizeInput, sanitizeName,
+  createState, addPlayer, removePlayer, step, snapshot, sanitizeInput, sanitizeName, setBuild,
 } from './game.js';
 import { packMap, unpackMap } from './maps.js';
 import { makeRoomCode, hostRoom, joinRoom, describeError } from './net.js';
 import { createRenderer, weaponIconHtml } from './render.js';
+import { loadSave, writeSave, currentBuild, NODE } from './tree.js';
+import { createTreeUI } from './treeui.js';
 
 const STEP = 1 / 60;          // 시뮬레이션 간격
 const SEND_STATE_MS = 50;     // 방장 → 참가자 상태 전송 (초당 20번)
@@ -18,13 +20,54 @@ const renderer = createRenderer(canvas);
 
 const $ = (id) => document.getElementById(id);
 const ui = {
+  title: $('title'),
   menu: $('menu'), name: $('name'), solo: $('soloBtn'), host: $('hostBtn'), code: $('code'), join: $('joinBtn'),
   status: $('status'), roomInfo: $('roomInfo'),
   pause: $('pause'), pauseNote: $('pauseNote'), resume: $('resumeBtn'), quit: $('quitBtn'),
-  lobby: $('lobby'), lobbyRoom: $('lobbyRoom'), slots: $('slots'), weapons: $('weapons'), modes: $('modes'),
-  lobbyMsg: $('lobbyMsg'), startBtn: $('startBtn'),
   stage: $('stage'), stageTitle: $('stageTitle'), stageSub: $('stageSub'), stageSlots: $('stageSlots'), rewards: $('rewardCards'),
 };
+
+// ---------- 저장 데이터 (정수, 스킬 트리, 빌드) ----------
+const save = loadSave();
+const tree = createTreeUI($('tree'), {
+  getSave: () => save,
+  onChange: () => sendBuild(),
+});
+
+function sendBuild() {
+  if (!session) return;
+  const b = currentBuild(save);
+  if (session.mode === 'host') setBuild(session.state, session.myId, b);
+  else session.net?.send({ t: 'build', b });
+}
+
+// 이번 판에 번 정수를 저장 (판이 끝났을 때, 또는 중간에 나갈 때 한 번만)
+function bankEssence(rid, amount) {
+  if (!session || session.banked.has(rid) || !(amount > 0)) return;
+  session.banked.add(rid);
+  save.essence += Math.floor(amount);
+  writeSave(save);
+}
+
+function buildSummary() {
+  const s = save.slots[save.active];
+  if (!s.saved) return { title: `빌드 ${save.active + 1}: 저장 안 됨`, sub: '제단에서 스킬 트리를 열어 빌드를 저장하세요', color: '#ffcc80' };
+  const el = s.el ? ELEMENTS[s.el] : null;
+  const names = s.eq.map((id) => NODE[id]?.name).filter(Boolean).join(' · ') || '장착 없음';
+  return { title: `빌드 ${save.active + 1}: ${el ? `${el.name} 속성` : '속성 없음'}`, sub: names, color: el ? el.color : '#fff' };
+}
+
+// ---------- 타이틀 화면 ----------
+let onTitle = true;
+function leaveTitle() {
+  if (!onTitle) return;
+  onTitle = false;
+  ui.title.hidden = true;
+  ui.menu.hidden = false;
+  ui.name.focus();
+}
+ui.title.addEventListener('click', leaveTitle);
+window.addEventListener('keydown', (e) => { if (onTitle && !e.repeat) { e.preventDefault(); leaveTitle(); } }, { capture: true });
 
 // ---------- 입력 (키보드 + 마우스) ----------
 const HOLD_KEYS = {
@@ -33,10 +76,9 @@ const HOLD_KEYS = {
   Space: 'dash', ShiftLeft: 'dash', ShiftRight: 'dash',
 };
 const ACTION_KEYS = {
-  KeyE: 'fence', KeyR: 'turret', KeyF: 'demolish', KeyG: 'ready',
-  KeyQ: 'ult', Tab: 'swap',
-  Digit1: 'pick1', Digit2: 'pick2', Digit3: 'pick3', Numpad1: 'pick1', Numpad2: 'pick2', Numpad3: 'pick3',
+  KeyE: 'fence', KeyR: 'turret', KeyF: 'demolish', KeyG: 'ready', KeyQ: 'ult', Tab: 'swap',
 };
+const NUMBER_KEYS = { Digit1: 1, Digit2: 2, Digit3: 3, Digit4: 4, Numpad1: 1, Numpad2: 2, Numpad3: 3, Numpad4: 4 };
 const keys = new Set();
 // sx/sy: 화면 좌표, x/y: 맵(월드) 좌표
 const mouse = { sx: VIEW_W / 2, sy: VIEW_H / 2, x: 0, y: 0, down: false };
@@ -44,17 +86,40 @@ let cam = { x: 0, y: 0 };
 const actionQueue = [];
 let actionSeq = 0;
 
-const pushAction = (act) => { if (session && !session.paused) actionQueue.push(act); };
+const pushAction = (act) => { if (session && !session.paused && !tree.isOpen()) actionQueue.push(act); };
+
+function nearAltar() {
+  const me = session?.lastMe, L = session?.lastMap?.lobby;
+  return !!(me && L && Math.hypot(me.x - L.altar.x, me.y - L.altar.y) < 70);
+}
 
 window.addEventListener('keydown', (e) => {
-  if (!session) return;
+  if (!session || onTitle) return;
+  if (tree.isOpen()) {
+    if (e.code === 'Escape' || e.code === 'KeyK') { tree.close(); e.preventDefault(); }
+    return;
+  }
   if (e.code === 'Escape') { setPaused(!session.paused); e.preventDefault(); return; }
   if (session.paused || e.target instanceof HTMLInputElement) return;
+  const phase = session.lastPhase;
   const hold = HOLD_KEYS[e.code];
   if (hold) { keys.add(hold); e.preventDefault(); }
-  let act = ACTION_KEYS[e.code];
-  if (act && session.lastPhase === 'transition' && act.startsWith('pick')) act = `reward${act[4]}`;
-  if (act && !e.repeat) { pushAction(act); e.preventDefault(); }
+  if (e.repeat) return;
+  if (phase === 'lobby' && (e.code === 'KeyK' || (e.code === 'KeyE' && nearAltar()))) {
+    keys.clear();
+    tree.open();
+    e.preventDefault();
+    return;
+  }
+  const n = NUMBER_KEYS[e.code];
+  if (n) {
+    if (phase === 'playing') pushAction(`cast${n}`);
+    else if (phase === 'transition' && n <= 3) pushAction(`reward${n}`);
+    e.preventDefault();
+    return;
+  }
+  const act = ACTION_KEYS[e.code];
+  if (act) { pushAction(act); e.preventDefault(); }
 });
 window.addEventListener('keyup', (e) => {
   const k = HOLD_KEYS[e.code];
@@ -63,7 +128,7 @@ window.addEventListener('keyup', (e) => {
 window.addEventListener('blur', () => {
   keys.clear();
   mouse.down = false;
-  if (session?.solo) setPaused(true); // 혼자 하기 중 다른 창/앱으로 가면 자동으로 멈춤
+  if (session?.solo && !tree.isOpen()) setPaused(true); // 혼자 하기 중 다른 창/앱으로 가면 자동으로 멈춤
 });
 
 function toScreen(ev) {
@@ -92,7 +157,7 @@ canvas.addEventListener('wheel', (e) => {
   if (performance.now() - lastWheel > 300) { lastWheel = performance.now(); pushAction('swap'); }
 }, { passive: false });
 
-// 로비·보상 화면의 버튼은 data-act 값을 행동으로 보냅니다.
+// 보상 화면의 버튼은 data-act 값을 행동으로 보냅니다.
 document.addEventListener('click', (e) => {
   const el = e.target.closest('[data-act]');
   if (el && !el.disabled) pushAction(el.dataset.act);
@@ -101,7 +166,7 @@ document.addEventListener('click', (e) => {
 function readInput(me) {
   mouse.x = mouse.sx + cam.x;
   mouse.y = mouse.sy + cam.y;
-  if (session?.paused) return { aim: me?.a ?? me?.angle ?? 0, seq: actionSeq, pz: true };
+  if (session?.paused || tree.isOpen()) return { aim: me?.a ?? me?.angle ?? 0, seq: actionSeq, pz: !!session?.paused };
   const act = actionQueue.shift() || null;
   if (act) actionSeq++;
   return {
@@ -130,6 +195,7 @@ function enterSession(label) {
   keys.clear();
   actionQueue.length = 0;
   mouse.down = false;
+  sendBuild();
 }
 
 function setPaused(paused) {
@@ -150,11 +216,15 @@ ui.quit.addEventListener('click', () => leave());
 
 function leave(reason = '') {
   if (!session) return;
+  // 게임 도중 나가도 그때까지 번 정수는 저장
+  const snap = session.lastSnap;
+  if (snap && snap.ph !== 'lobby' && session.lastMe) bankEssence(snap.rid, session.lastMe.es);
   session.net?.close();
   session = null;
-  for (const el of [ui.pause, ui.lobby, ui.stage, ui.roomInfo]) el.hidden = true;
+  tree.close();
+  for (const el of [ui.pause, ui.stage, ui.roomInfo]) el.hidden = true;
   ui.menu.hidden = false;
-  overlayCache.lobby = overlayCache.stage = '';
+  overlayCache.stage = '';
   setBusy(false);
   setStatus(reason);
 }
@@ -179,6 +249,7 @@ async function startHost(solo) {
             return ok;
           },
           onInput(id, input) { inputs[id] = sanitizeInput(input); },
+          onBuild(id, b) { setBuild(state, id, b); },
           onLeave(id) { removePlayer(state, id); delete inputs[id]; },
           onError(err) { console.warn('[net]', err); },
         });
@@ -193,7 +264,7 @@ async function startHost(solo) {
   }
 
   session = {
-    mode: 'host', solo, paused: false, myId, state, inputs, net, code: net?.code,
+    mode: 'host', solo, paused: false, myId, state, inputs, net, code: net?.code, banked: new Set(),
     acc: 0, last: performance.now(), lastSend: 0, sentMapId: null, mapDirty: true, lastPhase: 'lobby',
   };
   enterSession(solo ? '혼자 하기' : `방 코드: ${net.code} (친구에게 알려주세요)`);
@@ -207,7 +278,7 @@ async function startClient() {
 
   const s = {
     mode: 'client', solo: false, paused: false, myId: null, buffer: [], lastSend: 0, net: null,
-    map: null, code, lastPhase: 'lobby',
+    map: null, code, lastPhase: 'lobby', banked: new Set(),
   };
   try {
     s.net = await joinRoom(code, playerName(), {
@@ -228,7 +299,11 @@ async function startClient() {
   enterSession(`방 코드: ${code}`);
 }
 
-window.addEventListener('pagehide', () => session?.net?.close());
+window.addEventListener('pagehide', () => {
+  const snap = session?.lastSnap;
+  if (snap && snap.ph !== 'lobby' && session.lastMe) bankEssence(snap.rid, session.lastMe.es);
+  session?.net?.close();
+});
 ui.solo.addEventListener('click', () => startHost(true));
 ui.host.addEventListener('click', () => startHost(false));
 ui.join.addEventListener('click', startClient);
@@ -238,8 +313,8 @@ ui.name.addEventListener('change', () => {
   try { localStorage.setItem('sk-name', ui.name.value); } catch { /* 무시 */ }
 });
 
-// ---------- 로비 / 스테이지 화면 (HTML) ----------
-const overlayCache = { lobby: '', stage: '' };
+// ---------- 스테이지 보상 화면 (HTML) ----------
+const overlayCache = { stage: '' };
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 function slotHtml(snap, extra) {
@@ -247,44 +322,12 @@ function slotHtml(snap, extra) {
   for (let i = 0; i < MAX_PLAYERS; i++) {
     const p = snap.p[i];
     if (!p) { html += `<div class="slot empty"><b>${i + 1}P</b><span>비어 있음</span></div>`; continue; }
-    const w = WEAPONS[p.wp];
+    const k = p.ws?.[p.sl]?.k || p.wp;
     html += `<div class="slot" style="--c:${p.c}"><b>${i + 1}P</b>
       <span class="pname">${esc(p.n)}${p.id === snap.hid ? ' 👑' : ''}</span>
-      <span class="pweap">${w ? `${weaponIconHtml(p.ws?.[p.sl]?.k || p.wp, 1.5)} ${WEAPONS[p.ws?.[p.sl]?.k]?.name || w.name}` : '무기 선택 중…'}</span>${extra ? extra(p) : ''}</div>`;
+      <span class="pweap">${k ? `${weaponIconHtml(k, 1.5)} ${WEAPONS[k].name}` : ''}</span>${extra ? extra(p) : ''}</div>`;
   }
   return html;
-}
-
-function updateLobby(snap, myId) {
-  const me = snap.p.find((p) => p.id === myId);
-  const isHost = myId === snap.hid;
-  const key = JSON.stringify([snap.p.map((p) => [p.id, p.n, p.wp, p.c]), snap.md, snap.lp, isHost]);
-  if (key === overlayCache.lobby) return;
-  overlayCache.lobby = key;
-
-  ui.lobbyRoom.textContent = session.solo ? '혼자 하기' : `방 코드 ${session.code} · 친구에게 알려 주세요`;
-  ui.slots.innerHTML = slotHtml(snap);
-
-  const limit = sameWeaponLimit(snap.p.length);
-  ui.weapons.innerHTML = WEAPON_KEYS.map((k) => {
-    const w = WEAPONS[k];
-    const others = snap.p.filter((p) => p.wp === k && p.id !== myId).length;
-    const mine = me?.wp === k;
-    const full = !mine && others >= limit;
-    return `<button class="weapon${mine ? ' selected' : ''}" data-act="weapon:${k}" ${full ? 'disabled' : ''}>
-      ${weaponIconHtml(k, 3)}<b>${w.name}</b><small>${w.desc}</small>${full ? '<em>선택 불가</em>' : ''}</button>`;
-  }).join('');
-
-  ui.modes.innerHTML = Object.entries(MODES).map(([k, m]) => `
-    <button class="mode${snap.md === k ? ' selected' : ''}" data-act="mode:${k}" ${isHost ? '' : 'disabled'}>
-      <b>${m.name}</b><small>${m.desc}</small></button>`).join('');
-
-  ui.lobbyMsg.textContent = snap.lp
-    || (isHost ? '준비 완료! 게임을 시작하세요.' : '방장이 게임을 시작하기를 기다리는 중…');
-  ui.lobbyMsg.className = snap.lp ? 'warn' : '';
-  ui.startBtn.hidden = !isHost;
-  ui.startBtn.disabled = !!snap.lp;
-  ui.startBtn.dataset.act = 'start';
 }
 
 function updateStage(snap, myId) {
@@ -293,7 +336,7 @@ function updateStage(snap, myId) {
   if (key === overlayCache.stage) return;
   overlayCache.stage = key;
   ui.stageTitle.textContent = `${stageLabel(snap.si)} 클리어 → ${stageLabel(snap.si + 1)}`;
-  ui.stageSub.textContent = `스테이지 보상을 골라 주세요 · ${snap.tt}초 후 자동 선택`;
+  ui.stageSub.textContent = `스테이지 보상을 골라 주세요 (종류마다 한 번만) · ${snap.tt}초 후 자동 선택`;
   ui.stageSlots.innerHTML = slotHtml(snap, (p) => `<span class="pready">${p.rwd && p.evd ? '✔ 선택 완료' : '고르는 중…'}</span>`);
   const rewardHtml = me?.rwd
     ? '<p class="sub">보상 선택 완료!</p>'
@@ -312,15 +355,21 @@ function updateStage(snap, myId) {
   ui.rewards.innerHTML = rewardHtml + evoHtml + (me?.rwd && me?.evd ? '<p class="sub">다른 팀원을 기다리는 중…</p>' : '');
 }
 
-function updateOverlays(snap, myId) {
+function afterRender(snap, map, myId) {
+  const me = snap.p.find((p) => p.id === myId);
+  session.lastSnap = snap;
+  session.lastMap = map;
+  if (me) session.lastMe = me;
+  if (session.lastPhase !== snap.ph && snap.ph === 'lobby') { tree.refresh(); sendBuild(); }
   session.lastPhase = snap.ph;
-  ui.lobby.hidden = snap.ph !== 'lobby';
+  if (snap.ph === 'over' && me) bankEssence(snap.rid, me.es);
+  if (snap.ph !== 'lobby' && tree.isOpen()) tree.close();
   ui.stage.hidden = snap.ph !== 'transition';
-  if (snap.ph === 'lobby') updateLobby(snap, myId);
-  else overlayCache.lobby = '';
   if (snap.ph === 'transition') updateStage(snap, myId);
   else overlayCache.stage = '';
 }
+
+const renderExtra = () => ({ essence: save.essence, build: buildSummary() });
 
 // ---------- 프레임 ----------
 function hostFrame(s, now) {
@@ -344,8 +393,8 @@ function hostFrame(s, now) {
     s.net.broadcast({ t: 's', s: snap });
     s.lastSend = now;
   }
-  cam = renderer.render(snap, s.state.map, s.myId, mouse);
-  updateOverlays(snap, s.myId);
+  cam = renderer.render(snap, s.state.map, s.myId, mouse, renderExtra());
+  afterRender(snap, s.state.map, s.myId);
 }
 
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -386,23 +435,23 @@ function clientFrame(s, now) {
   }
   // 카드·골드·단계는 최신 상태로 (보간 X)
   const view = {
-    ...snap, g: latest.g, ph: latest.ph, lp: latest.lp, md: latest.md, tt: latest.tt,
+    ...snap, g: latest.g, ph: latest.ph, lp: latest.lp, lpt: latest.lpt, md: latest.md, tt: latest.tt, rid: latest.rid,
     p: snap.p.map((p) => {
       const q = latest.p.find((o) => o.id === p.id) || p;
       return {
-        ...p, of: q.of, oq: q.oq, rw: q.rw, rwd: q.rwd, ev: q.ev, evd: q.evd, wp: q.wp, xp: q.xp, lv: q.lv, xn: q.xn,
-        ws: q.ws, sl: q.sl, sw: q.sw,
+        ...p, of: q.of, oq: q.oq, at: q.at, rw: q.rw, rwd: q.rwd, ev: q.ev, evd: q.evd, wp: q.wp, xp: q.xp, lv: q.lv, xn: q.xn,
+        ws: q.ws, sl: q.sl, sw: q.sw, ld: q.ld, cs: q.cs, es: q.es,
       };
     }),
   };
-  cam = renderer.render(view, s.map, s.myId, mouse);
-  updateOverlays(view, s.myId);
+  cam = renderer.render(view, s.map, s.myId, mouse, renderExtra());
+  afterRender(view, s.map, s.myId);
 }
 
 function loop(now) {
   if (session?.mode === 'host') hostFrame(session, now);
   else if (session?.mode === 'client') clientFrame(session, now);
-  else renderer.message('던전 슈터');
+  else renderer.title(now);
   requestAnimationFrame(loop);
 }
 requestAnimationFrame(loop);

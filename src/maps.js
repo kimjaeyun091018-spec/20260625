@@ -33,12 +33,34 @@ export function buildCampMap() {
   return m;
 }
 
+// ---------- 로비 (걸어 다니는 방) ----------
+// 왼쪽: 무기 거치대 5개 · 위: 스킬 트리 제단 · 오른쪽: 모험/베이스캠프 포털 · 아래: 토템 자리
+export function buildLobbyMap(weaponKeys) {
+  const m = buildCampMap();
+  m.camp = undefined;
+  // 가운데 기둥은 로비에서 치움
+  for (const [bx, by] of [[5, 4], [23, 4], [5, 14], [23, 14]]) {
+    for (let dy = 0; dy < 2; dy++) for (let dx = 0; dx < 2; dx++) setTile(m, bx + dx, by + dy, 0);
+  }
+  m.lobby = {
+    racks: weaponKeys.map((key, i) => ({ key, x: 4 * TILE, y: (4 + i * 3) * TILE })),
+    altar: { x: 15 * TILE, y: 3.5 * TILE },
+    portals: [
+      { mode: 'adv', name: '모험', x: 25 * TILE, y: 6.5 * TILE, color: '#b39ddb' },
+      { mode: 'camp', name: '베이스캠프', x: 25 * TILE, y: 13.5 * TILE, color: '#ffb74d' },
+    ],
+    totems: [0, 1, 2].map((i) => ({ x: (12 + i * 3) * TILE, y: 17 * TILE })),
+  };
+  m.spawn = { x: 15 * TILE, y: 10 * TILE };
+  return m;
+}
+
 // ---------- 랜덤 던전 ----------
 // 5x5 칸 격자 위에 방을 나무 모양으로 이어 붙이고, 이웃한 방끼리 3칸 폭 복도로 연결합니다.
 const GRID = 5;
 const CELL = 22; // 한 칸 = 22x22 타일
 
-export function generateDungeon(stageIdx, { roomBonus = 0 } = {}) {
+export function generateDungeon(stageIdx, { roomBonus = 0, boss = false } = {}) {
   const roomCount = Math.min(5 + Math.floor(stageIdx / 2) + roomBonus, GRID * GRID - 4);
   const cells = new Map();
   const key = (x, y) => `${x},${y}`;
@@ -73,10 +95,10 @@ export function generateDungeon(stageIdx, { roomBonus = 0 } = {}) {
 
   const m = emptyMap(GRID * CELL, GRID * CELL, 1);
   list.forEach((c, i) => {
-    const type = c === first ? 'start' : c === last ? 'portal' : 'battle';
-    const small = type !== 'battle';
-    const w = small ? 9 : rand(11, 15);
-    const h = small ? 9 : rand(9, 13);
+    const type = c === first ? 'start' : c === last ? (boss ? 'boss' : 'portal') : 'battle';
+    const small = type === 'start' || type === 'portal';
+    const w = type === 'boss' ? 17 : small ? 9 : rand(11, 15);
+    const h = type === 'boss' ? 15 : small ? 9 : rand(9, 13);
     c.room = {
       id: i, type, gx: c.gx, gy: c.gy,
       x0: c.gx * CELL + Math.floor((CELL - w) / 2),
@@ -119,6 +141,7 @@ export function generateDungeon(stageIdx, { roomBonus = 0 } = {}) {
   const start = first.room, end = last.room;
   m.spawn = { x: (start.x0 + start.w / 2) * TILE, y: (start.y0 + start.h / 2) * TILE };
   m.portal = { x: (end.x0 + end.w / 2) * TILE, y: (end.y0 + end.h / 2) * TILE };
+  m.boss = boss;
   return m;
 }
 
@@ -152,7 +175,7 @@ export function packMap(m) {
     id: m.id, cols: m.cols, rows: m.rows,
     tiles: m.tiles.join(''),
     rooms: m.rooms.map(({ id, type, gx, gy, x0, y0, w, h, doors, links }) => ({ id, type, gx, gy, x0, y0, w, h, doors, links })),
-    camp: m.camp || null, spawn: m.spawn, portal: m.portal || null,
+    camp: m.camp || null, spawn: m.spawn, portal: m.portal || null, lobby: m.lobby || null, boss: !!m.boss,
   };
 }
 

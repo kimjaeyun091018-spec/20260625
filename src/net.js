@@ -74,6 +74,8 @@ export function hostRoom(code, handlers) {
           conn.send({ t: 'welcome', id: conn.peer });
         } else if (msg.t === 'in' && conns.has(conn.peer)) {
           handlers.onInput(conn.peer, msg.i);
+        } else if (msg.t === 'build' && conns.has(conn.peer)) {
+          handlers.onBuild?.(conn.peer, msg.b);
         }
       });
       conn.on('close', () => {
