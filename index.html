@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>던전 슈터</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+</head>
+<body>
+  <div id="wrap">
+    <canvas id="game"></canvas>
+    <div id="roomInfo" hidden></div>
+
+    <div id="menu" class="overlay">
+      <h1>던전 슈터</h1>
+      <p class="sub">Soul Knight 스타일 로그라이크 · 키보드 + 마우스 · 최대 4인 협동</p>
+
+      <label class="field">닉네임
+        <input id="name" maxlength="10" placeholder="기사" autocomplete="off">
+      </label>
+
+      <div class="buttons">
+        <button id="soloBtn">혼자 하기</button>
+        <button id="hostBtn">방 만들기</button>
+      </div>
+
+      <div class="join">
+        <input id="code" maxlength="5" placeholder="방 코드" autocomplete="off" autocapitalize="characters">
+        <button id="joinBtn">참가</button>
+      </div>
+
+      <p id="status" role="status"></p>
+
+      <p class="help">WASD / 방향키 이동 · 마우스 조준 · 왼쪽 클릭 공격 · Space 대시 · Esc 나가기</p>
+    </div>
+  </div>
+
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>
