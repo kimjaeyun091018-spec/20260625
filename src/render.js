@@ -20,9 +20,9 @@ const PIXEL = 2;            // 도트 1칸 = 화면 2픽셀
 const GRIP_X = 3, GRIP_Y = 6; // 무기 그림에서 손잡이 위치
 
 // ---------- 이미지 불러오기 ----------
-const sprites = { ready: false, player: new Image(), weapons: new Image(), enemies: new Image(), bosses: new Image(), gear: new Image() };
+const sprites = { ready: false, heroes: new Image(), weapons: new Image(), enemies: new Image(), bosses: new Image() };
 {
-  const list = ['player', 'weapons', 'enemies', 'bosses', 'gear'];
+  const list = ['heroes', 'weapons', 'enemies', 'bosses'];
   let left = list.length;
   const done = () => {
     if (--left > 0) return;
@@ -51,49 +51,57 @@ function whiteSilhouette(img) {
 
 const hexRgb = (h) => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
 
-// 원본 캐릭터에서 바깥 흰 테두리 → 플레이어 색, 몸 → 스킨 색, 안쪽 흰 선(눈·팔다리) → 스킨 눈 색
+// 캐릭터 도트: assets/heroes.png (tools/make_heroes.py). 한 줄 = 디자인 하나, 가로 13프레임
+// 바깥 흰 테두리 → 팀 색, 천 색(7,0,0/1/2) → 스킨·유닛 색, 안쪽 흰색(눈) → 스킨 눈 색
+export const DESIGNS = ['knight', 'ranger', 'mage', 'berserker', 'rogue', 'alchemist', 'scout', 'priest', 'giant', 'darkknight', 'samurai', 'wizard'];
+// 디자인마다 기본 천 색 (기본 스킨 '그림자'일 때)
+const DESIGN_CLOTH = {
+  knight: '#c62828', ranger: '#2e7d32', mage: '#5e35b1', berserker: '#5d4037', rogue: '#b71c1c', alchemist: '#00897b',
+  scout: '#795548', priest: '#eceff1', giant: '#4e342e', darkknight: '#b71c1c', samurai: '#263238', wizard: '#283593',
+};
+// 플레이어가 보일 디자인: 장비 스킨이면 그 장비, 아니면 캐릭터
+export const designOf = (charKey, skin) => SKINS[skin]?.design || (DESIGNS.includes(charKey) ? charKey : 'knight');
+
 const tintCache = new Map();
-// skin: SKINS의 이름, 또는 { body, eye } 색 (군단 유닛)
-export function tintedPlayer(color, skin = 'shadow') {
+const shade = ([r, g, b], k) => (k > 0 ? [r + (255 - r) * k, g + (255 - g) * k, b + (255 - b) * k] : [r * (1 + k), g * (1 + k), b * (1 + k)]).map(Math.round);
+// skin: SKINS의 이름, 또는 { body, eye } 색 (군단 유닛). design: DESIGNS 중 하나
+export function tintedPlayer(color, skin = 'shadow', design = 'knight') {
   const S = typeof skin === 'object' ? skin : SKINS[skin] || SKINS.shadow;
-  const key = `${color}|${S.body}|${S.eye}`;
+  const row = Math.max(0, DESIGNS.indexOf(design));
+  const plain = typeof skin !== 'object' && (!SKINS[skin] || skin === 'shadow' || SKINS[skin].design);
+  const cloth = plain ? DESIGN_CLOTH[DESIGNS[row]] : S.body;
+  const key = `${color}|${cloth}|${S.eye}|${row}`;
   if (tintCache.has(key)) return tintCache.get(key);
-  const [br, bg, bb] = hexRgb(S.body), [er, eg, eb] = hexRgb(S.eye);
-  const img = sprites.player;
+  const img = sprites.heroes;
   const c = document.createElement('canvas');
   c.width = img.width;
-  c.height = img.height;
+  c.height = 32;
   const g = c.getContext('2d');
-  g.drawImage(img, 0, 0);
+  g.drawImage(img, 0, row * 32, img.width, 32, 0, 0, img.width, 32);
   const data = g.getImageData(0, 0, c.width, c.height);
   const px = data.data, w = c.width, h = c.height;
   const isOpen = (x, y) => {
-    if (x < 0 || y < 0 || x >= w || y >= h) return true;
+    if (x < 0 || y < 0 || x >= w || y >= h || (x % 32 === 0 && false)) return true;
     const i = (y * w + x) * 4;
     return px[i + 3] === 0 || (px[i] === 80 && px[i + 1] === 73 && px[i + 2] === 73); // 투명 또는 그림자
   };
-  const r = parseInt(color.slice(1, 3), 16), gg = parseInt(color.slice(3, 5), 16), b = parseInt(color.slice(5, 7), 16);
+  const team = hexRgb(color), eye = hexRgb(S.eye || '#ffffff'), base = hexRgb(cloth);
+  const clothCols = [base, shade(base, 0.35), shade(base, -0.45)];
   const out = new Uint8ClampedArray(px);
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
       const i = (y * w + x) * 4;
       if (px[i + 3] === 0) continue;
-      if (px[i] === 7 && px[i + 1] === 0 && px[i + 2] === 0) { out[i] = br; out[i + 1] = bg; out[i + 2] = bb; continue; }
+      if (px[i] === 7 && px[i + 1] === 0 && px[i + 2] <= 2) { const cc = clothCols[px[i + 2]]; out[i] = cc[0]; out[i + 1] = cc[1]; out[i + 2] = cc[2]; continue; }
       if (px[i] !== 255 || px[i + 1] !== 255 || px[i + 2] !== 255) continue;
-      if (isOpen(x + 1, y) || isOpen(x - 1, y) || isOpen(x, y + 1) || isOpen(x, y - 1)) {
-        out[i] = r; out[i + 1] = gg; out[i + 2] = b;
-      } else {
-        out[i] = er; out[i + 1] = eg; out[i + 2] = eb;
-      }
+      const cc = isOpen(x + 1, y) || isOpen(x - 1, y) || isOpen(x, y + 1) || isOpen(x, y - 1) ? team : eye;
+      out[i] = cc[0]; out[i + 1] = cc[1]; out[i + 2] = cc[2];
     }
   }
   g.putImageData(new ImageData(out, w, h), 0, 0);
   tintCache.set(key, c);
   return c;
 }
-
-// 장비 스킨 그림 (옷장 미리보기용), 아직 못 불러왔으면 null
-export const gearSheet = () => (sprites.gear.complete && sprites.gear.naturalWidth ? sprites.gear : null);
 
 // 로비·보상 화면(HTML)에서 쓰는 무기 아이콘
 export function weaponIconHtml(key, scale = 2) {
@@ -411,7 +419,7 @@ export function createRenderer(canvas) {
     }
     if (p.al && weaponBehind) drawWeaponSprite(key, handX, handY, PIXEL, wa, facingLeft);
 
-    const sheet = sprites.ready ? tintedPlayer(p.c, p.sk) : null;
+    const sheet = sprites.ready ? tintedPlayer(p.c, p.sk, designOf(p.cr, p.sk)) : null;
     if (sheet) {
       let frame;
       if (!p.al) frame = 12;
@@ -427,8 +435,6 @@ export function createRenderer(canvas) {
         }
       }
       drawPlayerFrame(sheet, frame, p.x, p.y, facingLeft, false);
-      const gi = SKINS[p.sk]?.gear;
-      if (gi !== undefined && p.al && sprites.gear.complete) drawPlayerFrame(sprites.gear, gi, p.x, p.y, facingLeft, false);
     } else {
       circle(p.x, p.y, 12, p.c);
     }
@@ -873,7 +879,7 @@ export function createRenderer(canvas) {
     const sc = big ? 2.2 : 1.3;
     circle(x, y + U.r * 0.8, U.r, 'rgba(0,0,0,.25)');
     if (sprites.ready) {
-      const sheet = tintedPlayer(color, { body: U.body, eye: U.eye });
+      const sheet = tintedPlayer(color, { body: U.body, eye: U.eye }, U.design);
       const frame = 4 + (Math.floor(now / 90 + id) % 8);
       ctx.save();
       ctx.translate(Math.round(x), Math.round(y + U.r));
@@ -934,7 +940,7 @@ export function createRenderer(canvas) {
       box(i, `${U.name} Lv${lv}`, `● ${cost}`, String(4 + i), snap.g >= cost && me.uc < me.ucap, U.body);
       if (sprites.ready) {
         const x = x0 + i * (bw + gap);
-        ctx.drawImage(tintedPlayer(me.c, { body: U.body, eye: U.eye }), 0, 0, 32, 32, x + 4, y0 + 2, 22, 22);
+        ctx.drawImage(tintedPlayer(me.c, { body: U.body, eye: U.eye }, U.design), 0, 0, 32, 32, x + 4, y0 + 2, 22, 22);
       }
     });
     const ca = snap.ca;
@@ -1501,7 +1507,7 @@ export function createRenderer(canvas) {
       if (sprites.ready) {
         ctx.save();
         ctx.globalAlpha = taken.length ? 0.5 : 1;
-        drawPlayerFrame(tintedPlayer(C.color), Math.floor(now / 300) % 4, st.x, st.y - 8, false, false);
+        drawPlayerFrame(tintedPlayer(C.color, 'shadow', st.key), Math.floor(now / 300) % 4, st.x, st.y - 8, false, false);
         ctx.restore();
       }
       label(C.name, st.x, st.y + 30, taken.length ? '#9e9e9e' : C.color, 11);
@@ -1533,7 +1539,7 @@ export function createRenderer(canvas) {
       ctx.fillStyle = '#e53935'; ctx.fillRect(B.x + 14, B.y - 50, 2, 16);
       ctx.fillRect(B.x + 16, B.y - 50, 10, 6);
       if (sprites.ready) {
-        drawPlayerFrame(tintedPlayer('#90a4ae', { body: '#78909c', eye: '#ffffff' }), Math.floor(now / 250) % 4, B.x - 40, B.y - 4, false, false);
+        drawPlayerFrame(tintedPlayer('#90a4ae', { body: UNITS.knight.body, eye: '#ffffff' }, 'knight'), Math.floor(now / 250) % 4, B.x - 40, B.y - 4, false, false);
       }
       label('병영 · 군단', B.x, B.y + 34, '#90caf9');
       if (near(B, 60)) label('E 군단 편성', B.x, B.y - 56, '#ffd54f');
@@ -1668,7 +1674,7 @@ export function createRenderer(canvas) {
       const spots = [[-110, -10, false], [110, -10, true], [-60, 40, false], [60, 40, true]];
       spots.forEach(([dx, dy, flip], i) => {
         const frame = Math.floor(now / 220 + i) % 4;
-        drawPlayerFrame(tintedPlayer(colors[i]), frame, fx + dx, fy + dy - 12, flip, false);
+        drawPlayerFrame(tintedPlayer(colors[i], 'shadow', ['knight', 'ranger', 'berserker', 'mage'][i]), frame, fx + dx, fy + dy - 12, flip, false);
         drawWeaponSprite(['sword', 'bow', 'hammer', 'spear'][i], fx + dx, fy + dy - 8, PIXEL, flip ? Math.PI - 0.5 : -0.5, flip);
       });
     }

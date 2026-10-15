@@ -116,7 +116,7 @@ export const DROP_ELEMENT_CHANCE = 0.5;
 export const CHARACTERS = {
   knight: { name: '기사', hp: 7, mana: 90, color: '#90a4ae', passive: '방패', desc: '4초마다 적 탄환 1발을 막는 보호막' },
   ranger: { name: '레인저', hp: 5, mana: 110, color: '#81c784', passive: '날렵함', desc: '이동 속도 +15%, 대시 쿨타임 -30%' },
-  mage: { name: '마법사', hp: 4, mana: 170, color: '#9575cd', passive: '마력 증폭', desc: '장착 스킬 피해 +40%, 마나 구슬 +50%' },
+  mage: { name: '마법사', design: 'mage', hp: 4, mana: 170, color: '#9575cd', passive: '마력 증폭', desc: '장착 스킬 피해 +40%, 마나 구슬 +50%' },
   berserker: { name: '광전사', hp: 9, mana: 60, color: '#e57373', passive: '분노', desc: '잃은 체력 1칸마다 피해 +8%' },
   rogue: { name: '도적', hp: 5, mana: 90, color: '#ffd54f', passive: '급소 찌르기', desc: '치명타율 +15%, 치명타 피해 +50%' },
   alchemist: { name: '연금술사', hp: 6, mana: 120, color: '#4db6ac', passive: '촉매', desc: '원소 반응 피해 +60%, 반응을 일으키면 마나 +3' },
@@ -177,12 +177,12 @@ export const CASTLE = {
 // cost: 소환 골드 · unlock: 해금 정수 (0 = 처음부터) · crown: 왕관 노드로 해금
 // range가 40보다 크면 원거리. heal: 아군 회복
 export const UNITS = {
-  knight: { name: '기사', cost: 12, hp: 10, dmg: 1.5, cd: 0.8, range: 26, speed: 95, r: 10, body: '#78909c', eye: '#ffffff', weapon: 'sword', unlock: 0, desc: '단단한 근접 유닛' },
-  archer: { name: '궁수', cost: 14, hp: 5, dmg: 1.3, cd: 1.0, range: 230, speed: 90, r: 9, body: '#2e7d32', eye: '#c5e1a5', weapon: 'bow', unlock: 0, desc: '멀리서 화살' },
-  scout: { name: '스카웃', cost: 8, hp: 5, dmg: 1, cd: 0.45, range: 22, speed: 150, r: 9, body: '#6d4c41', eye: '#ffe0b2', weapon: 'twinblades', unlock: 60, desc: '싸고 빠른 쌍검' },
-  mage: { name: '마법사', cost: 22, hp: 5, dmg: 2.2, cd: 1.6, range: 200, splash: 55, speed: 85, r: 9, body: '#4527a0', eye: '#fff59d', weapon: 'staff', unlock: 120, desc: '범위 마법탄' },
-  priest: { name: '성직자', cost: 20, hp: 6, dmg: 0, heal: 1, cd: 2.4, range: 170, speed: 85, r: 9, body: '#eceff1', eye: '#ffd54f', weapon: 'mace', unlock: 150, desc: '아군·플레이어·성 회복' },
-  giant: { name: '거인', cost: 45, hp: 45, dmg: 4, cd: 1.5, range: 34, speed: 60, r: 18, body: '#5d4037', eye: '#ff8a65', weapon: 'hammer', unlock: 0, crown: true, desc: '느리지만 엄청 튼튼 (왕관 노드로 해금)' },
+  knight: { name: '기사', design: 'knight', cost: 12, hp: 10, dmg: 1.5, cd: 0.8, range: 26, speed: 95, r: 10, body: '#c62828', eye: '#ffffff', weapon: 'sword', unlock: 0, desc: '단단한 근접 유닛' },
+  archer: { name: '궁수', design: 'ranger', cost: 14, hp: 5, dmg: 1.3, cd: 1.0, range: 230, speed: 90, r: 9, body: '#2e7d32', eye: '#c5e1a5', weapon: 'bow', unlock: 0, desc: '멀리서 화살' },
+  scout: { name: '스카웃', design: 'scout', cost: 8, hp: 5, dmg: 1, cd: 0.45, range: 22, speed: 150, r: 9, body: '#6d4c41', eye: '#ffe0b2', weapon: 'twinblades', unlock: 60, desc: '싸고 빠른 쌍검' },
+  mage: { name: '마법사', design: 'mage', cost: 22, hp: 5, dmg: 2.2, cd: 1.6, range: 200, splash: 55, speed: 85, r: 9, body: '#4527a0', eye: '#fff59d', weapon: 'staff', unlock: 120, desc: '범위 마법탄' },
+  priest: { name: '성직자', design: 'priest', cost: 20, hp: 6, dmg: 0, heal: 1, cd: 2.4, range: 170, speed: 85, r: 9, body: '#eceff1', eye: '#ffd54f', weapon: 'mace', unlock: 150, desc: '아군·플레이어·성 회복' },
+  giant: { name: '거인', design: 'giant', cost: 45, hp: 45, dmg: 4, cd: 1.5, range: 34, speed: 60, r: 18, body: '#5d4037', eye: '#ff8a65', weapon: 'hammer', unlock: 0, crown: true, desc: '느리지만 엄청 튼튼 (왕관 노드로 해금)' },
 };
 export const UNIT_KEYS = Object.keys(UNITS);
 export const ARMY_SLOTS = 4;
@@ -319,7 +319,7 @@ export const enemyScale = (lvl) => ({ hp: 1 + 0.22 * lvl, dmg: 1 + Math.floor(lv
 export const MANA = { weaponSkill: 15 };
 export const activeManaCost = (cd) => Math.round(cd * 2.5);
 
-// 스킨: 색만 바꾸는 스킨 + 장비를 입는 스킨(gear: assets/gear.png의 프레임 번호)
+// 스킨: 옷(천) 색만 바꾸는 스킨 + 다른 모습이 되는 장비 스킨(design: assets/heroes.png의 디자인)
 export const SKINS = {
   shadow: { name: '그림자', price: 0, body: '#070000', eye: '#ffffff' },
   royal: { name: '왕실', price: 80, body: '#3a1d6e', eye: '#ffd54f' },
@@ -328,10 +328,10 @@ export const SKINS = {
   frost: { name: '서리', price: 120, body: '#0d3b66', eye: '#b2ebf2' },
   ghost: { name: '유령', price: 180, body: '#cfd8dc', eye: '#263238' },
   gold: { name: '황금', price: 300, body: '#a67c00', eye: '#fff8e1' },
-  knight: { name: '중세 기사', price: 250, body: '#5f6b7a', eye: '#ffffff', gear: 0 },
-  darkknight: { name: '다크나이트', price: 350, body: '#16141f', eye: '#ff5252', gear: 1 },
-  wizard: { name: '대마법사', price: 250, body: '#283593', eye: '#fff59d', gear: 2 },
-  samurai: { name: '사무라이', price: 300, body: '#3e2723', eye: '#ffffff', gear: 3 },
+  knight: { name: '중세 기사', price: 250, body: '#c62828', eye: '#ffffff', design: 'knight' },
+  darkknight: { name: '다크나이트', price: 350, body: '#b71c1c', eye: '#ff5252', design: 'darkknight' },
+  wizard: { name: '대마법사', price: 250, body: '#283593', eye: '#fff59d', design: 'wizard' },
+  samurai: { name: '사무라이', price: 300, body: '#263238', eye: '#ffffff', design: 'samurai' },
 };
 
 // 카드 키('dmg', 'el:fire', 'rw:might', 'evo:twin')의 표시용 정보

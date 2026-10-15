@@ -99,7 +99,9 @@ Soul Knight 스타일의 탑다운 로그라이크 슈팅 게임입니다. **PC 
 ### 스킨 (옷장)
 - 로비의 **옷장**에서 E를 누르면 스킨을 사고 입을 수 있습니다. 능력치는 그대로이고, 1P~4P 테두리 색은 유지됩니다.
 - 색 스킨: 그림자(기본), 왕실·숲지기 ◆80, 잿불·서리 ◆120, 유령 ◆180, 황금 ◆300.
-- **장비 스킨** (투구·갑옷을 입은 모습): 중세 기사 ◆250, 대마법사 ◆250, 사무라이 ◆300, 다크나이트 ◆350.
+- 색 스킨은 캐릭터의 **옷(망토·깃털·겉옷) 색**을 바꿉니다.
+- **장비 스킨** (다른 모습이 됨): 중세 기사 ◆250, 대마법사 ◆250, 사무라이 ◆300, 다크나이트 ◆350.
+- 캐릭터마다 모습이 다릅니다: 기사(투구·체크 겉옷·방패), 레인저(두건·화살통), 마법사(챙 넓은 모자·로브), 광전사(뿔 투구·털옷), 도적(검은 두건·입가리개), 연금술사(고글·앞치마). 군단 유닛도 각자 모습이 있습니다.
 
 ### 계정 · 저장 코드
 - 메뉴의 **로그인 / 회원가입**에서 아이디와 비밀번호를 만들면 정수·스킬 트리·스킨이 계정마다 따로 저장됩니다.
@@ -419,21 +421,22 @@ src/game.js    게임 규칙과 시뮬레이션 (로비, 두 모드, 전투, 경
 src/render.js  캔버스 그리기 (카메라, 미니맵, HUD)
 src/net.js     PeerJS로 방 만들기와 참가하기
 src/main.js    입력, 게임 루프, 로비·보상 화면, 메뉴
-assets/player.png   플레이어 도트 (32x32 x 13: 0~3 대기, 4~11 걷기, 12 쓰러짐(눈 감고 누움))
+assets/heroes.png   캐릭터·군단 유닛·장비 스킨 도트 (32x32, 가로 13프레임: 0~3 대기, 4~11 걷기, 12 쓰러짐 / 세로 12디자인)
+assets/player.png   예전 플레이어 도트 (지금은 안 씀, 원본 보관)
 assets/weapons.png  무기·상자 도트 (24x12 x 33)
 assets/enemies.png  몬스터 도트 (24x24: 9종 x [1, 2, 쓰러짐] + 영혼)
 assets/bosses.png   보스 도트 (40x40 x 9: 보스 3종 x [1, 2, 쓰러짐])
-assets/gear.png     장비 스킨 (32x32 x 4: 중세 기사·다크나이트·대마법사·사무라이)
 assets/src/*.piskel Piskel에서 열어 고칠 수 있는 원본
-tools/make_sprites.py  도트 이미지를 다시 만드는 스크립트
+tools/make_sprites.py  무기·몬스터·보스 도트를 다시 만드는 스크립트
+tools/make_heroes.py   캐릭터·군단 유닛·장비 스킨 도트를 다시 만드는 스크립트
 ```
 
 ### 도트 고치기
-- `assets/src/player.piskel`, `assets/src/weapons.piskel`을 [Piskel](https://www.piskelapp.com/)에서 엽니다.
-- 고친 다음 **Export → PNG → Spritesheet(가로 한 줄)**로 내보내서 `assets/player.png`, `assets/weapons.png`에 덮어쓰면 게임에 바로 반영됩니다.
-- **프레임 순서와 크기는 그대로** 지켜 주세요.
-  - 무기 순서는 `tools/make_sprites.py`의 `WEAPON_ORDER` (= `src/render.js`의 `WEAPON_SPRITES`)를 따릅니다.
-- 플레이어 그림의 **바깥 흰 테두리**는 게임에서 1P~4P 색으로 자동으로 바뀝니다.
+- **캐릭터·유닛:** `assets/src/heroes-<디자인>.piskel`을 [Piskel](https://www.piskelapp.com/)에서 열어 고친 뒤, Export → PNG → Spritesheet(가로 한 줄)로 내보내서 `assets/heroes.png`의 같은 줄에 붙여 넣습니다. (또는 `tools/make_heroes.py`의 그림 함수를 고치고 `python tools/make_heroes.py` 실행)
+  - 줄 순서: 기사, 레인저, 마법사, 광전사, 도적, 연금술사, 스카웃, 성직자, 거인, 다크나이트, 사무라이, 대마법사
+  - 색 약속: 바깥 흰 테두리 = 팀 색으로 바뀜, 천 색 `(7,0,0)`·`(7,0,1)`·`(7,0,2)` = 스킨 옷 색(기본·밝게·어둡게)으로 바뀜, 안쪽 순수 흰색 = 눈 색
+- **무기·몬스터:** `assets/src/weapons.piskel`, `enemies.piskel`, `bosses.piskel` (또는 `tools/make_sprites.py`)
+- **프레임 순서와 크기는 그대로** 지켜 주세요. 무기 순서는 `tools/make_sprites.py`의 `WEAPON_ORDER`를 따릅니다.
 - 무기 그림은 **손잡이가 (3, 6) 픽셀 위치**에 오도록 그려야 손에 맞게 들립니다.
 
 수치는 `src/data.js`, 규칙은 `src/game.js`에서 고치면 됩니다. 게임 계산은 방장 브라우저에서만 하므로 참가자 쪽 코드는 바꾸지 않아도 됩니다.

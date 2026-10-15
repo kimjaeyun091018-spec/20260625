@@ -4,7 +4,7 @@ import {
 } from './game.js';
 import { packMap, unpackMap } from './maps.js';
 import { makeRoomCode, hostRoom, joinRoom, describeError } from './net.js';
-import { createRenderer, weaponIconHtml, tintedPlayer, gearSheet } from './render.js';
+import { createRenderer, weaponIconHtml, tintedPlayer, designOf } from './render.js';
 import { SKINS } from './data.js';
 import { loadSave, writeSave, currentBuild, setSaveAccount, NODE } from './tree.js';
 import { createTreeUI } from './treeui.js';
@@ -92,24 +92,20 @@ for (const b of document.querySelectorAll('[data-open-settings]')) b.addEventLis
 // 옷장 미리보기 그림 (스킨마다 한 번만 만듦)
 const previewCache = {};
 function skinPreview(skin) {
-  if (previewCache[skin]) return previewCache[skin];
+  const pk = `${skin}|${session?.lastMe?.cr || 'knight'}`;
+  if (previewCache[pk]) return previewCache[pk];
   try {
-    const sheet = tintedPlayer('#ffffff', skin);
+    // 지금 고른 캐릭터(로비에서 받은 상태)에 스킨을 입힌 모습
+    const sheet = tintedPlayer('#ffffff', skin, designOf(session?.lastMe?.cr || 'knight', skin));
     const c = document.createElement('canvas');
     c.width = 64;
     c.height = 64;
     const g = c.getContext('2d');
     g.imageSmoothingEnabled = false;
     g.drawImage(sheet, 0, 0, 32, 32, 0, 0, 64, 64);
-    const gi = SKINS[skin]?.gear;
-    if (gi !== undefined) {
-      const gear = gearSheet();
-      if (!gear) return c.toDataURL(); // 아직 로딩 중: 저장하지 않고 다음에 다시
-      g.drawImage(gear, gi * 32, 0, 32, 32, 0, 0, 64, 64);
-    }
-    previewCache[skin] = c.toDataURL();
+    previewCache[pk] = c.toDataURL();
   } catch { return ''; }
-  return previewCache[skin];
+  return previewCache[pk];
 }
 
 // 병영 미리보기: 유닛 색으로 칠한 캐릭터
@@ -118,7 +114,7 @@ function unitPreview(k) {
   if (previewCache[key]) return previewCache[key];
   try {
     const U = UNITS[k];
-    const sheet = tintedPlayer('#ffffff', { body: U.body, eye: U.eye });
+    const sheet = tintedPlayer('#ffffff', { body: U.body, eye: U.eye }, U.design);
     const c = document.createElement('canvas');
     c.width = 64;
     c.height = 64;
