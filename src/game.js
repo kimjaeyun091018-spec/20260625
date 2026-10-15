@@ -8,7 +8,7 @@ import {
   TILE, MAX_PLAYERS, WEAPONS, START_WEAPON, weaponFam, SKILLS, WEAPON_SLOTS, SWAP_COOLDOWN, RESONANCE, COMBO_EVERY,
   DROP_TIERS, DROP_ELEMENT_CHANCE, CHARACTERS, CHARACTER_KEYS, sameCharLimit, ENEMY_TYPES, STRUCTS, BUFFS,
   ELEMENTS, ELEMENT_MAX, ELEMENT_MAX_BONUS, MAX_AUGMENT_TYPES, STAGE_REWARDS, STAGES_PER_WORLD, WORLDS, ESSENCE,
-  BOSSES, SHOP, SURVIVAL, CASTLE, UNITS, ARMY_CAP, unitScale, guildPerks, AUTO_SKILLS, PASSIVE_ITEMS, AUTO_MAX_LV, AUTO_SLOTS, PASSIVE_SLOTS_RUN, TRAPS, stageLabel, xpToNext, enemyScale, MANA, activeManaCost, SKINS,
+  BOSSES, SHOP, SURVIVAL, CASTLE, UNITS, ARMY_CAP, unitScale, guildPerks, SPOILS, SUPPLIES, TRAPS, stageLabel, xpToNext, enemyScale, MANA, activeManaCost, SKINS,
 } from './data.js';
 import { buildCampMap, buildLobbyMap, generateDungeon, tileCenter } from './maps.js';
 import { ACTIVES, PERKS, NODE, LOADOUT_SIZE, sanitizeBuild, buildBonus } from './tree.js';
@@ -250,7 +250,7 @@ function freshRunStats(p) {
     buffs: {}, augTypes: [], offer: null, offerQueue: 0, element: null, elementLv: 0,
     level: 1, xp: 0, ready: false, reward: null, rewardDone: false, evo: null, evoDone: true, rewardsTaken: [],
     bonus: { dmgPct: 0, rate: 0, speed: 0, xpMul: 1, iron: false, vamp: 0, slot: false, cdMul: 1, phoenix: false, essMul: 1, ultMul: 1, coinMul: 1 },
-    mana: C.mana, manaMsgT: 0, comboN: 0, shieldT: 0, dsx: 0, dsy: 0, au: {}, pa: {}, crowns: 0, reviveT: SURVIVAL.reviveTime, poisonT: 0, runMode: null,
+    mana: C.mana, manaMsgT: 0, comboN: 0, shieldT: 0, dsx: 0, dsy: 0, crowns: 0, spoils: 0, reviveT: SURVIVAL.reviveTime, poisonT: 0, runMode: null,
     weapons: [newSlot(START_WEAPON)], slot: 0, swapCd: 0,
     parry: 0, markId: null, markN: 0, spin: 0, spinIdle: 0, chargeT: 0,
     sdash: null, dashHits: [], javelin: null, ultT: 0, ultTick: 0, ultStep: 0,
@@ -259,6 +259,15 @@ function freshRunStats(p) {
 }
 
 // 로비 스킬 트리 빌드를 이번 판에 적용
+function applySupplies(p) {
+  const s = p.supplies || {};
+  if (s.weapon) { const d = randomWeaponDrop({ mode: 'adv', stageIdx: 0 }, 2); p.weapons.push(newSlot(d.key, d.el, d.elv)); }
+  if (s.coins) p.coins += 40;
+  if (s.heart) { p.maxHp += 2; p.hp = p.maxHp; }
+  if (s.card) { p.offerQueue++; nextOffer(p); }
+  if (s.element) { const w = p.weapons[0]; w.el = shuffle(Object.keys(ELEMENTS))[0]; w.elv = 2; }
+}
+
 function applyBuild(p) {
   const b = p.build || { el: null, eq: [], nodes: [] };
   const bb = buildBonus(b);
@@ -276,6 +285,8 @@ function applyBuild(p) {
   }
   // 액티브 칸(1~3 키)과 패시브 칸(항상 켜짐)을 따로
   p.bb = bb;
+  // 보급관에서 산 보급품 (모험 모드에서만, 한 번 쓰면 로비에서 사라짐)
+  p.supplies = b.supplies || {};
   p.army = b.army || { sel: [], lv: {} };
   p.guild = b.guild || null;
   if (p.guild) { const gp = guildPerks(p.guild.lv); p.bonus.essMul += gp.ess; p.bonus.dmgPct += gp.dmg; }
@@ -347,7 +358,7 @@ function stats(p) {
   const ae = attackElement(p);
   // 광전사: 잃은 체력 1칸마다 피해 +8%
   const rage = ch === 'berserker' ? 0.08 * Math.max(0, maxHpOf(p) - p.hp) : 0;
-  const mul = (1 + 0.12 * (b.dmg || 0) + B.dmgPct + rage + 0.1 * (p.pa?.power || 0)) * (ae.resonance ? RESONANCE.dmg : 1);
+  const mul = (1 + 0.12 * (b.dmg || 0) + B.dmgPct + rage) * (ae.resonance ? RESONANCE.dmg : 1);
   const rate = (1 + 0.08 * (b.rate || 0) + B.rate) * (1 + (fam === 'gun' ? p.spin : 0)) * (gunUlt ? 3 : 1);
   return {
     W, fam, mul,
@@ -358,7 +369,7 @@ function stats(p) {
     critX: (W.critX || 2) + (ch === 'rogue' ? 0.5 : 0),
     inacc: (W.inacc || 0) + (gunUlt ? 0.3 : 0),
     shots: 1 + (b.multi || 0),
-    speed: PLAYER_SPEED * (1 + 0.06 * (b.speed || 0) + B.speed + (tail ? 0.08 : 0) + (ch === 'ranger' ? 0.15 : 0) + 0.06 * (p.pa?.swift || 0)) * (p.slowT > 0 ? TRAPS.poison.slow : 1),
+    speed: PLAYER_SPEED * (1 + 0.06 * (b.speed || 0) + B.speed + (tail ? 0.08 : 0) + (ch === 'ranger' ? 0.15 : 0)) * (p.slowT > 0 ? TRAPS.poison.slow : 1),
     pierce: (W.pierce || 0) + (b.pierce || 0),
     bounce: b.bounce || 0,
     reach: 1 + 0.1 * (b.reach || 0),
@@ -414,7 +425,7 @@ function giveEssence(state, amount) {
 // ---------- 증강 (레벨업) ----------
 // 증강 종류는 한 판에 최대 5종류 (속성 카드도 1종류). 5종류를 채우면 가진 것만 레벨업 카드로 나옵니다.
 function makeOffer(p) {
-  if (p.runMode === 'camp') return survivalOffer(p);
+  if (p.runMode === 'camp') return null; // 성 지키기에는 증강 없음
   const kind = WEAPONS[held(p).key].kind;
   const ranged = kind === 'ranged';
   const full = p.augTypes.length >= MAX_AUGMENT_TYPES;
@@ -439,7 +450,6 @@ function makeOffer(p) {
 }
 
 function applyBuff(p, key) {
-  if (key === 'heal' || /^(au|pa|ev):/.test(key)) { applySurvivalCard(p, key); return; }
   const type = key.startsWith('el:') ? 'el' : key;
   if (!p.augTypes.includes(type)) p.augTypes.push(type);
   if (key.startsWith('el:')) {
@@ -572,6 +582,7 @@ function startRun(state) {
     freshRunStats(p); applyBuild(p); p.runMode = state.mode;
     if (state.mode === 'camp') { p.maxHp += SURVIVAL.bonusHp; p.hp = p.maxHp; } // 생존 모드는 체력 여유
   }
+  if (state.mode === 'adv') for (const p of Object.values(state.players)) applySupplies(p);
   // 길드 시너지: 같은 방에 같은 길드원이 있으면 1명마다 피해 +5%
   const all = Object.values(state.players);
   for (const p of all) {
@@ -711,6 +722,15 @@ function buy(state, p, item) {
 // E 키: 가까운 상자 열기 → 상점 상품 사기 → 가까운 무기 줍기 (칸이 꽉 차면 들고 있는 무기와 바꿈)
 function interact(state, p) {
   const chest = nearest(state.chests.filter((c) => !c.open), p.x, p.y, INTERACT_RANGE);
+  if (chest && state.mode === 'camp') {
+    // 성 지키기 상자: 전리품(로비 보급관에서 쓰는 재화)을 모든 플레이어에게
+    chest.open = true;
+    const n = chest.elite ? SPOILS.eliteChest : SPOILS.chest;
+    for (const q of Object.values(state.players)) q.spoils += n;
+    floatText(state, chest.x, chest.y - 18, `전리품 ✪${n} (모두)`, '#ffb74d', 1.4);
+    addFx(state, { k: 'r', x: chest.x, y: chest.y, r: 40, c: '#ffb74d', t: 0.4, life: 0.4 });
+    return;
+  }
   if (chest) {
     chest.open = true;
     const drop = randomWeaponDrop(state, chest.big ? 2 : 1);
@@ -974,7 +994,7 @@ function useSkill(state, p, inp) {
   }
   if (s.charges <= 0 || !spendMana(state, p, MANA.weaponSkill)) return;
   s.charges--;
-  if (s.cd <= 0) s.cd = skillCdOf(s.key) * autoHaste(p);
+  if (s.cd <= 0) s.cd = skillCdOf(s.key);
   const st = stats(p);
   const ax = Math.cos(p.angle), ay = Math.sin(p.angle);
   if (fam === 'sword') {
@@ -1274,24 +1294,16 @@ function updatePlayer(state, p, inp, dt) {
   updateUlt(state, p, st, dt);
 
   // 구슬(경험치 초록·마나 파랑·동전 노랑): 플레이어마다 따로 줍습니다 (1P가 먹어도 2P 몫은 남아 있음)
-  const orbR = ORB_RANGE * (1 + 0.3 * paLv(p, 'magnet'));
   for (const o of state.orbs) {
     if (o.taken.includes(p.id)) continue;
-    if ((o.x - p.x) ** 2 + (o.y - p.y) ** 2 < orbR * orbR) {
+    if ((o.x - p.x) ** 2 + (o.y - p.y) ** 2 < ORB_RANGE * ORB_RANGE) {
       o.taken.push(p.id);
-      if (o.k === 'mag') {
-        // 자석: 맵의 내 경험치 구슬을 모두 흡수
-        for (const q of state.orbs) if (q.k === 'x' && !q.taken.includes(p.id)) { q.taken.push(p.id); gainXp(p, q.v); }
-        floatText(state, p.x, p.y - 34, '자석!', '#80deea', 1);
-      } else if (o.k === 'h') heal(p, 1);
+      if (o.k === 'h') heal(p, 1);
       else if (o.k === 'm') p.mana = Math.min(st.maxMana, p.mana + o.v * st.manaGain);
       else if (o.k === 'g') p.coins += o.v * p.bonus.coinMul;
       else gainXp(p, o.v);
     }
   }
-
-  // 생존 모드: 자동 스킬
-  if (state.mode === 'camp') updateAutos(state, p, st, dt);
 
   // 베이스캠프: 캠프 안에 있으면 체력이 천천히 회복 (준비 시간에는 빠르게)
   const camp = state.map.camp;
@@ -1984,13 +1996,12 @@ function killEnemy(state, e) {
     state.goldFrac = (state.goldFrac || 0) + T.gold * 0.5;
     state.gold += Math.floor(state.goldFrac);
     state.goldFrac %= 1;
-    if (e.kind === 'elite') spawnChest(state, e.x, e.y);
-    if (Math.random() < 0.004 && state.orbs.length < MAX_ORBS) state.orbs.push({ id: state.nextId++, k: 'mag', x: e.x, y: e.y, v: 1, taken: [], t: ORB_LIFE * 2 });
-    else if (Math.random() < 0.012 && state.orbs.length < MAX_ORBS) state.orbs.push({ id: state.nextId++, k: 'h', x: e.x, y: e.y, v: 1, taken: [], t: ORB_LIFE });
+    if (e.kind === 'elite') { spawnChest(state, e.x, e.y); state.chests[state.chests.length - 1].elite = true; }
+    if (Math.random() < 0.012 && state.orbs.length < MAX_ORBS) state.orbs.push({ id: state.nextId++, k: 'h', x: e.x, y: e.y, v: 1, taken: [], t: ORB_LIFE });
   }
   giveEssence(state, (ESSENCE[e.kind] ?? ESSENCE.default) * (camp && e.kind !== 'boss' ? 0.3 : 1));
   const spread = boss ? 46 : 14;
-  dropOrbs(state, e.x, e.y, 'x', T.xp, spread);
+  if (!camp) dropOrbs(state, e.x, e.y, 'x', T.xp, spread); // 성 지키기는 레벨업 없음
   const mn = Math.max(1, Math.round(T.mp / 4));
   dropOrbs(state, e.x, e.y, 'm', boss ? 8 : mn, spread, boss ? T.mp / 8 : T.mp / mn);
   if (state.mode !== 'camp') {
@@ -2573,8 +2584,8 @@ function updateCamp(state, players, dt) {
     boss.x = spot.x; boss.y = spot.y;
   }
   if (state.bossSpawned && !state.enemies.some((e) => e.kind === 'boss')) {
-    for (const p of players) { p.crowns += 2; } // 왕관 2개
-    endRun(state, '성을 지켜냈다! 🎉 (왕관 +2)');
+    for (const p of players) { p.crowns += 2; p.spoils += SPOILS.victory; } // 왕관 2개 + 전리품
+    endRun(state, `성을 지켜냈다! 🎉 (왕관 +2 · 전리품 ✪${SPOILS.victory})`);
     return;
   }
 
@@ -2592,122 +2603,6 @@ function updateCamp(state, players, dt) {
   const batch = 1 + Math.floor(minute / 1.5) + (Math.random() < 0.12 ? 4 : 0); // 가끔 떼로
   const room = S.maxEnemies - state.enemies.length;
   for (let i = 0; i < Math.min(batch, room); i++) spawnCampEnemy(state, pickKind(1 + minute * 1.2));
-}
-
-// ---------- 자동 스킬 ----------
-// p.au = { blade: { lv, evo, cd } } · p.pa = { power: 2 }
-const paLv = (p, k) => p.pa?.[k] || 0;
-const autoArea = (p) => 1 + 0.1 * paLv(p, 'area');
-const autoHaste = (p) => 1 - 0.08 * paLv(p, 'haste');
-
-function autoTargets(state, p, range, n) {
-  return shuffle(enemiesNear(state, p.x, p.y, range)).slice(0, n);
-}
-
-function updateAutos(state, p, st, dt) {
-  const mul = st.mul;
-  for (const [k, a] of Object.entries(p.au)) {
-    const lv = a.lv, evo = a.evo;
-    a.cd -= dt;
-    if (k === 'blade') {
-      // 칼날: 켜졌다 꺼졌다 (진화하면 계속)
-      a.on = evo ? 1 : Math.max(0, (a.on || 0) - dt);
-      if (!evo && a.cd <= 0 && a.on <= 0) { a.on = 3 + 0.3 * lv; a.cd = 6 * autoHaste(p); }
-      if (a.on > 0) {
-        const n = evo ? 6 : lv + 1, R = 72 * autoArea(p);
-        a.n = n; a.r = R;
-        for (let i = 0; i < n; i++) {
-          const ang = state.time * (evo ? 5 : 4) + (i / n) * Math.PI * 2;
-          const bx = p.x + Math.cos(ang) * R, by = p.y + Math.sin(ang) * R;
-          for (const e of enemiesNear(state, bx, by, 16 + 18)) {
-            if ((e.bladeT || 0) > state.time) continue;
-            e.bladeT = state.time + 0.35;
-            damageEnemy(state, e, (1.5 + 0.6 * lv) * mul * (evo ? 1.5 : 1), p.id);
-            if (e.hp > 0) push(state, e, Math.cos(ang + Math.PI / 2), Math.sin(ang + Math.PI / 2), 10);
-          }
-        }
-      }
-      continue;
-    }
-    if (k === 'aura') {
-      a.r = (80 + 8 * lv) * autoArea(p) * (evo ? 1.4 : 1);
-      if (a.cd <= 0) {
-        a.cd = 0.5;
-        for (const e of enemiesNear(state, p.x, p.y, a.r)) {
-          damageEnemy(state, e, (0.6 + 0.3 * lv) * mul * (evo ? 1.6 : 1), p.id, 'dot');
-          if (evo && e.hp > 0) e.st.chill = Math.max(e.st.chill, 1);
-        }
-      }
-      if (evo) { a.healT = (a.healT ?? 10) - dt; if (a.healT <= 0) { a.healT = 10; heal(p, 1); } }
-      continue;
-    }
-    if (a.cd > 0) continue;
-    if (k === 'drone') {
-      a.n = evo ? 4 : 1 + Math.floor(lv / 2);
-      a.cd = (evo ? 0.35 : 1.0 - 0.06 * lv) * autoHaste(p);
-      const targets = autoTargets(state, p, 420, a.n);
-      targets.forEach((t, i) => {
-        const ang = state.time * 2 + (i / a.n) * Math.PI * 2;
-        const ox = p.x + Math.cos(ang) * 30, oy = p.y - 24 + Math.sin(ang) * 10;
-        const aim = Math.atan2(t.y - oy, t.x - ox);
-        state.bullets.push({ ...makeBullet(state, p, aim, 620, { kind: 'drone', r: 3, dmg: (1.2 + 0.4 * lv) * mul, life: 0.8, el: null, elv: 0 }), x: ox, y: oy });
-      });
-    } else if (k === 'molotov') {
-      a.cd = (evo ? 2.5 : 3.5) * autoHaste(p);
-      const n = evo ? 5 : Math.min(3, 1 + Math.floor(lv / 2));
-      const targets = autoTargets(state, p, 360, n);
-      for (const t of targets) {
-        state.grenades.push({
-          id: state.nextId++, kind: 'molotov', sx: p.x, sy: p.y, tx: t.x, ty: t.y, t: 0, dur: 0.6, src: p.id,
-          dmg: 0, r: (48 + 4 * lv) * autoArea(p) * (evo ? 1.4 : 1), burn: (0.8 + 0.3 * lv) * mul * (evo ? 1.4 : 1), life: evo ? 4 : 2.5,
-        });
-      }
-    } else if (k === 'lightning') {
-      a.cd = (evo ? 1.6 : 2.4 - 0.1 * lv) * autoHaste(p);
-      const targets = autoTargets(state, p, 460, (evo ? 4 : 1) + lv);
-      for (const t of targets) {
-        addFx(state, { k: 'l', x: t.x + (Math.random() - 0.5) * 30, y: t.y - 240, x2: t.x, y2: t.y, c: '#fff176', t: 0.25, life: 0.25 });
-        damageEnemy(state, t, (3 + 1.5 * lv) * mul, p.id);
-        if (evo && t.hp > 0) chainLightning(state, t, 3, 2 * mul, p.id);
-      }
-    } else if (k === 'boomerang') {
-      a.cd = (evo ? 2 : 2.8 - 0.1 * lv) * autoHaste(p);
-      const n = evo ? 6 : 1 + Math.floor(lv / 3);
-      const t = nearest(state.enemies.filter((e) => e.hp > 0), p.x, p.y, 500);
-      const base = t ? Math.atan2(t.y - p.y, t.x - p.x) : p.angle;
-      for (let i = 0; i < n; i++) {
-        const ang = evo ? base + (i / n) * Math.PI * 2 : base + (i - (n - 1) / 2) * 0.35;
-        state.bullets.push(makeBullet(state, p, ang, 460, { kind: 'boomerang', r: 9, dmg: (2 + 0.8 * lv) * mul * (evo ? 1.3 : 1), life: 3, pierce: 99, el: null, elv: 0, out: 0.55, home: 0 }));
-      }
-    }
-  }
-}
-
-// 레벨업 카드 (생존 모드): 자동 스킬 6칸 · 패시브 6칸 · 조합 진화
-function survivalOffer(p) {
-  const auN = Object.keys(p.au).length, paN = Object.keys(p.pa).length;
-  const evos = Object.entries(p.au).filter(([k, a]) => !a.evo && a.lv >= AUTO_MAX_LV && paLv(p, AUTO_SKILLS[k].pair) > 0).map(([k]) => `ev:${k}`);
-  const autos = Object.keys(AUTO_SKILLS).filter((k) => (p.au[k] ? p.au[k].lv < AUTO_MAX_LV : auN < AUTO_SLOTS)).map((k) => `au:${k}`);
-  const pas = Object.keys(PASSIVE_ITEMS).filter((k) => (p.pa[k] ? p.pa[k] < AUTO_MAX_LV : paN < PASSIVE_SLOTS_RUN)).map((k) => `pa:${k}`);
-  const offer = [...evos.slice(0, 1), ...shuffle([...autos, ...autos, ...pas]).filter((k, i, arr) => arr.indexOf(k) === i)].slice(0, 3);
-  // 처음엔 자동 스킬이 꼭 하나는 나오게
-  if (!auN && autos.length && !offer.some((k) => k.startsWith('au:'))) offer[offer.length - 1] = shuffle(autos)[0];
-  while (offer.length < 3 && !offer.includes('heal')) offer.push('heal');
-  return offer;
-}
-
-function applySurvivalCard(p, key) {
-  if (key === 'heal') { heal(p, 3); return; }
-  const k = key.slice(3);
-  if (key.startsWith('au:')) {
-    if (p.au[k]) p.au[k].lv = Math.min(AUTO_MAX_LV, p.au[k].lv + 1);
-    else p.au[k] = { lv: 1, evo: false, cd: 0.5 };
-  } else if (key.startsWith('pa:')) {
-    p.pa[k] = Math.min(AUTO_MAX_LV, (p.pa[k] || 0) + 1);
-    if (k === 'vitality') { p.maxHp += 1; if (p.alive) p.hp += 1; }
-  } else if (key.startsWith('ev:') && p.au[k]) {
-    p.au[k].evo = true;
-  }
 }
 
 // ---------- 모험 모드: 방 / 포털 / 스테이지 ----------
@@ -3018,7 +2913,7 @@ export function snapshot(state) {
       jv: p.javelin ? 1 : 0, ld: p.loadout, pp: p.perkIds || [], cs: p.casts.map(r1), sgt: r2(p.swingT / SWING_TIME), sgd: p.swingDir,
       cw: p.crowns, gd: p.guild ? [p.guild.name, p.guild.color] : 0, uc: state.units.filter((u) => u.owner === p.id).length, ucap: armyCap(p),
       ar: (p.army?.sel || []).map((k) => [k, unitCost(p, k), p.army.lv?.[k] || 1]),
-      au: Object.entries(p.au).map(([k, a]) => [k, a.lv, a.evo ? 1 : 0, r1(a.on || 0), a.n || 0, Math.round(a.r || 0)]), pa: p.pa, rv: p.alive ? 0 : Math.ceil(p.reviveT),
+      sp: p.spoils, rv: p.alive ? 0 : Math.ceil(p.reviveT),
       mp: Math.floor(p.mana), mm: stats(p).maxMana, sk: p.skin, wst: weaponStats(p),
     })),
     e: state.enemies.map((e) => ({

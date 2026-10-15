@@ -8,7 +8,7 @@ import { createRenderer, weaponIconHtml, tintedPlayer, gearSheet } from './rende
 import { SKINS } from './data.js';
 import { loadSave, writeSave, currentBuild, setSaveAccount, NODE } from './tree.js';
 import { createTreeUI } from './treeui.js';
-import { settings, createSettingsUI, createWardrobeUI, createAccountUI, createArmyUI, currentAccount } from './panels.js';
+import { settings, createSettingsUI, createWardrobeUI, createAccountUI, createArmyUI, createSupplyUI, currentAccount } from './panels.js';
 import { createGuildUI } from './guildui.js';
 import { setGuildAccount } from './guild.js';
 import { UNITS } from './data.js';
@@ -76,7 +76,8 @@ const guildUI = createGuildUI($('guild'), {
 });
 guildUI.quietRefresh();
 $('guildBtn').addEventListener('click', () => guildUI.open());
-const overlays = [tree, wardrobe, settingsUI, account, army, guildUI];
+const supplyUI = createSupplyUI($('supply'), { getSave: () => save, onChange: () => { writeSave(save); sendBuild(); } });
+const overlays = [tree, wardrobe, settingsUI, account, army, guildUI, supplyUI];
 const anyOverlay = () => overlays.some((o) => o.isOpen());
 
 function updateAccountLabel() {
@@ -137,11 +138,12 @@ function sendBuild() {
 }
 
 // 이번 판에 번 정수·왕관을 저장 (판이 끝났을 때, 또는 중간에 나갈 때 한 번만)
-function bankEssence(rid, amount, crowns = 0) {
-  if (!session || session.banked.has(rid) || !(amount > 0 || crowns > 0)) return;
+function bankEssence(rid, amount, crowns = 0, spoils = 0) {
+  if (!session || session.banked.has(rid) || !(amount > 0 || crowns > 0 || spoils > 0)) return;
   session.banked.add(rid);
   save.essence += Math.floor(amount || 0);
   save.crowns = (save.crowns || 0) + Math.floor(crowns || 0);
+  save.spoils = (save.spoils || 0) + Math.floor(spoils || 0);
   writeSave(save);
 }
 
@@ -221,6 +223,12 @@ window.addEventListener('keydown', (e) => {
   if (phase === 'lobby' && e.code === 'KeyE' && nearStation('barracks', 60)) {
     keys.clear();
     army.open();
+    e.preventDefault();
+    return;
+  }
+  if (phase === 'lobby' && e.code === 'KeyE' && nearStation('supply', 56)) {
+    keys.clear();
+    supplyUI.open();
     e.preventDefault();
     return;
   }
@@ -372,7 +380,7 @@ function leave(reason = '') {
   if (!session) return;
   // 게임 도중 나가도 그때까지 번 정수는 저장
   const snap = session.lastSnap;
-  if (snap && snap.ph !== 'lobby' && session.lastMe) bankEssence(snap.rid, session.lastMe.es, session.lastMe.cw);
+  if (snap && snap.ph !== 'lobby' && session.lastMe) bankEssence(snap.rid, session.lastMe.es, session.lastMe.cw, session.lastMe.sp);
   session.net?.close();
   session = null;
   overlays.forEach((o) => o.close());
@@ -455,7 +463,7 @@ async function startClient() {
 
 window.addEventListener('pagehide', () => {
   const snap = session?.lastSnap;
-  if (snap && snap.ph !== 'lobby' && session.lastMe) bankEssence(snap.rid, session.lastMe.es, session.lastMe.cw);
+  if (snap && snap.ph !== 'lobby' && session.lastMe) bankEssence(snap.rid, session.lastMe.es, session.lastMe.cw, session.lastMe.sp);
   session?.net?.close();
 });
 ui.solo.addEventListener('click', () => startHost(true));
@@ -522,14 +530,19 @@ function afterRender(snap, map, myId) {
   if (me) session.lastMe = me;
   if (session.lastPhase !== snap.ph && snap.ph === 'lobby') { tree.refresh(); sendBuild(); }
   session.lastPhase = snap.ph;
-  if (snap.ph === 'over' && me) bankEssence(snap.rid, me.es, me.cw);
-  if (snap.ph !== 'lobby') { for (const o of [tree, wardrobe, army]) if (o.isOpen()) o.close(); }
+  if (snap.ph === 'over' && me) bankEssence(snap.rid, me.es, me.cw, me.sp);
+  // 모험을 시작하면 가져간 보급품은 사라짐
+  if (snap.ph === 'playing' && snap.md === 'adv' && session.suppliesRid !== snap.rid) {
+    session.suppliesRid = snap.rid;
+    if (Object.keys(save.supplies || {}).length) { save.supplies = {}; writeSave(save); }
+  }
+  if (snap.ph !== 'lobby') { for (const o of [tree, wardrobe, army, supplyUI]) if (o.isOpen()) o.close(); }
   ui.stage.hidden = snap.ph !== 'transition';
   if (snap.ph === 'transition') updateStage(snap, myId);
   else overlayCache.stage = '';
 }
 
-const renderExtra = () => ({ essence: save.essence, build: buildSummary(), damageNumbers: settings.damageNumbers, zoom: settings.zoom || 1 });
+const renderExtra = () => ({ essence: save.essence, spoils: save.spoils, crowns: save.crowns, build: buildSummary(), damageNumbers: settings.damageNumbers, zoom: settings.zoom || 1 });
 
 // ---------- 프레임 ----------
 function hostFrame(s, now) {
@@ -630,7 +643,7 @@ function clientFrame(s, now) {
       return {
         ...p, of: q.of, oq: q.oq, at: q.at, rw: q.rw, rwd: q.rwd, ev: q.ev, evd: q.evd, cr: q.cr, xp: q.xp, lv: q.lv, xn: q.xn,
         ws: q.ws, sl: q.sl, sw: q.sw, ld: q.ld, cs: q.cs, es: q.es, mp: q.mp, mm: q.mm, wst: q.wst, sk: q.sk, co: q.co, sh: q.sh, cb: q.cb,
-        au: q.au, pa: q.pa, rv: q.rv, pp: q.pp, cw: q.cw, gd: q.gd, uc: q.uc, ucap: q.ucap, ar: q.ar,
+        sp: q.sp, rv: q.rv, pp: q.pp, cw: q.cw, gd: q.gd, uc: q.uc, ucap: q.ucap, ar: q.ar,
       };
     }),
   };

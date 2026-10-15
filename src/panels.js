@@ -1,5 +1,5 @@
 // 설정 · 옷장(스킨) · 계정(로그인, 저장 코드) 화면
-import { SKINS, UNITS, UNIT_KEYS, ARMY_SLOTS, UNIT_MAX_LV, unitLevelCost, unitScale } from './data.js';
+import { SKINS, UNITS, UNIT_KEYS, ARMY_SLOTS, UNIT_MAX_LV, unitLevelCost, unitScale, SUPPLIES, SPOIL_TO_ESSENCE } from './data.js';
 import { exportSaveCode, importSaveCode } from './tree.js';
 
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -259,6 +259,52 @@ export function createArmyUI(root, { getSave, onChange, preview }) {
         else msg = `${ARMY_SLOTS}종까지 데려갈 수 있어요. 하나를 먼저 빼세요`;
         break;
       default:
+    }
+    onChange();
+    draw();
+  });
+  const api = {
+    isOpen: () => !root.hidden,
+    open() { draw(); root.hidden = false; },
+    close() { root.hidden = true; },
+  };
+  return api;
+}
+
+// ---------------------------------------------------------------- 보급관 (전리품 ✪ 사용처)
+// 성 지키기 상자에서 얻은 전리품으로 다음 모험의 보급품을 사거나 정수로 바꿈
+export function createSupplyUI(root, { getSave, onChange }) {
+  let msg = '';
+  function draw() {
+    const save = getSave();
+    const items = Object.entries(SUPPLIES).map(([k, it]) => {
+      const owned = !!save.supplies[k];
+      return `<div class="skin supply${owned ? ' on' : ''}"><b>${it.name}</b><small>${it.desc}</small>
+        ${owned ? '<small class="owned">✔ 다음 모험에 가져감</small>' : `<button data-sup="buy" data-k="${k}" ${save.spoils < it.price ? 'disabled' : ''}>✪${it.price} 사기</button>`}</div>`;
+    }).join('');
+    root.innerHTML = `<div class="tree-head"><h2>보급관</h2><span class="ess">✪ ${save.spoils} 전리품 · ◆ ${save.essence} 정수</span><button data-sup="close" class="tclose">닫기 (Esc)</button></div>
+      <p class="sub">전리품(✪)은 성 지키기의 상자·정예·승리로 얻어요. 보급품은 <b>다음 모험 모드</b>에서 한 번 쓰이고 사라져요.</p>
+      <div class="skins">${items}
+        <div class="skin supply"><b>정수로 바꾸기</b><small>✪1 → ◆${SPOIL_TO_ESSENCE} (스킬 트리·병영에 쓰기)</small>
+          <button data-sup="ex" data-n="1" ${save.spoils < 1 ? 'disabled' : ''}>✪1 → ◆${SPOIL_TO_ESSENCE}</button>
+          <button data-sup="ex" data-n="10" ${save.spoils < 10 ? 'disabled' : ''}>✪10 → ◆${SPOIL_TO_ESSENCE * 10}</button></div>
+      </div>
+      <p class="hint">길드 회관에서 전리품을 길드에 기부할 수도 있어요 (✪1 = 길드 경험치 10).</p>
+      <p class="tmsg" role="status">${msg}</p>`;
+  }
+  root.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-sup]');
+    if (!b || b.disabled) return;
+    const save = getSave();
+    msg = '';
+    if (b.dataset.sup === 'close') { api.close(); return; }
+    if (b.dataset.sup === 'buy') {
+      const k = b.dataset.k, it = SUPPLIES[k];
+      if (!save.supplies[k] && save.spoils >= it.price) { save.spoils -= it.price; save.supplies[k] = true; msg = `${it.name}: 다음 모험에 가져가요`; }
+    }
+    if (b.dataset.sup === 'ex') {
+      const n = Math.min(save.spoils, Number(b.dataset.n));
+      if (n > 0) { save.spoils -= n; save.essence += n * SPOIL_TO_ESSENCE; msg = `✪${n} → ◆${n * SPOIL_TO_ESSENCE}`; }
     }
     onChange();
     draw();

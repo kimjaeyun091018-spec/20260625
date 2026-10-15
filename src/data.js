@@ -6,7 +6,7 @@ export const VIEW_H = 640;
 export const MAX_PLAYERS = 4;
 
 export const MODES = {
-  camp: { name: '성 지키기', desc: '가운데 성을 10분 동안 지키기: 골드로 군단을 소환하고 성을 강화 (자동 스킬 조금)' },
+  camp: { name: '성 지키기', desc: '가운데 성을 10분 동안 지키기: 골드로 군단을 소환하고 성을 강화, 상자에서 전리품' },
   adv: { name: '모험', desc: '랜덤 던전의 방을 하나씩 정복하고 포털로 다음 스테이지로' },
 };
 
@@ -153,6 +153,7 @@ export const BOSSES = [
 
 // ---------- 베이스캠프 = 생존 모드 (탕탕특공대 방식) ----------
 // 10분 버티기: 적이 끊임없이 몰려오고, 2:30·5:00·7:30에 정예, 10:00에 보스. 보스를 잡으면 승리.
+// 레벨업 증강은 없고, 상자에서 전리품(✪, 로비 보급관에서 쓰는 재화)이 나옵니다.
 export const SURVIVAL = {
   prep: 15,              // 시작 준비 시간 (G로 건너뛰기)
   duration: 600,         // 보스가 나오는 시각
@@ -163,27 +164,6 @@ export const SURVIVAL = {
   hpMul: 0.7,            // 적 하나하나는 약하게, 대신 많이
   bonusHp: 3,            // 생존 모드 시작 체력 보너스
 };
-
-// 자동 스킬 (레벨업 카드로 얻음, 혼자 발동). Lv1~5, Lv5 + 짝 패시브가 있으면 진화 카드가 나옴
-export const AUTO_SKILLS = {
-  blade: { name: '회전 칼날', evoName: '폭풍 칼날', pair: 'swift', color: '#e0f7fa', desc: '몸 주위를 도는 칼날', evoDesc: '칼날 6개가 멈추지 않고 돎' },
-  drone: { name: '드론', evoName: '드론 편대', pair: 'haste', color: '#80deea', desc: '가까운 적을 쏘는 드론', evoDesc: '드론 4대가 빠르게 연사' },
-  molotov: { name: '화염병', evoName: '지옥불', pair: 'area', color: '#ff7043', desc: '적에게 던져 불바다', evoDesc: '넓고 오래 타는 불바다 5개' },
-  lightning: { name: '낙뢰', evoName: '천둥신', pair: 'power', color: '#fff176', desc: '무작위 적에게 번개', evoDesc: '번개가 주변 적에게 연쇄' },
-  boomerang: { name: '부메랑', evoName: '원반 폭풍', pair: 'magnet', color: '#ffcc80', desc: '날아갔다 돌아오며 관통', evoDesc: '사방으로 부메랑 6개' },
-  aura: { name: '역장', evoName: '수호 역장', pair: 'vitality', color: '#b39ddb', desc: '주변 적에게 계속 피해', evoDesc: '더 넓고 적을 둔화, 가끔 체력 회복' },
-};
-export const PASSIVE_ITEMS = {
-  power: { name: '힘의 반지', desc: '모든 피해 +10%' },
-  haste: { name: '가속기', desc: '자동 스킬·무기 스킬 쿨타임 -8%' },
-  area: { name: '확장기', desc: '자동 스킬 범위 +10%' },
-  magnet: { name: '자석', desc: '구슬 줍는 거리 +30%' },
-  vitality: { name: '심장', desc: '최대 체력 +1' },
-  swift: { name: '날개 신발', desc: '이동 속도 +6%' },
-};
-export const AUTO_MAX_LV = 5;
-export const AUTO_SLOTS = 3;
-export const PASSIVE_SLOTS_RUN = 3;
 
 // ---------- 성 (성 지키기 모드의 가운데 탑) ----------
 // 성이 무너지면 패배. 골드로 강화(T 키): 최대 체력 +30, 화살 강화 (5레벨부터 2발)
@@ -210,6 +190,21 @@ export const UNIT_MAX_LV = 10;
 export const unitLevelCost = (lv) => 15 * lv;        // lv → lv+1 정수
 export const unitScale = (lv) => 1 + 0.15 * (lv - 1); // 레벨마다 체력·피해 +15%
 export const ARMY_CAP = 12;                           // 플레이어 한 명이 동시에 거느릴 수 있는 유닛 수
+
+// ---------- 전리품 (성 지키기 상자에서 얻는 영구 재화) → 로비 보급관에서 사용 ----------
+export const SPOILS = {
+  chest: 3, eliteChest: 5, victory: 8,   // 상자 하나에 플레이어마다 ✪3, 정예 상자 ✪5, 승리 ✪8
+};
+// 다음 모험에 가져갈 보급품 (한 번 쓰면 사라짐) + 교환
+export const SUPPLIES = {
+  weapon: { name: '무기 보급 상자', price: 6, desc: '다음 모험을 2단계 무기 하나 더 들고 시작' },
+  coins: { name: '동전 주머니', price: 3, desc: '다음 모험을 동전 +40으로 시작' },
+  heart: { name: '튼튼한 갑옷', price: 4, desc: '다음 모험에서 최대 체력 +2' },
+  card: { name: '증강 두루마리', price: 5, desc: '다음 모험을 증강 카드 1장으로 시작' },
+  element: { name: '속성 결정', price: 5, desc: '다음 모험의 권총에 무작위 속성 Lv2' },
+};
+export const SPOIL_TO_ESSENCE = 10;   // ✪1 → ◆10 교환
+export const SPOIL_GUILD_XP = 10;     // 길드에 ✪1 기부 = 길드 경험치 10
 
 // ---------- 길드 (온라인, Firebase) ----------
 export const GUILD = {
@@ -341,21 +336,7 @@ export const SKINS = {
 
 // 카드 키('dmg', 'el:fire', 'rw:might', 'evo:twin')의 표시용 정보
 // weaponName: 지금 들고 있는 무기 이름 (속성 카드 설명에 씀)
-export function offerInfo(key, buffs = {}, weaponName = '무기', weaponEl = null, weaponElv = 0, run = {}) {
-  if (key.startsWith('au:')) {
-    const k = key.slice(3), d = AUTO_SKILLS[k], lv = (run.au?.[k] || 0) + 1;
-    return { name: d.name, desc: lv === 1 ? `자동 스킬: ${d.desc} (진화 짝: ${PASSIVE_ITEMS[d.pair].name})` : `${d.desc} 강화`, lv, max: AUTO_MAX_LV, color: d.color };
-  }
-  if (key.startsWith('pa:')) {
-    const k = key.slice(3), d = PASSIVE_ITEMS[k], lv = (run.pa?.[k] || 0) + 1;
-    const pairs = Object.values(AUTO_SKILLS).filter((a) => a.pair === k).map((a) => a.name).join(', ');
-    return { name: d.name, desc: `${d.desc}${pairs ? ` · ${pairs} 진화 짝` : ''}`, lv, max: AUTO_MAX_LV, color: '#a5d6a7' };
-  }
-  if (key.startsWith('ev:')) {
-    const d = AUTO_SKILLS[key.slice(3)];
-    return { name: `진화! ${d.evoName}`, desc: d.evoDesc, lv: null, max: null, color: '#ffd54f' };
-  }
-  if (key === 'heal') return { name: '고기', desc: '체력 +3 (반복 가능)', lv: null, max: null, color: '#ef9a9a' };
+export function offerInfo(key, buffs = {}, weaponName = '무기', weaponEl = null, weaponElv = 0) {
   if (key.startsWith('evo:')) {
     const k = key.slice(4), w = WEAPONS[k], i = weaponInfo(k);
     return {

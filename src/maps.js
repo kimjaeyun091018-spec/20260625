@@ -93,6 +93,7 @@ export function buildLobbyMap(charKeys) {
     totems: [0, 1, 2].map((i) => ({ x: (12 + i * 3) * TILE, y: 17 * TILE })),
     barracks: { x: 8 * TILE, y: 16.5 * TILE },   // 병영: 군단 편성
     guild: { x: 22 * TILE, y: 16.5 * TILE },     // 길드 회관
+    supply: { x: 20.5 * TILE, y: 10 * TILE },    // 보급관: 전리품으로 보급품 사기
   };
   m.spawn = { x: 15 * TILE, y: 10 * TILE };
   return m;

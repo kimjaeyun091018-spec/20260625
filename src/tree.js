@@ -4,7 +4,7 @@
 //   처음 저장은 무료, 저장된 칸을 다시 고치려면 초기화 비용, 칸을 늘리려면 구매 비용.
 // - 일반 노드(스탯)는 해금하면 항상 적용, 숙련 노드는 캐릭터 속성이 같을 때만 적용.
 
-import { ELEMENTS, SKINS, UNITS, UNIT_MAX_LV, ARMY_SLOTS } from './data.js';
+import { ELEMENTS, SKINS, UNITS, UNIT_MAX_LV, ARMY_SLOTS, SUPPLIES } from './data.js';
 
 export const ACTIVE_SLOTS = 3;   // 액티브 칸 (1·2·3 키)
 export const PASSIVE_SLOTS = 2;  // 패시브 칸 (항상 켜짐)
@@ -177,7 +177,7 @@ export function emptySlot() {
 export function loadSave(from) {
   let s = from || null;
   if (!s) try { s = JSON.parse(localStorage.getItem(SAVE_KEY)); } catch { /* 저장소 사용 불가 */ }
-  const base = { essence: START_ESSENCE, crowns: 0, unlocked: [], owned: 1, active: 0, slots: [emptySlot()], skins: ['shadow'], skin: 'shadow', army: { unlocked: ['knight', 'archer'], lv: {}, sel: ['knight', 'archer'] } };
+  const base = { essence: START_ESSENCE, crowns: 0, spoils: 0, supplies: {}, unlocked: [], owned: 1, active: 0, slots: [emptySlot()], skins: ['shadow'], skin: 'shadow', army: { unlocked: ['knight', 'archer'], lv: {}, sel: ['knight', 'archer'] } };
   if (!s || typeof s !== 'object') return base;
   const save = { ...base, ...s };
   save.unlocked = (Array.isArray(save.unlocked) ? save.unlocked : []).filter((id) => NODE[id]);
@@ -186,6 +186,8 @@ export function loadSave(from) {
   save.active = Math.min(save.owned - 1, Math.max(0, Number(save.active) || 0));
   save.essence = Math.max(0, Math.floor(Number(save.essence) || 0));
   save.crowns = Math.max(0, Math.floor(Number(save.crowns) || 0));
+  save.spoils = Math.max(0, Math.floor(Number(save.spoils) || 0));
+  save.supplies = Object.fromEntries(Object.keys(SUPPLIES).filter((k) => save.supplies?.[k]).map((k) => [k, true]));
   const army = save.army && typeof save.army === 'object' ? save.army : {};
   save.army = {
     unlocked: [...new Set(['knight', 'archer', ...(Array.isArray(army.unlocked) ? army.unlocked : [])])].filter((k) => UNITS[k]),
@@ -210,7 +212,7 @@ export function currentBuild(save) {
   const el = slot.el || firstRoot?.el || null;
   // 장착 칸이 비어 있고 저장(잠금) 전이면, 해금한 스킬을 차례로 자동 장착
   const eq = fitLoadout(slot.eq.length || slot.saved ? slot.eq : save.unlocked.filter(equipable));
-  return { el, eq, nodes: save.unlocked, skin: save.skin, army: { sel: save.army.sel, lv: save.army.lv }, guild: save.guild || null };
+  return { el, eq, nodes: save.unlocked, skin: save.skin, army: { sel: save.army.sel, lv: save.army.lv }, guild: save.guild || null, supplies: { ...save.supplies } };
 }
 
 // 방장이 받은 빌드를 검사 (없는 노드, 해금 안 된 장착 등은 버림)
@@ -226,7 +228,8 @@ export function sanitizeBuild(b) {
   // 길드: 이름·레벨만 (보너스 계산용)
   const g = b?.guild;
   const guild = g && typeof g.id === 'string' ? { id: g.id.slice(0, 40), name: String(g.name || '').slice(0, 12), lv: Math.max(1, Math.min(20, Math.floor(Number(g.lv) || 1))), color: /^#[0-9a-f]{6}$/i.test(g.color) ? g.color : '#ffd54f' } : null;
-  return { el, eq, nodes, skin, army, guild };
+  const supplies = Object.fromEntries(Object.keys(SUPPLIES).filter((k) => b?.supplies?.[k]).map((k) => [k, true]));
+  return { el, eq, nodes, skin, army, guild, supplies };
 }
 
 // ---------- 저장 코드 (다른 기기로 옮기기) ----------
@@ -237,7 +240,7 @@ function checksum(str) {
 }
 
 export function exportSaveCode(save) {
-  const json = JSON.stringify({ essence: save.essence, crowns: save.crowns, army: save.army, unlocked: save.unlocked, owned: save.owned, active: save.active, slots: save.slots, skins: save.skins, skin: save.skin });
+  const json = JSON.stringify({ essence: save.essence, crowns: save.crowns, spoils: save.spoils, supplies: save.supplies, army: save.army, unlocked: save.unlocked, owned: save.owned, active: save.active, slots: save.slots, skins: save.skins, skin: save.skin });
   const b64 = btoa(unescape(encodeURIComponent(json)));
   return `DS1-${checksum(b64)}-${b64}`;
 }

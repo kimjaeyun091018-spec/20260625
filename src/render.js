@@ -1,7 +1,7 @@
 // 캔버스 그리기 전담 (게임 규칙 없음)
 import {
   TILE, VIEW_W, VIEW_H, STRUCTS, BUFFS, ELEMENTS, WEAPONS, SKILLS, SKINS, MAX_AUGMENT_TYPES, offerInfo, stageLabel, weaponFam,
-  CHARACTERS, weaponInfo, elColor, TIER_NAME, SHOP, reactionName, ENEMY_TYPES, TRAPS, AUTO_SKILLS, PASSIVE_ITEMS, SURVIVAL, UNITS, CASTLE,
+  CHARACTERS, weaponInfo, elColor, TIER_NAME, SHOP, reactionName, ENEMY_TYPES, TRAPS, SURVIVAL, UNITS, CASTLE,
 } from './data.js';
 import { CELL } from './maps.js';
 import { NODE } from './tree.js';
@@ -694,7 +694,6 @@ export function createRenderer(canvas) {
 
   function drawOrb(o, now) {
     const bob = Math.sin(now / 200 + o.id) * 2;
-    if (o.k === 'mag') { circle(o.x, o.y + bob, 8, '#fff'); ctx.strokeStyle = '#e53935'; ctx.lineWidth = 4; ctx.beginPath(); ctx.arc(o.x, o.y + bob, 5, Math.PI, 0); ctx.stroke(); return; }
     if (o.k === 'h') { circle(o.x, o.y + bob, 6, '#fff'); circle(o.x, o.y + bob, 5, '#d84315'); circle(o.x + 3, o.y + 3 + bob, 2.5, '#fff3e0'); return; }
     if (o.k === 'm') { circle(o.x, o.y + bob, 5, '#fff'); circle(o.x, o.y + bob, 4, '#2196f3'); circle(o.x - 1, o.y - 1 + bob, 1.5, '#bbdefb'); return; }
     if (o.k === 'g') { circle(o.x, o.y + bob, 5, '#8d6e00'); circle(o.x, o.y + bob, 4, '#ffd54f'); ctx.fillStyle = '#ffecb3'; ctx.fillRect(o.x - 1, o.y - 2 + bob, 1.5, 4); return; }
@@ -1010,47 +1009,6 @@ export function createRenderer(canvas) {
     }
   }
 
-  // 자동 스킬 그림 (생존 모드): 칼날·드론·역장. front = 캐릭터 앞에 그릴 것
-  function drawAutos(p, snap, now, front) {
-    if (!p.au?.length || !p.al) return;
-    const t = snap.tm ?? now / 1000;
-    for (const [k, lv, evo, on, n, r] of p.au) {
-      if (k === 'aura' && !front) {
-        ctx.save();
-        ctx.globalAlpha = 0.12 + Math.sin(now / 200) * 0.03;
-        circle(p.x, p.y, r, evo ? '#d1c4e9' : '#9575cd');
-        ctx.globalAlpha = 0.5;
-        ctx.strokeStyle = evo ? '#ede7f6' : '#b39ddb';
-        ctx.lineWidth = 2;
-        ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI * 2); ctx.stroke();
-        ctx.restore();
-      } else if (k === 'blade' && front && on > 0) {
-        for (let i = 0; i < n; i++) {
-          const a = t * (evo ? 5 : 4) + (i / n) * Math.PI * 2;
-          const bx = p.x + Math.cos(a) * r, by = p.y + Math.sin(a) * r;
-          ctx.save();
-          ctx.translate(bx, by);
-          ctx.rotate(a + Math.PI / 2 + now / 60);
-          ctx.fillStyle = '#fff';
-          ctx.beginPath(); ctx.moveTo(0, -13); ctx.lineTo(5, 0); ctx.lineTo(0, 13); ctx.lineTo(-5, 0); ctx.fill();
-          ctx.fillStyle = evo ? '#80deea' : '#b0bec5';
-          ctx.beginPath(); ctx.moveTo(0, -10); ctx.lineTo(3, 0); ctx.lineTo(0, 10); ctx.lineTo(-3, 0); ctx.fill();
-          ctx.restore();
-        }
-      } else if (k === 'drone' && front) {
-        for (let i = 0; i < n; i++) {
-          const a = t * 2 + (i / n) * Math.PI * 2;
-          const dx = p.x + Math.cos(a) * 30, dy = p.y - 24 + Math.sin(a) * 10;
-          ctx.fillStyle = '#fff'; ctx.fillRect(dx - 7, dy - 4, 14, 8);
-          ctx.fillStyle = evo ? '#00acc1' : '#546e7a'; ctx.fillRect(dx - 6, dy - 3, 12, 6);
-          circle(dx, dy, 2, '#80deea');
-          ctx.fillStyle = 'rgba(255,255,255,.6)';
-          ctx.fillRect(dx - 9 + Math.sin(now / 30) * 2, dy - 6, 6, 1.5); ctx.fillRect(dx + 3 - Math.sin(now / 30) * 2, dy - 6, 6, 1.5);
-        }
-      }
-    }
-  }
-
   function drawFireZone(z, now) {
     ctx.save();
     ctx.globalAlpha = 0.28;
@@ -1159,7 +1117,7 @@ export function createRenderer(canvas) {
     ctx.fillStyle = '#ffe082';
     ctx.font = 'bold 14px sans-serif';
     const more = me.oq > 0 ? ` (+${me.oq}장 대기)` : '';
-    ctx.fillText(camp ? `레벨 업! 자동 스킬·패시브를 고르세요 (Z/X/C)${more}` : `레벨 업! 증강을 클릭하거나 Z/X/C로 고르세요 · 증강 ${me.at}/${MAX_AUGMENT_TYPES}종${more}`, Math.max(16, (VIEW_W - 190 - total) / 2), y - 8);
+    ctx.fillText(`레벨 업! 증강을 클릭하거나 Z/X/C로 고르세요 · 증강 ${me.at}/${MAX_AUGMENT_TYPES}종${more}`, Math.max(16, (VIEW_W - 190 - total) / 2), y - 8);
     me.of.forEach((key, i) => {
       const x = Math.max(16, (VIEW_W - 190 - total) / 2) + i * (w + gap);
       const hover = mouse.sx >= x && mouse.sx <= x + w && mouse.sy >= y && mouse.sy <= y + h;
@@ -1167,8 +1125,7 @@ export function createRenderer(canvas) {
       ctx.fillStyle = hover ? 'rgba(75,63,143,.97)' : 'rgba(30,27,52,.94)';
       ctx.fill();
       const cur = me.ws?.[me.sl];
-      const run = { au: Object.fromEntries((me.au || []).map(([k, lv]) => [k, lv])), pa: me.pa || {} };
-      const info = offerInfo(key, me.bf, cur ? weaponLabel(cur.k, null) : '무기', cur?.el, cur?.lv, run);
+      const info = offerInfo(key, me.bf, cur ? weaponLabel(cur.k, null) : '무기', cur?.el, cur?.lv);
       ctx.strokeStyle = info.color;
       ctx.lineWidth = 2;
       ctx.stroke();
@@ -1180,8 +1137,7 @@ export function createRenderer(canvas) {
       ctx.fillStyle = '#fff';
       ctx.font = 'bold 16px sans-serif';
       ctx.fillText(info.name, x + 26, y + 26);
-      const owned = key.startsWith('el:') ? me.ws?.[me.sl]?.el === key.slice(3)
-        : key.startsWith('au:') ? !!run.au[key.slice(3)] : key.startsWith('pa:') ? !!run.pa[key.slice(3)] : key === 'heal' || key.startsWith('ev:') || !!me.bf?.[key];
+      const owned = key.startsWith('el:') ? me.ws?.[me.sl]?.el === key.slice(3) : !!me.bf?.[key];
       if (!owned) {
         ctx.fillStyle = '#80cbc4';
         ctx.font = 'bold 11px sans-serif';
@@ -1351,14 +1307,20 @@ export function createRenderer(canvas) {
       ctx.fillStyle = '#bbdefb';
       ctx.font = 'bold 9px sans-serif';
       ctx.fillText(`${me.mp}`, 22, 59);
-      // 레벨 & 경험치
-      ctx.fillStyle = '#69f0ae';
-      ctx.font = 'bold 12px sans-serif';
-      ctx.fillText(`Lv ${me.lv}`, 20, 72);
-      ctx.fillStyle = '#333';
-      ctx.fillRect(60, 64, 180, 8);
-      ctx.fillStyle = '#69f0ae';
-      ctx.fillRect(60, 64, (180 * me.xp) / me.xn, 8);
+      // 레벨 & 경험치 (성 지키기는 레벨업이 없어서 대신 전리품)
+      if (adv) {
+        ctx.fillStyle = '#69f0ae';
+        ctx.font = 'bold 12px sans-serif';
+        ctx.fillText(`Lv ${me.lv}`, 20, 72);
+        ctx.fillStyle = '#333';
+        ctx.fillRect(60, 64, 180, 8);
+        ctx.fillStyle = '#69f0ae';
+        ctx.fillRect(60, 64, (180 * me.xp) / me.xn, 8);
+      } else {
+        ctx.fillStyle = '#ffb74d';
+        ctx.font = 'bold 12px sans-serif';
+        ctx.fillText(`전리품 ✪${me.sp || 0}`, 20, 74);
+      }
       ctx.fillStyle = '#ddd';
       ctx.font = '12px sans-serif';
       const el = ELEMENTS[me.el];
@@ -1367,7 +1329,7 @@ export function createRenderer(canvas) {
       ctx.fillText(`${C ? C.name : ''} · ${el ? `${el.name} Lv ${me.elv}` : '속성 없음'}`, 20, 92);
       ctx.fillStyle = '#80deea';
       ctx.fillText(`◆ ${me.es}${me.cw ? `  ♛${me.cw}` : ''}`, 180, 92);
-      if (!adv) { drawRunKit(me); } else {
+      if (adv) {
       const owned = Object.entries(me.bf || {}).map(([k, n]) => `${BUFFS[k]?.name ?? k} ${n}`);
       ctx.fillStyle = 'rgba(0,0,0,.45)';
       ctx.fillRect(10, 106, 240, 16 * owned.length + 26);
@@ -1401,7 +1363,7 @@ export function createRenderer(canvas) {
     if (snap.ph === 'over') banner(snap.ot, '잠시 후 로비로 돌아갑니다');
     else if (!adv && snap.sv && !snap.sv.st) {
       const ready = alive.filter((p) => p.rd).length;
-      banner('생존 준비: 울타리·터렛을 지으세요', `${Math.ceil(-snap.sv.t)}초 뒤 적이 몰려옵니다 · G 바로 시작 (${ready}/${alive.length})`);
+      banner('성 지키기 준비: 울타리·터렛을 지으세요', `${Math.ceil(-snap.sv.t)}초 뒤 적이 몰려옵니다 · G 바로 시작 (${ready}/${alive.length})`);
     } else if (!adv && me && !me.al && me.rv > 0) {
       banner('쓰러졌어요', `${me.rv}초 뒤 캠프에서 부활합니다`);
     } else if (!adv && snap.sv && !snap.sv.b) {
@@ -1430,51 +1392,6 @@ export function createRenderer(canvas) {
     ctx.fillRect(x, y + 16, w, 9);
     ctx.fillStyle = bs.hp < bs.mh / 2 ? '#ff5252' : '#ef5350';
     ctx.fillRect(x, y + 16, (w * Math.max(0, bs.hp)) / bs.mh, 9);
-  }
-
-  // 생존 모드: 자동 스킬 6칸 + 패시브 6칸 (왼쪽 위)
-  function drawRunKit(me) {
-    const au = me.au || [], pa = Object.entries(me.pa || {});
-    const box = 34, gap = 4, x0 = 14, y0 = 108;
-    ctx.fillStyle = 'rgba(0,0,0,.45)';
-    ctx.fillRect(10, 104, 6 * (box + gap) + 4, box * 2 + gap + 22);
-    for (let row = 0; row < 2; row++) {
-      for (let i = 0; i < 6; i++) {
-        const x = x0 + i * (box + gap), y = y0 + row * (box + gap);
-        ctx.fillStyle = 'rgba(15,13,28,.9)';
-        roundRect(x, y, box, box, 6);
-        ctx.fill();
-        const item = row === 0 ? au[i] : pa[i];
-        if (!item) continue;
-        if (row === 0) {
-          const [k, lv, evo] = item, d = AUTO_SKILLS[k];
-          ctx.strokeStyle = evo ? '#ffd54f' : d.color;
-          ctx.lineWidth = evo ? 3 : 2;
-          ctx.stroke();
-          ctx.fillStyle = '#fff';
-          ctx.font = 'bold 9px sans-serif';
-          ctx.textAlign = 'center';
-          ctx.fillText((evo ? d.evoName : d.name).slice(0, 4), x + box / 2, y + 15);
-          ctx.fillStyle = evo ? '#ffd54f' : '#b0bec5';
-          ctx.fillText(evo ? '진화' : `Lv${lv}`, x + box / 2, y + 28);
-        } else {
-          const [k, lv] = item;
-          ctx.strokeStyle = '#a5d6a7';
-          ctx.lineWidth = 2;
-          ctx.stroke();
-          ctx.fillStyle = '#e8f5e9';
-          ctx.font = 'bold 9px sans-serif';
-          ctx.textAlign = 'center';
-          ctx.fillText(PASSIVE_ITEMS[k].name.slice(0, 4), x + box / 2, y + 15);
-          ctx.fillStyle = '#a5d6a7';
-          ctx.fillText(`Lv${lv}`, x + box / 2, y + 28);
-        }
-      }
-    }
-    ctx.textAlign = 'left';
-    ctx.fillStyle = '#9e9e9e';
-    ctx.font = '10px sans-serif';
-    ctx.fillText('자동 스킬 · 패시브 (Lv5 + 짝 패시브 = 진화)', 14, y0 + box * 2 + gap + 13);
   }
 
   // 왼쪽 아래: 스킬 트리 액티브 3칸 (1~3 키) + 패시브 2칸
@@ -1621,6 +1538,16 @@ export function createRenderer(canvas) {
       label('병영 · 군단', B.x, B.y + 34, '#90caf9');
       if (near(B, 60)) label('E 군단 편성', B.x, B.y - 56, '#ffd54f');
     }
+    // 보급관 (전리품 상점)
+    if (L.supply) {
+      const Q = L.supply;
+      ctx.fillStyle = '#fff'; ctx.fillRect(Q.x - 26, Q.y - 6, 52, 22);
+      ctx.fillStyle = '#795548'; ctx.fillRect(Q.x - 24, Q.y - 4, 48, 18);
+      for (const [dx, c] of [[-14, '#a1887f'], [0, '#8d6e63'], [14, '#a1887f']]) { ctx.fillStyle = c; ctx.fillRect(Q.x + dx - 6, Q.y - 16, 12, 12); }
+      ctx.fillStyle = '#ffb74d'; ctx.font = 'bold 14px sans-serif'; ctx.textAlign = 'center'; ctx.fillText('✪', Q.x, Q.y + 11);
+      label('보급관 (전리품)', Q.x, Q.y + 32, '#ffb74d');
+      if (near(Q, 56)) label('E 보급품', Q.x, Q.y - 26, '#ffd54f');
+    }
     // 길드 회관
     if (L.guild) {
       const G = L.guild;
@@ -1683,7 +1610,7 @@ export function createRenderer(canvas) {
     ctx.fillText('LOBBY', 20, 30);
     ctx.fillStyle = '#80deea';
     ctx.textAlign = 'right';
-    ctx.fillText(`◆ ${extra.essence ?? 0}`, 230, 30);
+    ctx.fillText(`◆ ${extra.essence ?? 0}  ✪ ${extra.spoils ?? 0}  ♛ ${extra.crowns ?? 0}`, 230, 30);
     ctx.textAlign = 'left';
     snap.p.forEach((p, i) => {
       const y = 52 + i * 22;
@@ -1712,7 +1639,7 @@ export function createRenderer(canvas) {
     roundRect(VIEW_W / 2 - 300, VIEW_H - 64, 600, 24, 6);
     ctx.fill();
     ctx.fillStyle = '#eee';
-    ctx.fillText('동상 E 캐릭터 · 제단(K) 스킬 트리 · 옷장 · 병영 군단 · 길드 회관 · 1~3 스킬 시험 · 모두 포털에 들어가면 출발', VIEW_W / 2, VIEW_H - 48);
+    ctx.fillText('동상 E 캐릭터 · 제단(K) 스킬 트리 · 옷장 · 병영 · 보급관 · 길드 회관 · 1~3 스킬 · 모두 포털에 들어가면 출발', VIEW_W / 2, VIEW_H - 48);
     if (snap.lp && snap.lpt) banner('출발할 수 없어요', snap.lp);
   }
 
@@ -1811,9 +1738,7 @@ export function createRenderer(canvas) {
     if (snap.ca) drawCastle(snap.ca, now);
     for (const u of snap.un || []) drawUnit(u, snap, now);
     for (const e of snap.e) drawEnemy(e, now, me);
-    for (const p of snap.p) drawAutos(p, snap, now, false);
     for (const p of snap.p) drawPlayer(p, p.id === myId, now);
-    for (const p of snap.p) drawAutos(p, snap, now, true);
     drawFx(snap.fx);
     if (map.lobby && nearStatue) drawStatueTip(nearStatue);
     if (chest) label('E 열기', chest.x, chest.y - 24, '#ffd54f');
