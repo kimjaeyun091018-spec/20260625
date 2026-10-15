@@ -33,7 +33,8 @@ export function buildCampMap() {
   const m = walledRoom(cols, rows);
   const cx = 36, cy = 26, campR = 8;
   m.camp = { x: cx * TILE, y: cy * TILE, r: campR * TILE };
-  m.spawn = { x: cx * TILE, y: cy * TILE };
+  m.castle = { x: cx * TILE, y: cy * TILE };          // 가운데 성 (game.js에서 원으로 막음)
+  m.spawn = { x: cx * TILE, y: (cy + 3) * TILE };
   const far = (x, y, d) => Math.hypot(x - cx, y - cy) > campR + d;
   for (let n = 0, guard = 0; n < 26 && guard < 500; guard++) {
     const s = rand(1, 3), x = rand(3, cols - 4 - s), y = rand(3, rows - 4 - s);
@@ -90,6 +91,8 @@ export function buildLobbyMap(charKeys) {
       { mode: 'camp', name: '베이스캠프', x: 25 * TILE, y: 13.5 * TILE, color: '#ffb74d' },
     ],
     totems: [0, 1, 2].map((i) => ({ x: (12 + i * 3) * TILE, y: 17 * TILE })),
+    barracks: { x: 8 * TILE, y: 16.5 * TILE },   // 병영: 군단 편성
+    guild: { x: 22 * TILE, y: 16.5 * TILE },     // 길드 회관
   };
   m.spawn = { x: 15 * TILE, y: 10 * TILE };
   return m;
@@ -228,7 +231,7 @@ export function packMap(m) {
     id: m.id, cols: m.cols, rows: m.rows,
     tiles: m.tiles.join(''),
     rooms: m.rooms.map(({ id, type, gx, gy, x0, y0, w, h, doors, links }) => ({ id, type, gx, gy, x0, y0, w, h, doors, links })),
-    camp: m.camp || null, spawn: m.spawn, portal: m.portal || null, lobby: m.lobby || null, boss: !!m.boss, traps: m.traps || [],
+    camp: m.camp || null, castle: m.castle || null, spawn: m.spawn, portal: m.portal || null, lobby: m.lobby || null, boss: !!m.boss, traps: m.traps || [],
   };
 }
 

@@ -8,7 +8,7 @@ import {
   TILE, MAX_PLAYERS, WEAPONS, START_WEAPON, weaponFam, SKILLS, WEAPON_SLOTS, SWAP_COOLDOWN, RESONANCE, COMBO_EVERY,
   DROP_TIERS, DROP_ELEMENT_CHANCE, CHARACTERS, CHARACTER_KEYS, sameCharLimit, ENEMY_TYPES, STRUCTS, BUFFS,
   ELEMENTS, ELEMENT_MAX, ELEMENT_MAX_BONUS, MAX_AUGMENT_TYPES, STAGE_REWARDS, STAGES_PER_WORLD, WORLDS, ESSENCE,
-  BOSSES, SHOP, SURVIVAL, AUTO_SKILLS, PASSIVE_ITEMS, AUTO_MAX_LV, AUTO_SLOTS, PASSIVE_SLOTS_RUN, TRAPS, stageLabel, xpToNext, enemyScale, MANA, activeManaCost, SKINS,
+  BOSSES, SHOP, SURVIVAL, CASTLE, UNITS, ARMY_CAP, unitScale, guildPerks, AUTO_SKILLS, PASSIVE_ITEMS, AUTO_MAX_LV, AUTO_SLOTS, PASSIVE_SLOTS_RUN, TRAPS, stageLabel, xpToNext, enemyScale, MANA, activeManaCost, SKINS,
 } from './data.js';
 import { buildCampMap, buildLobbyMap, generateDungeon, tileCenter } from './maps.js';
 import { ACTIVES, PERKS, NODE, LOADOUT_SIZE, sanitizeBuild, buildBonus } from './tree.js';
@@ -34,7 +34,7 @@ const INTERACT_RANGE = 48;
 const PORTAL_RANGE = 56;
 const SWING_TIME = 0.18;
 
-const ACTION_RE = /^(fence|turret|demolish|ready|skill|ult|swap|evoskip|evo[1-4]|cast[1-4]|pick[1-3]|reward[1-3])$/;
+const ACTION_RE = /^(fence|turret|demolish|ready|skill|ult|swap|castle|evoskip|evo[1-4]|cast[1-4]|sum[1-4]|pick[1-3]|reward[1-3])$/;
 
 // ---------- 입력 ----------
 export const EMPTY_INPUT = Object.freeze({
@@ -63,7 +63,7 @@ export function sanitizeName(name) {
 function runLists() {
   return {
     enemies: [], bullets: [], structs: [], structMap: new Map(), fx: [], orbs: [],
-    grenades: [], zones: [], chests: [], pickups: [], shop: [], hazards: [], barrels: [],
+    grenades: [], zones: [], chests: [], pickups: [], shop: [], hazards: [], barrels: [], units: [], castle: null,
     doorSet: new Set(), activeRoom: null, portalT: 0, chestsThisStage: 0,
     lobbyPortal: null, lobbyPortalT: 0,
   };
@@ -117,6 +117,8 @@ function rebuildStructMap(state) {
 
 // 원이 벽(또는 적에게는 건물)과 겹치는지. 겹치면 'wall' 또는 그 건물을 돌려줍니다.
 function circleBlocked(state, x, y, r, structsBlock) {
+  const c = state.castle;
+  if (c && (x - c.x) ** 2 + (y - c.y) ** 2 < (r + c.r) ** 2) return 'wall'; // 성은 벽처럼 막음
   const x0 = Math.floor((x - r) / TILE), x1 = Math.floor((x + r) / TILE);
   const y0 = Math.floor((y - r) / TILE), y1 = Math.floor((y + r) / TILE);
   for (let ty = y0; ty <= y1; ty++) {
@@ -248,7 +250,7 @@ function freshRunStats(p) {
     buffs: {}, augTypes: [], offer: null, offerQueue: 0, element: null, elementLv: 0,
     level: 1, xp: 0, ready: false, reward: null, rewardDone: false, evo: null, evoDone: true, rewardsTaken: [],
     bonus: { dmgPct: 0, rate: 0, speed: 0, xpMul: 1, iron: false, vamp: 0, slot: false, cdMul: 1, phoenix: false, essMul: 1, ultMul: 1, coinMul: 1 },
-    mana: C.mana, manaMsgT: 0, comboN: 0, shieldT: 0, dsx: 0, dsy: 0, au: {}, pa: {}, reviveT: SURVIVAL.reviveTime, poisonT: 0, runMode: null,
+    mana: C.mana, manaMsgT: 0, comboN: 0, shieldT: 0, dsx: 0, dsy: 0, au: {}, pa: {}, crowns: 0, reviveT: SURVIVAL.reviveTime, poisonT: 0, runMode: null,
     weapons: [newSlot(START_WEAPON)], slot: 0, swapCd: 0,
     parry: 0, markId: null, markN: 0, spin: 0, spinIdle: 0, chargeT: 0,
     sdash: null, dashHits: [], javelin: null, ultT: 0, ultTick: 0, ultStep: 0,
@@ -273,6 +275,12 @@ function applyBuild(p) {
     p.elementLv = 1 + bb.elLv;
   }
   // 액티브 칸(1~3 키)과 패시브 칸(항상 켜짐)을 따로
+  p.bb = bb;
+  p.army = b.army || { sel: [], lv: {} };
+  p.guild = b.guild || null;
+  if (p.guild) { const gp = guildPerks(p.guild.lv); p.bonus.essMul += gp.ess; p.bonus.dmgPct += gp.dmg; }
+  p.bonus.coinMul += bb.coin;
+  if (bb.phoenix) p.bonus.phoenix = true;
   p.loadout = b.eq.filter((id) => NODE[id].kind === 'active');
   p.casts = p.loadout.map(() => 0);
   p.perkIds = b.eq.filter((id) => NODE[id].kind === 'perk');
@@ -346,7 +354,7 @@ function stats(p) {
     dmg: W.dmg * mul,
     // 저격총·쇠뇌·샷건은 최소 간격(minCd)보다 빨라지지 않음
     cd: Math.max(gunUlt ? 0 : W.minCd || 0, W.cd / rate),
-    crit: Math.min(0.9, (W.crit || 0) + 0.05 * (b.crit || 0) + (ch === 'rogue' ? 0.15 : 0)),
+    crit: Math.min(0.9, (W.crit || 0) + 0.05 * (b.crit || 0) + (ch === 'rogue' ? 0.15 : 0) + (p.bb?.crit || 0)),
     critX: (W.critX || 2) + (ch === 'rogue' ? 0.5 : 0),
     inacc: (W.inacc || 0) + (gunUlt ? 0.3 : 0),
     shots: 1 + (b.multi || 0),
@@ -354,10 +362,10 @@ function stats(p) {
     pierce: (W.pierce || 0) + (b.pierce || 0),
     bounce: b.bounce || 0,
     reach: 1 + 0.1 * (b.reach || 0),
-    dashCd: DASH_COOLDOWN * 0.88 ** (b.dash || 0) * (B.iron ? 0.7 : 1) * (tail ? 0.7 : 1) * (ch === 'ranger' ? 0.7 : 1),
+    dashCd: DASH_COOLDOWN * 0.88 ** (b.dash || 0) * (B.iron ? 0.7 : 1) * (tail ? 0.7 : 1) * (ch === 'ranger' ? 0.7 : 1) * (1 - (p.bb?.dash || 0)),
     vamp: B.vamp,
-    maxMana: charOf(p).mana + 25 * (b.mana || 0),
-    manaGain: (1 + 0.15 * (b.mana || 0)) * (ch === 'mage' ? 1.5 : 1),
+    maxMana: charOf(p).mana + 25 * (b.mana || 0) + (p.bb?.mana || 0),
+    manaGain: (1 + 0.15 * (b.mana || 0) + (p.bb?.manaGain || 0)) * (ch === 'mage' ? 1.5 : 1),
   };
 }
 
@@ -564,11 +572,19 @@ function startRun(state) {
     freshRunStats(p); applyBuild(p); p.runMode = state.mode;
     if (state.mode === 'camp') { p.maxHp += SURVIVAL.bonusHp; p.hp = p.maxHp; } // 생존 모드는 체력 여유
   }
+  // 길드 시너지: 같은 방에 같은 길드원이 있으면 1명마다 피해 +5%
+  const all = Object.values(state.players);
+  for (const p of all) {
+    const mates = p.guild ? all.filter((o) => o !== p && o.guild?.id === p.guild.id).length : 0;
+    p.bonus.dmgPct += 0.05 * mates;
+    p.guildMates = mates;
+  }
   state.phase = 'playing';
   state.overText = '';
   if (state.mode === 'camp') {
     Object.assign(state, { gold: START_GOLD, wave: 0, waveTimer: 0, cleared: true, survT: 0, started: false, eliteIdx: 0, bossSpawned: false, nextChest: SURVIVAL.chestEvery, spawnT: 0, kills: 0 });
     state.map = buildCampMap();
+    setupCastle(state);
   } else {
     state.stageIdx = 0;
     state.map = generateDungeon(0, { boss: isBossStage(0) });
@@ -678,11 +694,12 @@ function setupStageRooms(state) {
 
 function buy(state, p, item) {
   if (item.sold) return;
-  if (p.coins < item.price) {
-    floatText(state, item.x, item.y - 30, `동전이 모자라요 (${item.price})`, '#ffcc80', 1);
+  const price = Math.max(1, Math.round(item.price * (1 - (p.bb?.shop || 0))));
+  if (p.coins < price) {
+    floatText(state, item.x, item.y - 30, `동전이 모자라요 (${price})`, '#ffcc80', 1);
     return;
   }
-  p.coins -= item.price;
+  p.coins -= price;
   item.sold = true;
   if (item.kind === 'weapon') state.pickups.push({ id: state.nextId++, x: item.x, y: item.y + 30, key: item.key, el: item.el, elv: item.elv });
   else if (item.kind === 'heal') heal(p, 3);
@@ -759,6 +776,8 @@ function doAction(state, p, inp) {
     return;
   }
   if (act === 'ready') { if (p.alive && state.mode === 'camp') p.ready = !p.ready; return; }
+  if (act.startsWith('sum')) { summonUnit(state, p, Number(act[3]) - 1); return; } // 쓰러져 있어도 소환은 가능
+  if (act === 'castle') { upgradeCastle(state, p); return; }
   if (!p.alive) return;
   if (act === 'skill') useSkill(state, p, inp);
   else if (act === 'ult') useUlt(state, p, inp);
@@ -1707,7 +1726,7 @@ function bossPattern(state, e, pat, target, half) {
 }
 
 function updateBoss(state, e, alivePlayers, dt) {
-  const target = nearest(alivePlayers, e.x, e.y);
+  const target = nearest(state.castle ? [...alivePlayers, state.castle] : alivePlayers, e.x, e.y);
   if (!target) return;
   const half = e.hp < e.maxHp / 2;
   const angle = Math.atan2(target.y - e.y, target.x - e.x);
@@ -1770,6 +1789,9 @@ function updateBoss(state, e, alivePlayers, dt) {
   }
   // 몸으로 부딪히면 피해 (공중에 뜬 동안은 X)
   if (e.air) return;
+  const c = state.castle;
+  if (c && e.cd <= 0 && Math.hypot(c.x - e.x, c.y - e.y) < c.r + e.r + 6) { damageCastle(state, 3); e.cd = 1; }
+  for (const u of state.units) if (e.cd <= 0 && Math.hypot(u.x - e.x, u.y - e.y) < u.r + e.r) { damageUnit(state, u, 6); e.cd = 0.6; }
   for (const p of alivePlayers) {
     if (Math.hypot(p.x - e.x, p.y - e.y) < e.r + p.r && e.cd <= 0) { damagePlayer(state, p, T.touch + e.sc.dmg - 1); e.cd = 0.8; }
   }
@@ -1784,7 +1806,7 @@ function updateEnemy(state, e, alivePlayers, dt) {
   if (!e.sc) e.sc = enemyScale(0);
   if (e.kind === 'boss') { updateBoss(state, e, alivePlayers, dt); return; }
   const slow = (e.st.wet > 0 ? 0.8 : 1) * (e.st.chill > 0 ? 0.6 : 1);
-  const target = nearest(alivePlayers, e.x, e.y);
+  const target = enemyTarget(state, e, alivePlayers);
   if (!target) return;
 
   const dx = target.x - e.x, dy = target.y - e.y;
@@ -1821,6 +1843,8 @@ function updateEnemy(state, e, alivePlayers, dt) {
         if (e.fuse <= 0) {
           addFx(state, { k: 'r', x: e.x, y: e.y, r: 70, c: '#ff7043', t: 0.4, life: 0.4 });
           for (const p of playersInCircle(state, e.x, e.y, 70)) damagePlayer(state, p, e.sc.dmg + 1);
+          for (const u of state.units) if (Math.hypot(u.x - e.x, u.y - e.y) < 70 + u.r) damageUnit(state, u, 4);
+          if (state.castle && Math.hypot(state.castle.x - e.x, state.castle.y - e.y) < 70 + state.castle.r) damageCastle(state, 2);
           for (const o of enemiesNear(state, e.x, e.y, 70)) if (o !== e) damageEnemy(state, o, 3);
           e.hp = 0;
           e.lastHit = null; // 스스로 터지면 점수 없음
@@ -1881,8 +1905,8 @@ function updateEnemy(state, e, alivePlayers, dt) {
   }
   if (e.kind !== 'shield' && e.kind !== 'totem') e.face = Math.atan2(dy, dx);
 
-  if (touch && d < e.r + PLAYER_RADIUS + 2 && e.cd <= 0) {
-    damagePlayer(state, target, T.touch + e.sc.dmg - 1);
+  if (touch && d < e.r + (target.r || PLAYER_RADIUS) + 4 && e.cd <= 0) {
+    hitTarget(state, target, T.touch + e.sc.dmg - 1);
     e.cd = 0.8;
   }
 
@@ -2131,6 +2155,10 @@ function updateBullets(state, dt) {
     } else {
       const s = structAt(state, Math.floor(b.x / TILE), Math.floor(b.y / TILE));
       if (s) { damageStruct(state, s, b.dmg); b.dead = true; continue; }
+      const c = state.castle;
+      if (c && (c.x - b.x) ** 2 + (c.y - 10 - b.y) ** 2 < (c.r + b.r) ** 2) { damageCastle(state, b.dmg * 0.4); b.dead = true; continue; }
+      const u = state.units.find((o) => o.hp > 0 && (o.x - b.x) ** 2 + (o.y - b.y) ** 2 < (o.r + b.r) ** 2);
+      if (u) { damageUnit(state, u, b.dmg * 1.5); b.dead = true; continue; }
       for (const p of Object.values(state.players)) {
         if (!p.alive || p.invuln > 0) continue;
         if ((p.x - b.x) ** 2 + (p.y - b.y) ** 2 < (p.r + b.r) ** 2) {
@@ -2292,6 +2320,183 @@ function barrelAt(state, x, y, r) {
   return state.barrels.find((b) => b.hp > 0 && (b.x - x) ** 2 + (b.y - y) ** 2 < (r + 13) ** 2);
 }
 
+// ---------- 성 지키기: 성과 군단 ----------
+// 성(탑)은 맵 가운데. 적은 가까운 플레이어·유닛이 없으면 성으로 갑니다. 성이 무너지면 패배.
+function setupCastle(state) {
+  const m = state.map;
+  const players = Object.values(state.players);
+  const best = (k) => Math.max(0, ...players.map((p) => p.bb?.[k] || 0));
+  const guildHp = Math.max(0, ...players.map((p) => (p.guild ? guildPerks(p.guild.lv).castleHp : 0)));
+  const maxHp = Math.round((CASTLE.hp + best('castleHp') + guildHp) * (1 + best('castlePct')));
+  state.castle = { x: m.castle.x, y: m.castle.y, r: CASTLE.r, hp: maxHp, maxHp, lv: 1, cd: 1, a: 0, arrow: 1 + best('castleArrow') };
+  state.gold = CASTLE.startGold + best('startGold');
+  state.units = [];
+}
+
+function damageCastle(state, dmg) {
+  const c = state.castle;
+  if (!c || c.hp <= 0 || state.phase !== 'playing') return;
+  c.hp -= dmg;
+  c.hitT = 0.15;
+  if (c.hp <= 0) { c.hp = 0; endRun(state, `성이 무너졌다! (${fmtTime(state.survT - SURVIVAL.prep)} · ${state.kills || 0}마리 처치)`); }
+}
+
+function upgradeCastle(state, p) {
+  const c = state.castle;
+  if (!c || c.lv >= CASTLE.maxLv) return;
+  const cost = CASTLE.upgradeCost(c.lv);
+  if (state.gold < cost) { floatText(state, c.x, c.y - 70, `골드 부족 (${cost})`, '#ffcc80', 0.9); return; }
+  state.gold -= cost;
+  c.lv++;
+  c.maxHp += CASTLE.hpPerLv;
+  c.hp = Math.min(c.maxHp, c.hp + CASTLE.hpPerLv);
+  floatText(state, c.x, c.y - 70, `성 Lv${c.lv}!`, '#ffd54f', 1.2);
+  addFx(state, { k: 'r', x: c.x, y: c.y, r: 70, c: '#ffd54f', t: 0.5, life: 0.5 });
+}
+
+function updateCastle(state, dt) {
+  const c = state.castle;
+  if (!c) return;
+  c.hitT = Math.max(0, (c.hitT || 0) - dt);
+  c.cd -= dt;
+  if (c.cd > 0) return;
+  const t = nearest(state.enemies.filter((e) => e.hp > 0), c.x, c.y, CASTLE.range + 20 * c.lv);
+  if (!t) return;
+  c.cd = CASTLE.arrowEvery / (1 + 0.12 * (c.lv - 1));
+  c.a = Math.atan2(t.y - c.y, t.x - c.x);
+  const n = c.lv >= 5 ? 2 : 1;
+  for (let i = 0; i < n; i++) {
+    const a = c.a + (i - (n - 1) / 2) * 0.12;
+    state.bullets.push({
+      id: state.nextId++, owner: 'p', shooter: null, kind: 'bow', fam: 'bow', x: c.x + Math.cos(a) * (c.r + 6), y: c.y + Math.sin(a) * (c.r + 6),
+      vx: Math.cos(a) * 640, vy: Math.sin(a) * 640, r: 5, dmg: CASTLE.arrowDmg * (1 + 0.25 * (c.lv - 1)) * c.arrow,
+      life: 0.7, pierce: 0, bounce: 0, hits: [], el: null, elv: 0,
+    });
+  }
+}
+
+// 군단 소환 (4~7 키): 팀 골드를 써서 성 옆에 유닛을 부름
+const unitCost = (p, k) => Math.max(1, Math.round(UNITS[k].cost * (1 - (p.bb?.summon || 0) - (p.guild ? guildPerks(p.guild.lv).summon : 0))));
+const armyCap = (p) => ARMY_CAP + (p.bb?.armyCap || 0);
+
+function summonUnit(state, p, idx) {
+  const c = state.castle;
+  const k = p.army?.sel?.[idx];
+  if (!c || !k || !UNITS[k]) return;
+  const U = UNITS[k], cost = unitCost(p, k);
+  const mine = state.units.filter((u) => u.owner === p.id).length;
+  if (mine >= armyCap(p)) { floatText(state, p.x, p.y - 34, `군단이 가득 찼어요 (${armyCap(p)})`, '#ffcc80', 0.9); return; }
+  if (state.gold < cost) { floatText(state, p.x, p.y - 34, `골드 부족 (${cost})`, '#ffcc80', 0.9); return; }
+  state.gold -= cost;
+  const lv = p.army.lv?.[k] || 1, sc = unitScale(lv);
+  const a = Math.random() * Math.PI * 2;
+  const spot = freeSpotNear(state, c.x + Math.cos(a) * 60, c.y + Math.sin(a) * 60);
+  const hp = Math.round(U.hp * sc * (1 + (p.bb?.unitHp || 0)) * 10) / 10;
+  state.units.push({
+    id: state.nextId++, kind: k, owner: p.id, x: spot.x, y: spot.y, r: U.r, hp, maxHp: hp, lv,
+    dmg: U.dmg * sc * (1 + (p.bb?.unitDmg || 0)), heal: (U.heal || 0) * sc, cd: 0.5, face: 1, atkT: 0,
+    guard: Math.random() * Math.PI * 2, hitT: 0,
+  });
+  addFx(state, { k: 'r', x: spot.x, y: spot.y, r: 20, c: '#90caf9', t: 0.3, life: 0.3 });
+}
+
+function damageUnit(state, u, dmg) {
+  if (u.hp <= 0) return;
+  u.hp -= dmg;
+  u.hitT = 0.12;
+  if (u.hp <= 0) addFx(state, { k: 'r', x: u.x, y: u.y, r: 16, c: '#b0bec5', t: 0.35, life: 0.35 });
+}
+
+function updateUnits(state, dt) {
+  const c = state.castle;
+  if (!c) return;
+  for (const u of state.units) {
+    if (u.hp <= 0) continue;
+    const U = UNITS[u.kind];
+    u.cd -= dt;
+    u.hitT = Math.max(0, u.hitT - dt);
+    u.atkT = Math.max(0, u.atkT - dt);
+    // 성직자: 다친 아군(유닛·플레이어·성) 회복
+    if (U.heal) {
+      if (u.cd <= 0) {
+        const hurt = [...state.units.filter((o) => o.hp > 0 && o.hp < o.maxHp), ...Object.values(state.players).filter((p) => p.alive && p.hp < maxHpOf(p))]
+          .filter((o) => Math.hypot(o.x - u.x, o.y - u.y) < U.range);
+        const castleHurt = c.hp < c.maxHp && Math.hypot(c.x - u.x, c.y - u.y) < U.range + c.r;
+        if (hurt.length || castleHurt) {
+          u.cd = U.cd;
+          u.atkT = 0.3;
+          const t = hurt.sort((a, b) => a.hp / (a.maxHp || 1) - b.hp / (b.maxHp || 1))[0];
+          if (t && t.kind) t.hp = Math.min(t.maxHp, t.hp + 2 * u.heal);
+          else if (t) { if ((t.priestT || 0) <= state.time) { heal(t, 1); t.priestT = state.time + 6; } }
+          if (castleHurt) c.hp = Math.min(c.maxHp, c.hp + u.heal);
+          const tx = t ? t.x : c.x, ty = t ? t.y : c.y;
+          addFx(state, { k: 'l', x: u.x, y: u.y - 10, x2: tx, y2: ty, c: '#fff59d', t: 0.25, life: 0.25 });
+        }
+      }
+    }
+    // 목표: 성 근처의 가장 가까운 적
+    const target = U.heal ? null : nearest(state.enemies.filter((e) => e.hp > 0 && !e.air && Math.hypot(e.x - c.x, e.y - c.y) < 460), u.x, u.y, 320);
+    let mx = 0, my = 0;
+    if (target) {
+      const dx = target.x - u.x, dy = target.y - u.y, d = Math.hypot(dx, dy) || 1;
+      u.face = dx < 0 ? -1 : 1;
+      if (d > U.range + target.r) { mx = dx / d; my = dy / d; }
+      else if (u.cd <= 0) {
+        u.cd = U.cd;
+        u.atkT = 0.2;
+        const src = state.players[u.owner] ? u.owner : null;
+        if (U.range > 40) {
+          // 원거리: 궁수 화살 / 마법사 폭발탄
+          const a = Math.atan2(dy, dx);
+          state.bullets.push({
+            id: state.nextId++, owner: 'p', shooter: src, kind: U.splash ? 'unitBolt' : 'bow', fam: U.splash ? null : 'bow', x: u.x, y: u.y - 6,
+            vx: Math.cos(a) * 520, vy: Math.sin(a) * 520, r: U.splash ? 6 : 4, dmg: u.dmg, life: 0.8, pierce: 0, bounce: 0, hits: [],
+            el: null, elv: 0, blast: U.splash || 0,
+          });
+        } else {
+          damageEnemy(state, target, u.dmg, src);
+          if (target.hp > 0) push(state, target, dx / d, dy / d, 6);
+        }
+      }
+    } else {
+      // 할 일이 없으면 성 주위 제자리로
+      const gx = c.x + Math.cos(u.guard) * 70, gy = c.y + Math.sin(u.guard) * 70;
+      const dx = gx - u.x, dy = gy - u.y, d = Math.hypot(dx, dy);
+      if (d > 12) { mx = dx / d; my = dy / d; u.face = dx < 0 ? -1 : 1; }
+    }
+    const sp = U.speed * dt;
+    if (mx || my) moveCircle(state, u, mx * sp, my * sp, false);
+  }
+  // 유닛끼리 겹치지 않게
+  const list = state.units;
+  for (let i = 0; i < list.length; i++) {
+    for (let j = i + 1; j < list.length; j++) {
+      const a = list[i], b = list[j];
+      const dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy), min = a.r + b.r;
+      if (d > 0 && d < min) {
+        const k = (min - d) / 2;
+        moveCircle(state, a, (-dx / d) * k, (-dy / d) * k, false);
+        moveCircle(state, b, (dx / d) * k, (dy / d) * k, false);
+      }
+    }
+  }
+  state.units = state.units.filter((u) => u.hp > 0);
+}
+
+// 적의 목표: 가까운(160px) 플레이어·유닛 → 없으면 성. 성이 없는 모드는 가장 가까운 플레이어
+function enemyTarget(state, e, alivePlayers) {
+  if (!state.castle) return nearest(alivePlayers, e.x, e.y);
+  const near = nearest([...alivePlayers, ...state.units], e.x, e.y, 160);
+  return near || state.castle;
+}
+
+// 적이 목표에 부딪혔을 때 피해 (플레이어·유닛·성)
+function hitTarget(state, t, dmg) {
+  if (t === state.castle) damageCastle(state, dmg * 0.6); // 성은 단단해서 피해 60%
+  else if (t.kind && UNITS[t.kind]) damageUnit(state, t, dmg * 1.5);
+  else damagePlayer(state, t, dmg);
+}
+
 // ---------- 베이스캠프 = 생존 모드 (탕탕특공대 방식) ----------
 // 적이 끊임없이 몰려오고, 레벨업 카드로 자동 스킬·패시브를 모아 조합 진화합니다.
 const campLvl = (state) => Math.max(0, state.survT - SURVIVAL.prep) / 40;
@@ -2347,7 +2552,7 @@ function updateCamp(state, players, dt) {
   for (const p of players) {
     if (p.alive) continue;
     p.reviveT = (p.reviveT ?? S.reviveTime) - dt;
-    if (p.reviveT <= 0) { p.reviveT = S.reviveTime; revive(state, p, 0.5, freeSpotNear(state, state.map.camp.x, state.map.camp.y)); }
+    if (p.reviveT <= 0) { p.reviveT = S.reviveTime; revive(state, p, 0.5, freeSpotNear(state, state.map.spawn.x, state.map.spawn.y)); }
   }
 
   // 정예와 보스
@@ -2368,7 +2573,8 @@ function updateCamp(state, players, dt) {
     boss.x = spot.x; boss.y = spot.y;
   }
   if (state.bossSpawned && !state.enemies.some((e) => e.kind === 'boss')) {
-    endRun(state, '생존 성공! 🎉');
+    for (const p of players) { p.crowns += 2; } // 왕관 2개
+    endRun(state, '성을 지켜냈다! 🎉 (왕관 +2)');
     return;
   }
 
@@ -2382,8 +2588,8 @@ function updateCamp(state, players, dt) {
   state.spawnT -= dt;
   if (state.spawnT > 0 || state.bossSpawned && t > S.duration + 5) return;
   const minute = t / 60;
-  state.spawnT = Math.max(0.35, 1.6 - minute * 0.14) / (1 + 0.25 * (players.length - 1));
-  const batch = 2 + Math.floor(minute / 1.2) + (Math.random() < 0.15 ? 5 : 0); // 가끔 떼로
+  state.spawnT = Math.max(0.4, 1.8 - minute * 0.13) / (1 + 0.25 * (players.length - 1));
+  const batch = 1 + Math.floor(minute / 1.5) + (Math.random() < 0.12 ? 4 : 0); // 가끔 떼로
   const room = S.maxEnemies - state.enemies.length;
   for (let i = 0; i < Math.min(batch, room); i++) spawnCampEnemy(state, pickKind(1 + minute * 1.2));
 }
@@ -2586,7 +2792,8 @@ function clearRoom(state, room) {
   state.doorSet = new Set();
   const alive = Object.values(state.players).filter((p) => p.alive);
   const boss = room.type === 'boss';
-  floatText(state, alive[0]?.x ?? 0, (alive[0]?.y ?? 0) - 30, boss ? '보스 처치!' : '방 클리어!', boss ? '#ffd54f' : '#a5d6a7', 1.6);
+  floatText(state, alive[0]?.x ?? 0, (alive[0]?.y ?? 0) - 30, boss ? '보스 처치! 왕관 +1' : '방 클리어!', boss ? '#ffd54f' : '#a5d6a7', 1.6);
+  if (boss) for (const p of Object.values(state.players)) p.crowns += 1;
   for (const p of Object.values(state.players)) if (!p.alive && alive[0]) revive(state, p, 0.5, alive[0]);
   for (const p of alive) if (hasPerk(p, 'tide')) heal(p, 1);
   giveEssence(state, ESSENCE.room);
@@ -2704,6 +2911,7 @@ export function step(state, inputs, dt) {
   for (const e of state.enemies) updateEnemy(state, e, alive, dt);
   separateEnemies(state);
   updateTurrets(state, dt);
+  if (state.castle) { updateCastle(state, dt); updateUnits(state, dt); }
   updateBullets(state, dt);
   updateHazards(state, dt);
   updateTraps(state, dt);
@@ -2785,6 +2993,11 @@ export function snapshot(state) {
     w: state.wave,
     wt: r1(Math.max(0, state.waveTimer)),
     tm: r2(state.time),
+    ca: state.castle ? { x: state.castle.x, y: state.castle.y, hp: Math.ceil(state.castle.hp), mh: state.castle.maxHp, lv: state.castle.lv, h: state.castle.hitT > 0 ? 1 : 0, uc: CASTLE.upgradeCost(state.castle.lv), mx: state.castle.lv >= CASTLE.maxLv ? 1 : 0 } : null,
+    un: (() => {
+      const ids = Object.keys(state.players);
+      return state.units.map((u) => [u.id, u.kind, Math.round(u.x), Math.round(u.y), Math.round((u.hp / u.maxHp) * 100), ids.indexOf(u.owner), u.face, u.atkT > 0 ? 1 : 0, u.hitT > 0 ? 1 : 0]);
+    })(),
     sv: state.mode === 'camp' ? { t: r1(state.survT - SURVIVAL.prep), st: state.started ? 1 : 0, k: state.kills || 0, b: state.bossSpawned ? 1 : 0, ei: state.eliteIdx } : null,
     br: state.barrels.filter((b) => b.hp > 0).map((b) => b.id),
     g: state.gold,
@@ -2803,6 +3016,8 @@ export function snapshot(state) {
       })),
       sl: p.slot, sw: r1(p.swapCd), ut: r1(p.ultT), cb: inCombat(state) ? 1 : 0,
       jv: p.javelin ? 1 : 0, ld: p.loadout, pp: p.perkIds || [], cs: p.casts.map(r1), sgt: r2(p.swingT / SWING_TIME), sgd: p.swingDir,
+      cw: p.crowns, gd: p.guild ? [p.guild.name, p.guild.color] : 0, uc: state.units.filter((u) => u.owner === p.id).length, ucap: armyCap(p),
+      ar: (p.army?.sel || []).map((k) => [k, unitCost(p, k), p.army.lv?.[k] || 1]),
       au: Object.entries(p.au).map(([k, a]) => [k, a.lv, a.evo ? 1 : 0, r1(a.on || 0), a.n || 0, Math.round(a.r || 0)]), pa: p.pa, rv: p.alive ? 0 : Math.ceil(p.reviveT),
       mp: Math.floor(p.mana), mm: stats(p).maxMana, sk: p.skin, wst: weaponStats(p),
     })),

@@ -6,7 +6,7 @@ export const VIEW_H = 640;
 export const MAX_PLAYERS = 4;
 
 export const MODES = {
-  camp: { name: '베이스캠프', desc: '탕탕특공대처럼 10분 동안 몰려오는 적을 버티기 (자동 스킬·조합 진화)' },
+  camp: { name: '성 지키기', desc: '가운데 성을 10분 동안 지키기: 골드로 군단을 소환하고 성을 강화 (자동 스킬 조금)' },
   adv: { name: '모험', desc: '랜덤 던전의 방을 하나씩 정복하고 포털로 다음 스테이지로' },
 };
 
@@ -182,8 +182,49 @@ export const PASSIVE_ITEMS = {
   swift: { name: '날개 신발', desc: '이동 속도 +6%' },
 };
 export const AUTO_MAX_LV = 5;
-export const AUTO_SLOTS = 6;
-export const PASSIVE_SLOTS_RUN = 6;
+export const AUTO_SLOTS = 3;
+export const PASSIVE_SLOTS_RUN = 3;
+
+// ---------- 성 (성 지키기 모드의 가운데 탑) ----------
+// 성이 무너지면 패배. 골드로 강화(T 키): 최대 체력 +30, 화살 강화 (5레벨부터 2발)
+export const CASTLE = {
+  hp: 120, r: 30, range: 300, arrowEvery: 0.9, arrowDmg: 2.5,
+  upgradeCost: (lv) => 50 + 40 * (lv - 1), maxLv: 8, hpPerLv: 30,
+  startGold: 40,
+};
+
+// ---------- 군단 유닛 (성키우기처럼 로비에서 해금·레벨업, 4종을 골라 데려감) ----------
+// cost: 소환 골드 · unlock: 해금 정수 (0 = 처음부터) · crown: 왕관 노드로 해금
+// range가 40보다 크면 원거리. heal: 아군 회복
+export const UNITS = {
+  knight: { name: '기사', cost: 12, hp: 10, dmg: 1.5, cd: 0.8, range: 26, speed: 95, r: 10, body: '#78909c', eye: '#ffffff', weapon: 'sword', unlock: 0, desc: '단단한 근접 유닛' },
+  archer: { name: '궁수', cost: 14, hp: 5, dmg: 1.3, cd: 1.0, range: 230, speed: 90, r: 9, body: '#2e7d32', eye: '#c5e1a5', weapon: 'bow', unlock: 0, desc: '멀리서 화살' },
+  scout: { name: '스카웃', cost: 8, hp: 5, dmg: 1, cd: 0.45, range: 22, speed: 150, r: 9, body: '#6d4c41', eye: '#ffe0b2', weapon: 'twinblades', unlock: 60, desc: '싸고 빠른 쌍검' },
+  mage: { name: '마법사', cost: 22, hp: 5, dmg: 2.2, cd: 1.6, range: 200, splash: 55, speed: 85, r: 9, body: '#4527a0', eye: '#fff59d', weapon: 'staff', unlock: 120, desc: '범위 마법탄' },
+  priest: { name: '성직자', cost: 20, hp: 6, dmg: 0, heal: 1, cd: 2.4, range: 170, speed: 85, r: 9, body: '#eceff1', eye: '#ffd54f', weapon: 'mace', unlock: 150, desc: '아군·플레이어·성 회복' },
+  giant: { name: '거인', cost: 45, hp: 45, dmg: 4, cd: 1.5, range: 34, speed: 60, r: 18, body: '#5d4037', eye: '#ff8a65', weapon: 'hammer', unlock: 0, crown: true, desc: '느리지만 엄청 튼튼 (왕관 노드로 해금)' },
+};
+export const UNIT_KEYS = Object.keys(UNITS);
+export const ARMY_SLOTS = 4;
+export const UNIT_MAX_LV = 10;
+export const unitLevelCost = (lv) => 15 * lv;        // lv → lv+1 정수
+export const unitScale = (lv) => 1 + 0.15 * (lv - 1); // 레벨마다 체력·피해 +15%
+export const ARMY_CAP = 12;                           // 플레이어 한 명이 동시에 거느릴 수 있는 유닛 수
+
+// ---------- 길드 (온라인, Firebase) ----------
+export const GUILD = {
+  maxMembers: 20,
+  createCost: 50,                   // 정수
+  levelXp: (lv) => 100 * lv * lv,   // lv → lv+1에 필요한 누적 기부
+  maxLv: 20,
+};
+export const guildLevel = (xp) => {
+  let lv = 1;
+  while (lv < GUILD.maxLv && xp >= GUILD.levelXp(lv)) lv++;
+  return lv;
+};
+// 길드 레벨 보너스 (길드원 모두) + 같은 방에 있는 길드원 1명마다 피해 +5%
+export const guildPerks = (lv) => ({ ess: 0.03 * (lv - 1), dmg: 0.01 * (lv - 1), castleHp: 2 * (lv - 1), summon: 0.01 * (lv - 1) });
 
 // ---------- 함정 (던전 전투 방·캠프 바깥) ----------
 // 플레이어와 적 모두 맞습니다. 적을 함정으로 유인해 보세요.

@@ -54,6 +54,7 @@ WEAPON_ORDER = [
     'spear', 'halberd', 'lance', 'trident', 'dragonlance',
     'hammer', 'warhammer', 'quakehammer', 'titanhammer', 'earthshaker',
     'chest', 'chest_open',
+    'staff', 'mace',
 ]
 
 
@@ -201,6 +202,12 @@ def design(name):
         rect(px, 1, 5, 11, 6, 'w'); rect(px, 12, 0, 22, 11, 'S'); rect(px, 12, 0, 22, 0, 'M')
         for p in [(14, 2), (15, 3), (15, 4), (16, 5), (17, 6), (17, 7), (18, 8), (19, 9), (20, 3), (19, 4), (18, 5)]:
             px[p] = 'o'
+    elif name == 'staff':
+        rect(px, 1, 5, 17, 6, 'W'); rect(px, 1, 6, 17, 6, 'w')
+        rect(px, 18, 3, 21, 8, 'p'); rect(px, 19, 4, 20, 7, 'b'); px[(19, 4)] = 'L'
+    elif name == 'mace':
+        rect(px, 1, 5, 13, 6, 'W'); rect(px, 14, 3, 19, 8, 'g'); rect(px, 15, 4, 18, 7, 'o')
+        px[(16, 2)] = px[(16, 9)] = px[(20, 5)] = px[(20, 6)] = 'g'
     elif name == 'chest':
         rect(px, 3, 1, 20, 4, 'W'); rect(px, 3, 1, 20, 1, 'w'); rect(px, 3, 5, 20, 5, 'g')
         rect(px, 3, 6, 20, 10, 'W'); rect(px, 3, 10, 20, 10, 'w')

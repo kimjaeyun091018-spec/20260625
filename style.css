@@ -235,3 +235,39 @@ button.link:hover:not(:disabled) { background: none; color: #d1c4e9; }
 .seg { display: flex; gap: 6px; margin-top: 6px; }
 .seg button { padding: 4px 12px; font-size: 13px; opacity: .7; }
 .seg button.on { opacity: 1; outline: 2px solid #ffd54f; }
+
+.tree-wrap { position: relative; min-height: 0; height: 100%; }
+.tzoom { position: absolute; left: 8px; bottom: 8px; display: flex; gap: 4px; align-items: center; }
+.tzoom button { padding: 2px 10px; font-size: 14px; }
+.tzoom small { color: #8f89aa; margin-left: 6px; }
+.tree-svg { touch-action: none; cursor: grab; }
+
+/* 병영 */
+.skin.unit { gap: 3px; }
+.skin.unit small { font-size: 11px; color: #b0aacc; text-align: center; }
+.skin.unit.locked img { filter: brightness(.25); }
+.skin.unit button.on { outline: 2px solid #ffd54f; }
+/* 길드 */
+.gbody { width: min(680px, 92vw); overflow: auto; flex: 1; min-height: 0; text-align: left; }
+.gsetup ol { margin: 6px 0 10px 18px; line-height: 1.7; }
+.gsetup a { color: #90caf9; }
+.ghead { border-left: 6px solid var(--c); padding: 6px 12px; display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+.ghead b { font-size: 22px; color: var(--c); }
+.ghead small { color: #b0aacc; width: 100%; }
+.gbar { height: 10px; background: #2a2740; border-radius: 5px; overflow: hidden; margin: 8px 0 2px; }
+.gbar i { display: block; height: 100%; background: #ffd54f; }
+.gperk { color: #a5d6a7; font-size: 13px; }
+.grow { display: flex; gap: 8px; margin: 8px 0; }
+.grow input { flex: 1; }
+.glist { list-style: none; padding: 0; margin: 8px 0; display: grid; gap: 6px; }
+.glist li { background: rgba(255,255,255,.06); border-radius: 8px; padding: 8px 10px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.glist .gname { font-weight: 700; }
+.glist .gcon { color: #b0aacc; font-size: 13px; margin-left: auto; }
+.glist small { width: 100%; color: #8f89aa; }
+.glist.rank { list-style: decimal inside; }
+.gchat { height: 300px; overflow: auto; background: rgba(0,0,0,.3); border-radius: 8px; padding: 8px 12px; }
+.gchat p { margin: 4px 0; }
+.gcolors { display: flex; gap: 8px; margin: 8px 0; }
+.gcolors input { display: none; }
+.gcolors i { display: block; width: 28px; height: 28px; border-radius: 50%; border: 3px solid transparent; cursor: pointer; }
+.gcolors input:checked + i { border-color: #fff; }

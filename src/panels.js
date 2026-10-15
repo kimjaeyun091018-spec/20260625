@@ -1,5 +1,5 @@
 // 설정 · 옷장(스킨) · 계정(로그인, 저장 코드) 화면
-import { SKINS } from './data.js';
+import { SKINS, UNITS, UNIT_KEYS, ARMY_SLOTS, UNIT_MAX_LV, unitLevelCost, unitScale } from './data.js';
 import { exportSaveCode, importSaveCode } from './tree.js';
 
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -202,6 +202,70 @@ export function createAccountUI(root, { getSave, onLogin, onImport }) {
   const api = {
     isOpen: () => !root.hidden,
     open() { msg = ''; draw(); root.hidden = false; },
+    close() { root.hidden = true; },
+  };
+  return api;
+}
+
+// ---------------------------------------------------------------- 병영 (군단 편성)
+// 성키우기처럼: 정수로 유닛 해금·레벨업, 성 지키기에 데려갈 4종 선택 (4~7 키로 소환)
+export function createArmyUI(root, { getSave, onChange, preview }) {
+  let msg = '';
+  function draw() {
+    const save = getSave(), A = save.army;
+    const giantOk = save.unlocked.includes('c_army');
+    const cards = UNIT_KEYS.map((k) => {
+      const U = UNITS[k];
+      const own = A.unlocked.includes(k) || (k === 'giant' && giantOk);
+      const lv = A.lv[k] || 1, sc = unitScale(lv);
+      const sel = A.sel.indexOf(k);
+      let btn;
+      if (!own) {
+        btn = U.crown ? '<small class="hint">스킬 트리 왕관 노드 「거인의 맹약」</small>'
+          : `<button data-army="unlock" data-k="${k}" ${save.essence < U.unlock ? 'disabled' : ''}>해금 ◆${U.unlock}</button>`;
+      } else {
+        btn = `<button data-army="sel" data-k="${k}" class="${sel >= 0 ? 'on' : ''}">${sel >= 0 ? `${4 + sel}번 키 ✔` : '데려가기'}</button>
+          ${lv < UNIT_MAX_LV ? `<button data-army="up" data-k="${k}" ${save.essence < unitLevelCost(lv) ? 'disabled' : ''}>레벨업 ◆${unitLevelCost(lv)}</button>` : '<small>최대 레벨</small>'}`;
+      }
+      return `<div class="skin unit${own ? '' : ' locked'}${sel >= 0 ? ' on' : ''}">
+        <img src="${preview(k)}" alt="" width="64" height="64">
+        <b>${U.name} ${own ? `Lv${lv}` : '🔒'}</b>
+        <small>${U.desc}</small>
+        <small>체력 ${Math.round(U.hp * sc)} · ${U.heal ? `회복 ${Math.round(U.heal * sc * 10) / 10}` : `피해 ${Math.round(U.dmg * sc * 10) / 10}`} · 소환 ●${U.cost}</small>
+        ${btn}</div>`;
+    }).join('');
+    root.innerHTML = `<div class="tree-head"><h2>병영 · 군단 편성</h2><span class="ess">◆ ${save.essence} 정수</span><button data-army="close" class="tclose">닫기 (Esc)</button></div>
+      <p class="sub">성 지키기 모드에서 골드로 소환할 유닛 ${ARMY_SLOTS}종을 고르세요 (게임 중 4·5·6·7 키). 레벨이 높을수록 체력·피해 +15%씩.</p>
+      <div class="skins">${cards}</div><p class="tmsg" role="status">${msg}</p>`;
+  }
+  root.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-army]');
+    if (!b || b.disabled) return;
+    const save = getSave(), A = save.army, k = b.dataset.k, U = UNITS[k];
+    msg = '';
+    switch (b.dataset.army) {
+      case 'close': api.close(); return;
+      case 'unlock':
+        if (save.essence >= U.unlock && !A.unlocked.includes(k)) { save.essence -= U.unlock; A.unlocked.push(k); msg = `${U.name} 해금!`; }
+        break;
+      case 'up': {
+        const lv = A.lv[k] || 1, cost = unitLevelCost(lv);
+        if (lv < UNIT_MAX_LV && save.essence >= cost) { save.essence -= cost; A.lv[k] = lv + 1; msg = `${U.name} Lv${lv + 1}!`; }
+        break;
+      }
+      case 'sel':
+        if (A.sel.includes(k)) A.sel = A.sel.filter((x) => x !== k);
+        else if (A.sel.length < ARMY_SLOTS) { if (k === 'giant' && !A.unlocked.includes(k)) A.unlocked.push(k); A.sel.push(k); }
+        else msg = `${ARMY_SLOTS}종까지 데려갈 수 있어요. 하나를 먼저 빼세요`;
+        break;
+      default:
+    }
+    onChange();
+    draw();
+  });
+  const api = {
+    isOpen: () => !root.hidden,
+    open() { draw(); root.hidden = false; },
     close() { root.hidden = true; },
   };
   return api;

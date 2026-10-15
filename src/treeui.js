@@ -6,8 +6,8 @@ import {
 } from './tree.js';
 
 const GENERAL_ICONS = { g_hp: '♥', g_dmg: '⚔', g_speed: '»', g_xp: '✦', g_ess: '◆', g_cd: '◷' };
-const KIND_LABEL = { start: '시작', general: '일반 스탯', root: '속성 각인', active: '액티브 스킬', perk: '패시브 특성', mastery: '속성 숙련' };
-const R = { start: 22, general: 14, root: 17, active: 19, perk: 17, mastery: 15 };
+const KIND_LABEL = { start: '시작', general: '일반 스탯', root: '속성 각인', active: '액티브 스킬', perk: '패시브 특성', mastery: '속성 숙련', stat: '바깥 가지 스탯', crown: '왕관 노드' };
+const R = { start: 22, general: 14, root: 17, active: 19, perk: 17, mastery: 15, stat: 13, crown: 20 };
 
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
@@ -17,6 +17,8 @@ function icon(n) {
   if (n.kind === 'root') return ELEMENTS[n.el].name.slice(0, 1);
   if (n.kind === 'active') return '✸';
   if (n.kind === 'perk') return '◈';
+  if (n.kind === 'crown') return '♛';
+  if (n.kind === 'stat') return { castle: '▣', combat: '⚔', army: '⚑', mana: '✦', loot: '●', survive: '♥' }[n.branch] || '•';
   return '▲';
 }
 
@@ -29,6 +31,8 @@ function hasRoom(s, id) {
 export function createTreeUI(root, { getSave, onChange }) {
   let selected = 'start';
   let message = '';
+  // 거미줄 트리 보기: 드래그로 이동, 휠·버튼으로 확대
+  const view = { x: 0, y: 0, s: 1 };
 
   const slot = () => getSave().slots[getSave().active];
   const editable = () => !slot().saved;
@@ -42,8 +46,8 @@ export function createTreeUI(root, { getSave, onChange }) {
 
   function nodeColor(n, unlocked) {
     if (n.kind === 'start') return '#ede7f6';
-    if (!unlocked) return '#3a3556';
-    return n.el ? ELEMENTS[n.el].color : '#e0e0e0';
+    if (!unlocked) return n.kind === 'crown' ? '#4a2a2a' : '#3a3556';
+    return n.el ? ELEMENTS[n.el].color : n.color || '#e0e0e0';
   }
 
   function svg() {
@@ -55,7 +59,8 @@ export function createTreeUI(root, { getSave, onChange }) {
       for (const l of n.links) {
         const m = NODE[l];
         const on = has(n.id) && has(l);
-        lines += `<line x1="${m.x}" y1="${m.y}" x2="${n.x}" y2="${n.y}" stroke="${on ? (n.el ? ELEMENTS[n.el].color : '#bdb6d8') : '#3a3556'}" stroke-width="${on ? 3 : 2}"/>`;
+        const half = has(n.id) || has(l);
+        lines += `<line x1="${m.x}" y1="${m.y}" x2="${n.x}" y2="${n.y}" stroke="${on ? (n.el ? ELEMENTS[n.el].color : n.color || '#bdb6d8') : half ? '#6a6390' : '#3a3556'}" stroke-width="${on ? 3 : 2}" ${on ? '' : 'stroke-dasharray="5 4"'}/>`;
       }
     }
     for (const n of TREE) {
@@ -71,7 +76,9 @@ export function createTreeUI(root, { getSave, onChange }) {
         <text x="${n.x}" y="${n.y + 5}" text-anchor="middle" font-size="${n.kind === 'start' ? 18 : 13}" font-weight="700" fill="${un ? '#1b1a2e' : '#8f89aa'}">${icon(n)}</text>
       </g>`;
     }
-    return `<svg class="tree-svg" viewBox="-370 -370 740 740" aria-label="스킬 트리">${lines}${nodes}</svg>`;
+    const size = 960 / view.s;
+    return `<div class="tree-wrap"><svg class="tree-svg" viewBox="${view.x - size / 2} ${view.y - size / 2} ${size} ${size}" aria-label="스킬 트리">${lines}${nodes}</svg>
+      <div class="tzoom"><button data-tree="zin">＋</button><button data-tree="zout">－</button><button data-tree="zreset">⟲</button><small>드래그로 이동 · 휠로 확대</small></div></div>`;
   }
 
   function infoPanel() {
@@ -82,9 +89,11 @@ export function createTreeUI(root, { getSave, onChange }) {
     const s = slot();
     let actions = '';
     if (!un) {
+      const crown = n.kind === 'crown';
+      const enough = crown ? save.crowns >= n.crown : save.essence >= n.cost;
       actions = can
-        ? `<button data-tree="unlock" ${save.essence < n.cost ? 'disabled' : ''}>해금 ◆${n.cost}</button>`
-        : '<p class="hint">이웃한 노드를 먼저 해금하세요</p>';
+        ? `<button data-tree="unlock" ${enough ? '' : 'disabled'}>해금 ${crown ? `♛${n.crown}` : `◆${n.cost}`}</button>`
+        : '<p class="hint">이어진 노드 중 하나를 먼저 해금하세요</p>';
     } else if (equipable(n.id)) {
       const on = s.eq.includes(n.id);
       actions = editable()
@@ -97,7 +106,7 @@ export function createTreeUI(root, { getSave, onChange }) {
     }
     const extra = n.kind === 'active' ? `<small>쿨타임 ${ACTIVES[n.skill].cd}초</small>` : '';
     return `<div class="tinfo">
-      <span class="tkind" style="color:${n.el ? ELEMENTS[n.el].color : '#bdb6d8'}">${KIND_LABEL[n.kind]}</span>
+      <span class="tkind" style="color:${n.el ? ELEMENTS[n.el].color : n.kind === 'crown' ? '#ff8a65' : n.color || '#bdb6d8'}">${KIND_LABEL[n.kind]}</span>
       <b>${esc(n.name)}</b><p>${esc(n.desc)}</p>${extra}
       <div class="tactions">${un && n.kind !== 'start' ? '<span class="owned">해금됨</span>' : ''}${actions}</div>
     </div>`;
@@ -137,7 +146,7 @@ export function createTreeUI(root, { getSave, onChange }) {
     root.innerHTML = `
       <div class="tree-head">
         <h2>스킬 트리</h2>
-        <span class="ess">◆ ${save.essence} 정수</span>
+        <span class="ess">◆ ${save.essence} 정수 · <b style="color:#ffd54f">♛ ${save.crowns}</b> 왕관</span>
         <button data-tree="close" class="tclose">닫기 (K / Esc)</button>
       </div>
       <div class="tree-body">
@@ -156,9 +165,12 @@ export function createTreeUI(root, { getSave, onChange }) {
     const n = NODE[selected];
     switch (b.dataset.tree) {
       case 'close': api.close(); break;
+      case 'zin': view.s = Math.min(2.5, view.s * 1.25); draw(); break;
+      case 'zout': view.s = Math.max(0.6, view.s / 1.25); draw(); break;
+      case 'zreset': Object.assign(view, { x: 0, y: 0, s: 1 }); draw(); break;
       case 'unlock':
-        if (canUnlock(save.unlocked, n.id) && save.essence >= n.cost) {
-          save.essence -= n.cost;
+        if (canUnlock(save.unlocked, n.id) && (n.kind === 'crown' ? save.crowns >= n.crown : save.essence >= n.cost)) {
+          if (n.kind === 'crown') save.crowns -= n.crown; else save.essence -= n.cost;
           save.unlocked.push(n.id);
           // 해금하면 바로 쓰도록: 속성 각인 → 캐릭터 속성, 스킬 → 빈 장착 칸
           let note = '';
@@ -207,6 +219,32 @@ export function createTreeUI(root, { getSave, onChange }) {
       default:
     }
   });
+  // 드래그로 트리 이동 (노드를 누르면 선택, 빈 곳을 끌면 이동)
+  let drag = null;
+  root.addEventListener('pointerdown', (e) => {
+    const svgEl = e.target.closest('.tree-svg');
+    if (!svgEl || e.target.closest('[data-node]')) return;
+    drag = { sx: e.clientX, sy: e.clientY, vx: view.x, vy: view.y, w: svgEl.getBoundingClientRect().width, moved: false };
+  });
+  window.addEventListener('pointermove', (e) => {
+    if (!drag) return;
+    const k = 960 / view.s / drag.w;
+    view.x = drag.vx - (e.clientX - drag.sx) * k;
+    view.y = drag.vy - (e.clientY - drag.sy) * k;
+    drag.moved = true;
+    const svgEl = root.querySelector('.tree-svg');
+    const size = 960 / view.s;
+    svgEl?.setAttribute('viewBox', `${view.x - size / 2} ${view.y - size / 2} ${size} ${size}`);
+  });
+  window.addEventListener('pointerup', () => { drag = null; });
+  root.addEventListener('wheel', (e) => {
+    if (!e.target.closest('.tree-svg')) return;
+    e.preventDefault();
+    view.s = Math.max(0.6, Math.min(2.5, view.s * (e.deltaY < 0 ? 1.12 : 1 / 1.12)));
+    const svgEl = root.querySelector('.tree-svg');
+    const size = 960 / view.s;
+    svgEl?.setAttribute('viewBox', `${view.x - size / 2} ${view.y - size / 2} ${size} ${size}`);
+  }, { passive: false });
   root.addEventListener('keydown', (e) => {
     if ((e.key === 'Enter' || e.key === ' ') && e.target.dataset?.node) { e.preventDefault(); e.target.dispatchEvent(new MouseEvent('click', { bubbles: true })); }
   });

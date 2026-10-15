@@ -4,7 +4,7 @@
 //   처음 저장은 무료, 저장된 칸을 다시 고치려면 초기화 비용, 칸을 늘리려면 구매 비용.
 // - 일반 노드(스탯)는 해금하면 항상 적용, 숙련 노드는 캐릭터 속성이 같을 때만 적용.
 
-import { ELEMENTS, SKINS } from './data.js';
+import { ELEMENTS, SKINS, UNITS, UNIT_MAX_LV, ARMY_SLOTS } from './data.js';
 
 export const ACTIVE_SLOTS = 3;   // 액티브 칸 (1·2·3 키)
 export const PASSIVE_SLOTS = 2;  // 패시브 칸 (항상 켜짐)
@@ -54,13 +54,50 @@ const GENERAL = [
 
 const COST = { general: 20, root: 25, active1: 40, perk: 60, mastery: 80, active2: 120 };
 
-// 노드 목록 만들기 (위치는 화면 좌표, 가운데가 0,0)
+// 거미줄 바깥 가지: 일반 노드에서 뻗어 나가는 스탯 3개 + 끝의 왕관 노드 (왕관 = 보스를 잡아서 얻는 재화)
+const BRANCHES = [
+  { key: 'castle', from: 'g_hp', color: '#bcaaa4', nodes: [
+    { name: '성벽 보강', desc: '성 최대 체력 +10', bonus: { castleHp: 10 } },
+    { name: '궁수탑', desc: '성 화살 피해 +50%', bonus: { castleArrow: 0.5 } },
+    { name: '군자금', desc: '성 지키기 시작 골드 +20', bonus: { startGold: 20 } },
+  ], crown: { name: '난공불락', desc: '성 최대 체력 +50%', bonus: { castlePct: 0.5 }, cost: 2 } },
+  { key: 'combat', from: 'g_dmg', color: '#ef9a9a', nodes: [
+    { name: '급소', desc: '치명타율 +5%', bonus: { crit: 0.05 } },
+    { name: '연마', desc: '피해 +8%', bonus: { dmgPct: 0.08 } },
+    { name: '전투 본능', desc: '치명타율 +5%', bonus: { crit: 0.05 } },
+  ], crown: { name: '왕의 검', desc: '피해 +15%', bonus: { dmgPct: 0.15 }, cost: 2 } },
+  { key: 'army', from: 'g_speed', color: '#90caf9', nodes: [
+    { name: '훈련 교관', desc: '군단 유닛 체력 +15%', bonus: { unitHp: 0.15 } },
+    { name: '모병관', desc: '군단 소환 비용 -10%', bonus: { summon: 0.1 } },
+    { name: '전술 교본', desc: '군단 유닛 피해 +15%, 최대 유닛 +3', bonus: { unitDmg: 0.15, armyCap: 3 } },
+  ], crown: { name: '거인의 맹약', desc: '군단 유닛 거인 해금', bonus: { giant: 1 }, cost: 3 } },
+  { key: 'mana', from: 'g_xp', color: '#9fa8da', nodes: [
+    { name: '마나 그릇', desc: '최대 마나 +20', bonus: { mana: 20 } },
+    { name: '마나 흡수', desc: '마나 구슬 +20%', bonus: { manaGain: 0.2 } },
+    { name: '명상', desc: '최대 마나 +30', bonus: { mana: 30 } },
+  ], crown: { name: '마력 샘', desc: '최대 마나 +50, 마나 구슬 +25%', bonus: { mana: 50, manaGain: 0.25 }, cost: 2 } },
+  { key: 'loot', from: 'g_ess', color: '#ffe082', nodes: [
+    { name: '주머니', desc: '동전·골드 +15%', bonus: { coin: 0.15 } },
+    { name: '흥정', desc: '상점 가격 -10%', bonus: { shop: 0.1 } },
+    { name: '보물 사냥꾼', desc: '동전·골드 +15%', bonus: { coin: 0.15 } },
+  ], crown: { name: '황금 손', desc: '동전·골드 +30%, 정수 +20%', bonus: { coin: 0.3, ess: 0.2 }, cost: 2 } },
+  { key: 'survive', from: 'g_cd', color: '#a5d6a7', nodes: [
+    { name: '단련', desc: '최대 체력 +1', bonus: { hp: 1 } },
+    { name: '구르기', desc: '대시 쿨타임 -15%', bonus: { dash: 0.15 } },
+    { name: '강철 심장', desc: '최대 체력 +2', bonus: { hp: 2 } },
+  ], crown: { name: '두 번째 심장', desc: '판마다 한 번, 쓰러지면 바로 부활 (불사조의 깃털)', bonus: { phoenix: 1 }, cost: 3 } },
+];
+
+// 노드 목록 만들기 (위치는 화면 좌표, 가운데가 0,0). links = 연결된 이웃 (거미줄)
 function buildNodes() {
   const nodes = [{ id: 'start', kind: 'start', name: '시작', desc: '모든 길은 여기서 시작됩니다', cost: 0, x: 0, y: 0, links: [] }];
   GENERAL.forEach((g, i) => {
     const a = ((i * 60 + 30) * Math.PI) / 180 - Math.PI / 2;
-    nodes.push({ ...g, kind: 'general', cost: COST.general, x: Math.cos(a) * 82, y: Math.sin(a) * 82, links: ['start'] });
+    // 일반 노드는 시작점과, 옆의 일반 노드와도 이어짐 (안쪽 고리)
+    const prev = GENERAL[(i + GENERAL.length - 1) % GENERAL.length].id;
+    nodes.push({ ...g, kind: 'general', cost: COST.general, x: Math.cos(a) * 82, y: Math.sin(a) * 82, links: ['start', ...(i > 0 ? [prev] : [])] });
   });
+  nodes.find((n) => n.id === GENERAL[0].id).links.push(GENERAL[GENERAL.length - 1].id);
   EL_ORDER.forEach((el, i) => {
     const a = ((i * 60) * Math.PI) / 180 - Math.PI / 2;
     const at = (r, side = 0) => ({ x: Math.cos(a) * r - Math.sin(a) * side, y: Math.sin(a) * r + Math.cos(a) * side });
@@ -68,7 +105,7 @@ function buildNodes() {
     const perk = Object.entries(PERKS).find(([, v]) => v.el === el)[0];
     const E = ELEMENTS[el];
     const chain = [
-      { id: `${el}_root`, kind: 'root', el, name: `${E.name} 각인`, desc: `캐릭터 속성으로 ${E.name}을(를) 고를 수 있음`, cost: COST.root, ...at(118) },
+      { id: `${el}_root`, kind: 'root', el, name: `${E.name} 각인`, desc: `캐릭터 속성이 ${E.name}이(가) 됨`, cost: COST.root, ...at(118) },
       { id: `a_${actives[0]}`, kind: 'active', el, skill: actives[0], cost: COST.active1, ...at(170, -18) },
       { id: `p_${perk}`, kind: 'perk', el, perk, cost: COST.perk, ...at(222, 18) },
       { id: `${el}_mastery`, kind: 'mastery', el, name: `${E.name} 숙련`, desc: `캐릭터 속성이 ${E.name}이면 속성 레벨 +1`, cost: COST.mastery, ...at(274, -18) },
@@ -80,12 +117,33 @@ function buildNodes() {
       n.links = [j === 0 ? 'start' : chain[j - 1].id];
       nodes.push(n);
     });
+    // 속성 각인은 양옆 일반 노드와도 이어짐
+    nodes.find((n) => n.id === `${el}_root`).links.push(GENERAL[i].id, GENERAL[(i + 5) % 6].id);
+  });
+  // 바깥 가지 (일반 노드 방향으로 뻗음) + 옆 속성 가지와 가로로 이어짐
+  BRANCHES.forEach((B) => {
+    const gi = GENERAL.findIndex((g) => g.id === B.from);
+    const a = ((gi * 60 + 30) * Math.PI) / 180 - Math.PI / 2;
+    const left = EL_ORDER[gi], right = EL_ORDER[(gi + 1) % 6];
+    const ids = B.nodes.map((_, j) => `b_${B.key}${j + 1}`);
+    B.nodes.forEach((n, j) => {
+      const r = 160 + j * 72;
+      const links = [j === 0 ? B.from : ids[j - 1]];
+      if (j === 1) links.push(`p_${Object.entries(PERKS).find(([, v]) => v.el === left)[0]}`);
+      if (j === 2) links.push(`${right}_mastery`);
+      nodes.push({ id: ids[j], kind: 'stat', branch: B.key, color: B.color, ...n, cost: 30 + 20 * j, x: Math.cos(a) * r, y: Math.sin(a) * r, links });
+    });
+    nodes.push({ id: `c_${B.key}`, kind: 'crown', branch: B.key, color: '#ff7043', ...B.crown, crown: B.crown.cost, cost: 0,
+      x: Math.cos(a) * 420, y: Math.sin(a) * 420, links: [ids[2]] });
   });
   return nodes;
 }
 
 export const TREE = buildNodes();
 export const NODE = Object.fromEntries(TREE.map((n) => [n.id, n]));
+// 이웃 목록 (양방향)
+const NEIGHBORS = Object.fromEntries(TREE.map((n) => [n.id, new Set()]));
+for (const n of TREE) for (const l of n.links) { NEIGHBORS[n.id].add(l); NEIGHBORS[l].add(n.id); }
 export const equipable = (id) => ['active', 'perk'].includes(NODE[id]?.kind);
 export const isActive = (id) => NODE[id]?.kind === 'active';
 export const isPassive = (id) => NODE[id]?.kind === 'perk';
@@ -97,12 +155,13 @@ export function fitLoadout(eq) {
   return [...act, ...pas];
 }
 
-// 노드를 해금할 수 있는지 (이웃 노드 중 하나가 해금돼 있어야 함)
+// 노드를 해금할 수 있는지: 거미줄처럼 이웃 노드 중 하나라도 해금돼 있으면 됨 (시작점은 항상 해금)
 export function canUnlock(unlocked, id) {
   const n = NODE[id];
-  if (!n || unlocked.includes(id)) return false;
-  return n.links.every((l) => l === 'start' || unlocked.includes(l));
+  if (!n || unlocked.includes(id) || n.kind === 'start') return false;
+  return [...NEIGHBORS[id]].some((l) => l === 'start' || unlocked.includes(l));
 }
+export const nodePrice = (n) => (n.kind === 'crown' ? { crown: n.crown } : { essence: n.cost });
 
 // ---------- 저장 (이 브라우저에만 저장, 로그인하면 계정마다 따로) ----------
 const BASE_KEY = 'sk-save-v1';
@@ -118,7 +177,7 @@ export function emptySlot() {
 export function loadSave(from) {
   let s = from || null;
   if (!s) try { s = JSON.parse(localStorage.getItem(SAVE_KEY)); } catch { /* 저장소 사용 불가 */ }
-  const base = { essence: START_ESSENCE, unlocked: [], owned: 1, active: 0, slots: [emptySlot()], skins: ['shadow'], skin: 'shadow' };
+  const base = { essence: START_ESSENCE, crowns: 0, unlocked: [], owned: 1, active: 0, slots: [emptySlot()], skins: ['shadow'], skin: 'shadow', army: { unlocked: ['knight', 'archer'], lv: {}, sel: ['knight', 'archer'] } };
   if (!s || typeof s !== 'object') return base;
   const save = { ...base, ...s };
   save.unlocked = (Array.isArray(save.unlocked) ? save.unlocked : []).filter((id) => NODE[id]);
@@ -126,6 +185,14 @@ export function loadSave(from) {
   save.slots = Array.from({ length: MAX_BUILD_SLOTS }, (_, i) => ({ ...emptySlot(), ...(save.slots?.[i] || {}) }));
   save.active = Math.min(save.owned - 1, Math.max(0, Number(save.active) || 0));
   save.essence = Math.max(0, Math.floor(Number(save.essence) || 0));
+  save.crowns = Math.max(0, Math.floor(Number(save.crowns) || 0));
+  const army = save.army && typeof save.army === 'object' ? save.army : {};
+  save.army = {
+    unlocked: [...new Set(['knight', 'archer', ...(Array.isArray(army.unlocked) ? army.unlocked : [])])].filter((k) => UNITS[k]),
+    lv: Object.fromEntries(Object.entries(army.lv || {}).filter(([k]) => UNITS[k]).map(([k, v]) => [k, Math.max(1, Math.min(UNIT_MAX_LV, Math.floor(v) || 1))])),
+    sel: [],
+  };
+  save.army.sel = [...new Set(Array.isArray(army.sel) ? army.sel : ['knight', 'archer'])].filter((k) => save.army.unlocked.includes(k)).slice(0, ARMY_SLOTS);
   save.skins = [...new Set(['shadow', ...(Array.isArray(save.skins) ? save.skins : [])])].filter((k) => SKINS[k]);
   if (!save.skins.includes(save.skin)) save.skin = 'shadow';
   return save;
@@ -143,7 +210,7 @@ export function currentBuild(save) {
   const el = slot.el || firstRoot?.el || null;
   // 장착 칸이 비어 있고 저장(잠금) 전이면, 해금한 스킬을 차례로 자동 장착
   const eq = fitLoadout(slot.eq.length || slot.saved ? slot.eq : save.unlocked.filter(equipable));
-  return { el, eq, nodes: save.unlocked, skin: save.skin };
+  return { el, eq, nodes: save.unlocked, skin: save.skin, army: { sel: save.army.sel, lv: save.army.lv }, guild: save.guild || null };
 }
 
 // 방장이 받은 빌드를 검사 (없는 노드, 해금 안 된 장착 등은 버림)
@@ -152,7 +219,14 @@ export function sanitizeBuild(b) {
   const el = ELEMENTS[b?.el] && nodes.includes(`${b.el}_root`) ? b.el : null;
   const eq = fitLoadout([...new Set((Array.isArray(b?.eq) ? b.eq : []).filter((id) => nodes.includes(id) && equipable(id)))]);
   const skin = SKINS[b?.skin] ? b.skin : 'shadow';
-  return { el, eq, nodes, skin };
+  // 군단: 데려갈 유닛 4종과 레벨 (거인은 왕관 노드가 있어야)
+  const lvOf = (k) => Math.max(1, Math.min(UNIT_MAX_LV, Math.floor(Number(b?.army?.lv?.[k]) || 1)));
+  const sel = [...new Set(Array.isArray(b?.army?.sel) ? b.army.sel : ['knight', 'archer'])].filter((k) => UNITS[k] && (k !== 'giant' || nodes.includes('c_army'))).slice(0, ARMY_SLOTS);
+  const army = { sel, lv: Object.fromEntries(sel.map((k) => [k, lvOf(k)])) };
+  // 길드: 이름·레벨만 (보너스 계산용)
+  const g = b?.guild;
+  const guild = g && typeof g.id === 'string' ? { id: g.id.slice(0, 40), name: String(g.name || '').slice(0, 12), lv: Math.max(1, Math.min(20, Math.floor(Number(g.lv) || 1))), color: /^#[0-9a-f]{6}$/i.test(g.color) ? g.color : '#ffd54f' } : null;
+  return { el, eq, nodes, skin, army, guild };
 }
 
 // ---------- 저장 코드 (다른 기기로 옮기기) ----------
@@ -163,7 +237,7 @@ function checksum(str) {
 }
 
 export function exportSaveCode(save) {
-  const json = JSON.stringify({ essence: save.essence, unlocked: save.unlocked, owned: save.owned, active: save.active, slots: save.slots, skins: save.skins, skin: save.skin });
+  const json = JSON.stringify({ essence: save.essence, crowns: save.crowns, army: save.army, unlocked: save.unlocked, owned: save.owned, active: save.active, slots: save.slots, skins: save.skins, skin: save.skin });
   const b64 = btoa(unescape(encodeURIComponent(json)));
   return `DS1-${checksum(b64)}-${b64}`;
 }
@@ -180,10 +254,11 @@ export function importSaveCode(code) {
 
 // 빌드가 주는 보너스 합계
 export function buildBonus(build) {
-  const out = { hp: 0, dmgPct: 0, speed: 0, xp: 0, ess: 0, cd: 0, elLv: 0 };
+  const out = { hp: 0, dmgPct: 0, speed: 0, xp: 0, ess: 0, cd: 0, elLv: 0, castleHp: 0, castleArrow: 0, castlePct: 0, startGold: 0, crit: 0,
+    unitHp: 0, unitDmg: 0, summon: 0, armyCap: 0, giant: 0, mana: 0, manaGain: 0, coin: 0, shop: 0, dash: 0, phoenix: 0 };
   for (const id of build.nodes) {
     const n = NODE[id];
-    if (n.kind === 'general') for (const [k, v] of Object.entries(n.bonus)) out[k] += v;
+    if (n.bonus && n.kind !== 'mastery') for (const [k, v] of Object.entries(n.bonus)) out[k] = (out[k] || 0) + v;
     if (n.kind === 'mastery' && n.el === build.el) out.elLv += 1;
   }
   return out;

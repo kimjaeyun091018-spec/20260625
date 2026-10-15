@@ -8,7 +8,10 @@ import { createRenderer, weaponIconHtml, tintedPlayer, gearSheet } from './rende
 import { SKINS } from './data.js';
 import { loadSave, writeSave, currentBuild, setSaveAccount, NODE } from './tree.js';
 import { createTreeUI } from './treeui.js';
-import { settings, createSettingsUI, createWardrobeUI, createAccountUI, currentAccount } from './panels.js';
+import { settings, createSettingsUI, createWardrobeUI, createAccountUI, createArmyUI, currentAccount } from './panels.js';
+import { createGuildUI } from './guildui.js';
+import { setGuildAccount } from './guild.js';
+import { UNITS } from './data.js';
 
 const STEP = 1 / 60;          // 시뮬레이션 간격
 const SEND_STATE_MS = 50;     // 방장 → 참가자 상태 전송 (초당 20번)
@@ -32,6 +35,7 @@ const ui = {
 
 // ---------- 저장 데이터 (정수, 스킬 트리, 빌드, 스킨) ----------
 setSaveAccount(currentAccount());
+setGuildAccount(currentAccount());
 let save = loadSave();
 const tree = createTreeUI($('tree'), {
   getSave: () => save,
@@ -47,7 +51,9 @@ const account = createAccountUI($('account'), {
   getSave: () => save,
   onLogin(id) {
     setSaveAccount(id);
+    setGuildAccount(id);
     save = loadSave();
+    guildUI.quietRefresh();
     if (id && !ui.name.value) ui.name.value = id.slice(0, 10);
     updateAccountLabel();
     sendBuild();
@@ -58,7 +64,19 @@ const account = createAccountUI($('account'), {
     sendBuild();
   },
 });
-const overlays = [tree, wardrobe, settingsUI, account];
+const army = createArmyUI($('army'), {
+  getSave: () => save,
+  onChange: () => { writeSave(save); sendBuild(); },
+  preview: unitPreview,
+});
+const guildUI = createGuildUI($('guild'), {
+  getSave: () => save,
+  getName: () => playerName(),
+  onChange: () => sendBuild(),
+});
+guildUI.quietRefresh();
+$('guildBtn').addEventListener('click', () => guildUI.open());
+const overlays = [tree, wardrobe, settingsUI, account, army, guildUI];
 const anyOverlay = () => overlays.some((o) => o.isOpen());
 
 function updateAccountLabel() {
@@ -93,6 +111,24 @@ function skinPreview(skin) {
   return previewCache[skin];
 }
 
+// 병영 미리보기: 유닛 색으로 칠한 캐릭터
+function unitPreview(k) {
+  const key = `unit:${k}`;
+  if (previewCache[key]) return previewCache[key];
+  try {
+    const U = UNITS[k];
+    const sheet = tintedPlayer('#ffffff', { body: U.body, eye: U.eye });
+    const c = document.createElement('canvas');
+    c.width = 64;
+    c.height = 64;
+    const g = c.getContext('2d');
+    g.imageSmoothingEnabled = false;
+    g.drawImage(sheet, 0, 0, 32, 32, 0, 0, 64, 64);
+    previewCache[key] = c.toDataURL();
+  } catch { return ''; }
+  return previewCache[key];
+}
+
 function sendBuild() {
   if (!session) return;
   const b = currentBuild(save);
@@ -100,11 +136,12 @@ function sendBuild() {
   else session.net?.send({ t: 'build', b });
 }
 
-// 이번 판에 번 정수를 저장 (판이 끝났을 때, 또는 중간에 나갈 때 한 번만)
-function bankEssence(rid, amount) {
-  if (!session || session.banked.has(rid) || !(amount > 0)) return;
+// 이번 판에 번 정수·왕관을 저장 (판이 끝났을 때, 또는 중간에 나갈 때 한 번만)
+function bankEssence(rid, amount, crowns = 0) {
+  if (!session || session.banked.has(rid) || !(amount > 0 || crowns > 0)) return;
   session.banked.add(rid);
-  save.essence += Math.floor(amount);
+  save.essence += Math.floor(amount || 0);
+  save.crowns = (save.crowns || 0) + Math.floor(crowns || 0);
   writeSave(save);
 }
 
@@ -138,7 +175,8 @@ const ACTION_KEYS = {
   KeyE: 'fence', KeyR: 'turret', KeyF: 'demolish', KeyG: 'ready', KeyQ: 'ult', Tab: 'swap',
   KeyV: 'skill', KeyZ: 'pick1', KeyX: 'pick2', KeyC: 'pick3',
 };
-const NUMBER_KEYS = { Digit1: 1, Digit2: 2, Digit3: 3, Digit4: 4, Numpad1: 1, Numpad2: 2, Numpad3: 3, Numpad4: 4 };
+const NUMBER_KEYS = { Digit1: 1, Digit2: 2, Digit3: 3, Numpad1: 1, Numpad2: 2, Numpad3: 3 };
+const SUMMON_KEYS = { Digit4: 1, Digit5: 2, Digit6: 3, Digit7: 4, Numpad4: 1, Numpad5: 2, Numpad6: 3, Numpad7: 4 };
 const keys = new Set();
 // sx/sy: 화면 좌표, x/y: 맵(월드) 좌표
 const mouse = { sx: VIEW_W / 2, sy: VIEW_H / 2, x: 0, y: 0, down: false };
@@ -180,11 +218,27 @@ window.addEventListener('keydown', (e) => {
     e.preventDefault();
     return;
   }
+  if (phase === 'lobby' && e.code === 'KeyE' && nearStation('barracks', 60)) {
+    keys.clear();
+    army.open();
+    e.preventDefault();
+    return;
+  }
+  if (phase === 'lobby' && e.code === 'KeyE' && nearStation('guild', 60)) {
+    keys.clear();
+    guildUI.open();
+    e.preventDefault();
+    return;
+  }
   if (e.code === 'Enter' || e.code === 'NumpadEnter') {
     if (settings.autoAim) keys.add('autofire');
     e.preventDefault();
     return;
   }
+  // 성 지키기: 4~7 군단 소환, T 성 강화
+  const sm = SUMMON_KEYS[e.code];
+  if (sm && phase === 'playing' && session.lastSnap?.ca) { pushAction(`sum${sm}`); e.preventDefault(); return; }
+  if (e.code === 'KeyT' && phase === 'playing' && session.lastSnap?.ca) { pushAction('castle'); e.preventDefault(); return; }
   const n = NUMBER_KEYS[e.code];
   if (n) {
     if (phase === 'playing' || phase === 'lobby') pushAction(`cast${n}`);
@@ -318,7 +372,7 @@ function leave(reason = '') {
   if (!session) return;
   // 게임 도중 나가도 그때까지 번 정수는 저장
   const snap = session.lastSnap;
-  if (snap && snap.ph !== 'lobby' && session.lastMe) bankEssence(snap.rid, session.lastMe.es);
+  if (snap && snap.ph !== 'lobby' && session.lastMe) bankEssence(snap.rid, session.lastMe.es, session.lastMe.cw);
   session.net?.close();
   session = null;
   overlays.forEach((o) => o.close());
@@ -401,7 +455,7 @@ async function startClient() {
 
 window.addEventListener('pagehide', () => {
   const snap = session?.lastSnap;
-  if (snap && snap.ph !== 'lobby' && session.lastMe) bankEssence(snap.rid, session.lastMe.es);
+  if (snap && snap.ph !== 'lobby' && session.lastMe) bankEssence(snap.rid, session.lastMe.es, session.lastMe.cw);
   session?.net?.close();
 });
 ui.solo.addEventListener('click', () => startHost(true));
@@ -468,8 +522,8 @@ function afterRender(snap, map, myId) {
   if (me) session.lastMe = me;
   if (session.lastPhase !== snap.ph && snap.ph === 'lobby') { tree.refresh(); sendBuild(); }
   session.lastPhase = snap.ph;
-  if (snap.ph === 'over' && me) bankEssence(snap.rid, me.es);
-  if (snap.ph !== 'lobby') { if (tree.isOpen()) tree.close(); if (wardrobe.isOpen()) wardrobe.close(); }
+  if (snap.ph === 'over' && me) bankEssence(snap.rid, me.es, me.cw);
+  if (snap.ph !== 'lobby') { for (const o of [tree, wardrobe, army]) if (o.isOpen()) o.close(); }
   ui.stage.hidden = snap.ph !== 'transition';
   if (snap.ph === 'transition') updateStage(snap, myId);
   else overlayCache.stage = '';
@@ -570,13 +624,13 @@ function clientFrame(s, now) {
   }
   // 카드·골드·단계는 최신 상태로 (보간 X)
   const view = {
-    ...snap, g: latest.g, ph: latest.ph, sh: latest.sh, hz: latest.hz, sv: latest.sv, br: latest.br, xo: latest.xo, lp: latest.lp, lpt: latest.lpt, md: latest.md, tt: latest.tt, rid: latest.rid,
+    ...snap, g: latest.g, ph: latest.ph, sh: latest.sh, hz: latest.hz, sv: latest.sv, br: latest.br, xo: latest.xo, ca: latest.ca, un: latest.un, lp: latest.lp, lpt: latest.lpt, md: latest.md, tt: latest.tt, rid: latest.rid,
     p: snap.p.map((p) => {
       const q = latest.p.find((o) => o.id === p.id) || p;
       return {
         ...p, of: q.of, oq: q.oq, at: q.at, rw: q.rw, rwd: q.rwd, ev: q.ev, evd: q.evd, cr: q.cr, xp: q.xp, lv: q.lv, xn: q.xn,
         ws: q.ws, sl: q.sl, sw: q.sw, ld: q.ld, cs: q.cs, es: q.es, mp: q.mp, mm: q.mm, wst: q.wst, sk: q.sk, co: q.co, sh: q.sh, cb: q.cb,
-        au: q.au, pa: q.pa, rv: q.rv, pp: q.pp,
+        au: q.au, pa: q.pa, rv: q.rv, pp: q.pp, cw: q.cw, gd: q.gd, uc: q.uc, ucap: q.ucap, ar: q.ar,
       };
     }),
   };
