@@ -6,6 +6,6 @@
 // 를 마친 뒤 아래 두 칸을 채우세요. (게임 안 길드 회관의 '서버 설정'에 붙여 넣어도 됩니다)
 // apiKey는 공개돼도 괜찮은 값이에요. 안전은 데이터베이스 규칙이 지켜 줍니다.
 export const FIREBASE = {
-  apiKey: '',
-  databaseURL: '',
+  apiKey: 'AIzaSyD_bGIXNy_n0QEhYqaTUS6y97CPBc5tbdQ',
+  databaseURL: 'https://dongeon-shooter-default-rtdb.firebaseio.com',
 };
