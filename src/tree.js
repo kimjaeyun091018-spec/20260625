@@ -184,6 +184,7 @@ export function loadSave(from) {
   save.owned = Math.max(1, Math.min(MAX_BUILD_SLOTS, Number(save.owned) || 1));
   save.slots = Array.from({ length: MAX_BUILD_SLOTS }, (_, i) => ({ ...emptySlot(), ...(save.slots?.[i] || {}) }));
   save.active = Math.min(save.owned - 1, Math.max(0, Number(save.active) || 0));
+  save._t = Math.max(0, Number(save._t) || 0);
   save.essence = Math.max(0, Math.floor(Number(save.essence) || 0));
   save.crowns = Math.max(0, Math.floor(Number(save.crowns) || 0));
   save.spoils = Math.max(0, Math.floor(Number(save.spoils) || 0));
@@ -200,8 +201,18 @@ export function loadSave(from) {
   return save;
 }
 
-export function writeSave(save) {
+// 저장할 때마다 부르는 함수 (구글 계정이면 클라우드에 올리기)
+let saveHook = null;
+export function onSaveWrite(fn) { saveHook = fn; }
+// quiet: 클라우드에서 받아 온 저장을 그대로 적을 때 (시간·업로드 안 건드림)
+export function writeSave(save, quiet = false) {
+  if (!quiet) save._t = Date.now();
   try { localStorage.setItem(SAVE_KEY, JSON.stringify(save)); } catch { /* 무시 */ }
+  if (!quiet) saveHook?.(save);
+}
+// 이 계정의 저장이 이 기기에 있는지
+export function hasLocalSave() {
+  try { return !!localStorage.getItem(SAVE_KEY); } catch { return false; }
 }
 
 // 게임에 가져갈 빌드: 지금 고른 칸을 그대로 적용 (저장은 '잠금'일 뿐, 저장 안 해도 적용됨)

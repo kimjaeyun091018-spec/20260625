@@ -6,11 +6,12 @@ import { packMap, unpackMap } from './maps.js';
 import { makeRoomCode, hostRoom, joinRoom, describeError } from './net.js';
 import { createRenderer, weaponIconHtml, tintedPlayer, designOf } from './render.js';
 import { SKINS } from './data.js';
-import { loadSave, writeSave, currentBuild, setSaveAccount, NODE } from './tree.js';
+import { loadSave, writeSave, currentBuild, setSaveAccount, NODE, onSaveWrite, hasLocalSave } from './tree.js';
 import { createTreeUI } from './treeui.js';
-import { settings, createSettingsUI, createWardrobeUI, createAccountUI, createArmyUI, createSupplyUI, currentAccount } from './panels.js';
+import { settings, createSettingsUI, createWardrobeUI, createAccountUI, createArmyUI, createSupplyUI, currentAccount, accountInfo, registerGoogleAccount } from './panels.js';
 import { createGuildUI } from './guildui.js';
-import { setGuildAccount } from './guild.js';
+import { setGuildAccount, adoptSession, guildReady } from './guild.js';
+import { preloadGoogle, googleSignIn, googleError, pullSave, queuePush, flushPush, cloudStatus, onCloudStatus } from './cloud.js';
 import { UNITS } from './data.js';
 
 const STEP = 1 / 60;          // 시뮬레이션 간격
@@ -49,6 +50,10 @@ const wardrobe = createWardrobeUI($('wardrobe'), {
 });
 const account = createAccountUI($('account'), {
   getSave: () => save,
+  onGoogle: googleLogin,
+  onSync: syncCloud,
+  cloudStatus,
+  preload: () => { preloadGoogle().catch(() => {}); },
   onLogin(id) {
     setSaveAccount(id);
     setGuildAccount(id);
@@ -81,10 +86,56 @@ const overlays = [tree, wardrobe, settingsUI, account, army, guildUI, supplyUI];
 const anyOverlay = () => overlays.some((o) => o.isOpen());
 
 function updateAccountLabel() {
-  const id = currentAccount();
-  ui.accountLabel.textContent = id ? `${id} 계정` : '게스트';
-  ui.account.textContent = id ? '계정 · 저장 코드' : '로그인 / 회원가입';
+  const info = accountInfo(currentAccount());
+  ui.accountLabel.textContent = !info ? '게스트' : info.google ? `${info.name} (구글)` : `${info.name} 계정`;
+  ui.account.textContent = info ? '계정 · 저장' : '로그인 / 회원가입';
 }
+
+// ---------- 구글 계정 + 클라우드 저장 ----------
+const googleUid = () => { const i = accountInfo(currentAccount()); return i?.google ? i.uid : null; };
+onSaveWrite((s) => { const uid = googleUid(); if (uid) queuePush(uid, s); });
+onCloudStatus(() => account.refresh());
+
+// 기기 저장과 클라우드 저장 중 더 최근 것을 고름
+async function syncCloud() {
+  const uid = googleUid();
+  if (!uid) return '';
+  const cloud = await pullSave(uid);
+  if (cloud && cloud.t > (save._t || 0)) {
+    save = loadSave(cloud.save);
+    save._t = cloud.t;
+    writeSave(save, true);
+    guildUI.quietRefresh();
+    sendBuild();
+    return '클라우드의 더 최근 저장을 불러왔어요';
+  }
+  writeSave(save);
+  await flushPush();
+  return cloudStatus() || '클라우드에 저장했어요';
+}
+
+async function googleLogin() {
+  let r;
+  try { r = await googleSignIn(); } catch (e) { throw new Error(googleError(e)); }
+  const carry = save; // 지금 하던 진행 (새 구글 계정이면 그대로 옮김)
+  const id = `g-${r.session.uid}`;
+  registerGoogleAccount(id, r.session.uid, r.profile);
+  setSaveAccount(id);
+  adoptSession(id, r.session);
+  const local = hasLocalSave() ? loadSave() : null;
+  let cloud = null;
+  try { cloud = await pullSave(r.session.uid); } catch (e) { console.warn(e); }
+  let note;
+  if (cloud && cloud.t >= (local?._t || 0)) { save = loadSave(cloud.save); save._t = cloud.t; writeSave(save, true); note = '클라우드 저장을 불러왔어요'; }
+  else if (local) { save = local; writeSave(save); note = '이 기기의 저장을 클라우드에 올렸어요'; }
+  else { save = loadSave(JSON.parse(JSON.stringify(carry))); writeSave(save); note = '지금 진행을 구글 계정으로 옮겼어요'; }
+  if (!ui.name.value && r.profile.name) ui.name.value = r.profile.name.slice(0, 10);
+  guildUI.quietRefresh();
+  updateAccountLabel();
+  sendBuild();
+  return `${r.profile.name || '구글'} 계정으로 로그인했어요. ${note}${r.linked ? ' (길드도 그대로 이어졌어요)' : ''}`;
+}
+if (googleUid() && guildReady()) syncCloud().then(() => updateAccountLabel()).catch((e) => console.warn('클라우드 불러오기 실패', e));
 updateAccountLabel();
 ui.account.addEventListener('click', () => account.open());
 for (const b of document.querySelectorAll('[data-open-settings]')) b.addEventListener('click', () => settingsUI.open());

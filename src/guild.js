@@ -16,14 +16,23 @@ let account = 'guest';
 const safeGet = (k) => { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } };
 const safeSet = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* 무시 */ } };
 
-export function setGuildAccount(id) { account = id || 'guest'; }
+export function setGuildAccount(id) {
+  const next = id || 'guest';
+  if (next !== account) session = null; // 계정을 바꾸면 그 계정의 로그인으로
+  account = next;
+}
 
 // config.js 값이 우선, 비어 있으면 게임 안에서 붙여 넣은 값
 export function firebaseConfig() {
   const local = safeGet(CFG_KEY) || {};
+  const databaseURL = (FIREBASE.databaseURL || local.databaseURL || '').replace(/\/+$/, '');
+  // 구글 로그인 창 주소: https://<프로젝트>-default-rtdb.firebaseio.com → <프로젝트>.firebaseapp.com
+  const host = (databaseURL.match(/^https:\/\/([^./]+)/) || [])[1] || '';
+  const project = host.replace(/-default-rtdb$/, '');
   return {
     apiKey: FIREBASE.apiKey || local.apiKey || '',
-    databaseURL: (FIREBASE.databaseURL || local.databaseURL || '').replace(/\/+$/, ''),
+    databaseURL,
+    authDomain: FIREBASE.authDomain || local.authDomain || (project ? `${project}.firebaseapp.com` : ''),
     fromFile: !!(FIREBASE.apiKey && FIREBASE.databaseURL),
   };
 }
@@ -32,11 +41,11 @@ export function saveFirebaseConfig(apiKey, databaseURL) {
 }
 export const guildReady = () => { const c = firebaseConfig(); return !!(c.apiKey && /^https:\/\/.+/.test(c.databaseURL)); };
 
-// ---------- 로그인 (익명) ----------
+// ---------- 로그인 (익명, 구글 계정이면 구글 로그인 유지) ----------
 const authKey = () => `sk-fb-auth:${account}`;
 let session = null;
 
-async function postJson(url, body, form = false) {
+export async function postJson(url, body, form = false) {
   const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': form ? 'application/x-www-form-urlencoded' : 'application/json' },
@@ -55,18 +64,33 @@ async function auth() {
   if (saved?.refreshToken) {
     try {
       r = await postJson(`https://securetoken.googleapis.com/v1/token?key=${apiKey}`, { grant_type: 'refresh_token', refresh_token: saved.refreshToken }, true);
-      session = { uid: r.user_id, idToken: r.id_token, refreshToken: r.refresh_token, exp: Date.now() + Number(r.expires_in) * 1000 };
+      session = { uid: r.user_id, idToken: r.id_token, refreshToken: r.refresh_token, exp: Date.now() + Number(r.expires_in) * 1000, google: !!saved.google };
     } catch { r = null; }
   }
+  if (!r && saved?.google) throw new Error('구글 로그인이 만료됐어요. 계정 화면에서 다시 로그인해 주세요');
   if (!r) {
     r = await postJson(`https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${apiKey}`, { returnSecureToken: true });
     session = { uid: r.localId, idToken: r.idToken, refreshToken: r.refreshToken, exp: Date.now() + Number(r.expiresIn) * 1000 };
   }
-  safeSet(authKey(), { uid: session.uid, refreshToken: session.refreshToken });
+  safeSet(authKey(), { uid: session.uid, refreshToken: session.refreshToken, google: !!saved?.google });
   return session;
 }
 
-async function db(method, path, body, query = '') {
+// 구글 계정과 이어 붙일 지금 계정의 익명 로그인 (없으면 null, 새로 만들지 않음)
+export async function existingAnonSession() {
+  const saved = safeGet(authKey());
+  if (!guildReady() || !saved?.refreshToken || saved.google) return null;
+  try { return await auth(); } catch { return null; }
+}
+
+// 구글로 로그인한 결과를 이 계정의 로그인으로 저장
+export function adoptSession(accountId, s) {
+  account = accountId;
+  session = { uid: s.uid, idToken: s.idToken, refreshToken: s.refreshToken, exp: s.exp || Date.now() + 3000e3, google: true };
+  safeSet(authKey(), { uid: s.uid, refreshToken: s.refreshToken, google: true });
+}
+
+export async function db(method, path, body, query = '') {
   const s = await auth();
   const url = `${firebaseConfig().databaseURL}/${path}.json?auth=${encodeURIComponent(s.idToken)}${query}`;
   const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });

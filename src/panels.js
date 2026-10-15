@@ -118,11 +118,26 @@ export function currentAccount() {
   const id = safeGet(CURRENT_KEY, null);
   return id && safeGet(ACCOUNTS_KEY, {})[id] ? id : null;
 }
+// 계정 정보: 구글 계정은 id가 'g-<uid>'
+export function accountInfo(id) {
+  const a = id ? safeGet(ACCOUNTS_KEY, {})[id] : null;
+  if (!a) return null;
+  return a.google ? { google: true, uid: a.uid, name: a.name || '구글 사용자', email: a.email || '' } : { google: false, name: id };
+}
+export function registerGoogleAccount(id, uid, profile) {
+  const accounts = safeGet(ACCOUNTS_KEY, {});
+  accounts[id] = { google: true, uid, name: profile.name, email: profile.email };
+  safeSet(ACCOUNTS_KEY, accounts);
+  safeSet(CURRENT_KEY, id);
+}
 
-export function createAccountUI(root, { getSave, onLogin, onImport }) {
+const GOOGLE_G = '<svg viewBox="0 0 48 48" width="18" height="18" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9.1 3.6l6.8-6.8C35.8 2.4 30.3 0 24 0 14.6 0 6.6 5.4 2.7 13.3l7.9 6.1C12.5 13.6 17.8 9.5 24 9.5z"/><path fill="#4285F4" d="M46.5 24.5c0-1.6-.1-3.1-.4-4.5H24v9h12.7c-.6 3-2.3 5.5-4.8 7.2l7.7 6c4.5-4.2 6.9-10.3 6.9-17.7z"/><path fill="#FBBC05" d="M10.5 28.6A14.5 14.5 0 0 1 9.5 24c0-1.6.3-3.2.8-4.6l-7.9-6.1A24 24 0 0 0 0 24c0 3.9.9 7.5 2.6 10.7l7.9-6.1z"/><path fill="#34A853" d="M24 48c6.5 0 11.9-2.1 15.9-5.8l-7.7-6c-2.1 1.4-4.9 2.3-8.2 2.3-6.2 0-11.5-4.2-13.4-9.8l-7.9 6.1C6.6 42.6 14.6 48 24 48z"/></svg>';
+
+export function createAccountUI(root, { getSave, onLogin, onImport, onGoogle, onSync, cloudStatus, preload }) {
   let mode = 'login';
   let msg = '';
   let code = '';
+  let busy = false;
 
   const codeBox = () => `
         <h3>다른 기기로 옮기기 (저장 코드)</h3>
@@ -133,12 +148,31 @@ export function createAccountUI(root, { getSave, onLogin, onImport }) {
           <button data-do="import">붙여 넣은 코드 불러오기</button>
         </div>`;
 
+  const googleBox = () => `
+        <div class="gbox">
+          <button data-do="google" class="google"${busy ? ' disabled' : ''}>${GOOGLE_G}<span>${busy ? '구글 로그인 중…' : 'Google 계정으로 로그인'}</span></button>
+          <p class="help">구글로 로그인하면 진행이 서버에 저장돼서 다른 기기에서도 그대로 이어 할 수 있어요. 지금 진행과 길드도 함께 옮겨 갑니다.</p>
+        </div>`;
+
   function draw() {
     const id = currentAccount();
+    const info = accountInfo(id);
+    if (info?.google) {
+      root.innerHTML = `
+        <h2>계정</h2>
+        <div class="gcard">${GOOGLE_G}<div><b>${esc(info.name)}</b><small>${esc(info.email)}</small></div></div>
+        <p class="sub">구글 계정으로 로그인했어요. 스킬 트리·정수·스킨·군단이 자동으로 클라우드에 저장돼요.</p>
+        <p class="help cloud-status">${esc(cloudStatus?.() || '')}</p>
+        <div class="buttons"><button data-do="sync">지금 동기화</button><button data-do="logout" class="danger">로그아웃</button><button data-close>닫기</button></div>
+        ${codeBox()}
+        <p class="tmsg" role="status">${esc(msg)}</p>`;
+      return;
+    }
     if (id) {
       root.innerHTML = `
         <h2>계정</h2>
-        <p class="sub"><b>${esc(id)}</b> 계정으로 로그인했어요. 스킬 트리·정수·스킨이 이 계정에 저장됩니다.</p>
+        <p class="sub"><b>${esc(id)}</b> 계정으로 로그인했어요. 스킬 트리·정수·스킨이 이 기기의 이 계정에 저장됩니다.</p>
+        ${googleBox()}
         <div class="buttons"><button data-do="logout" class="danger">로그아웃</button><button data-close>닫기</button></div>
         ${codeBox()}
         <p class="tmsg" role="status">${esc(msg)}</p>`;
@@ -146,7 +180,8 @@ export function createAccountUI(root, { getSave, onLogin, onImport }) {
     }
     root.innerHTML = `
       <h2>${mode === 'login' ? '로그인' : '회원가입'}</h2>
-      <p class="sub">이 기기에서 쓰는 계정이에요. 한 기기를 여러 명이 쓸 때 저장을 나눠 줍니다.</p>
+      ${googleBox()}
+      <p class="or">또는 이 기기에서만 쓰는 계정</p>
       <form class="login">
         <input id="accId" maxlength="16" placeholder="아이디" autocomplete="username" required>
         <input id="accPw" type="password" maxlength="32" placeholder="비밀번호 (4자 이상)" autocomplete="${mode === 'login' ? 'current-password' : 'new-password'}" required>
@@ -185,6 +220,19 @@ export function createAccountUI(root, { getSave, onLogin, onImport }) {
     const b = e.target.closest('[data-do]');
     if (!b) return;
     e.preventDefault();
+    if (b.dataset.do === 'google') {
+      if (busy) return;
+      busy = true; msg = '';
+      const p = onGoogle(); // 팝업은 이 안에서 바로 열림
+      draw();
+      p.then((m) => { msg = m || ''; }).catch((err) => { msg = err.message; }).finally(() => { busy = false; draw(); });
+      return;
+    }
+    if (b.dataset.do === 'sync') {
+      msg = '동기화 중…'; draw();
+      onSync().then((m) => { msg = m; }).catch((err) => { msg = err.message; }).finally(draw);
+      return;
+    }
     if (b.dataset.do === 'switch') { mode = mode === 'login' ? 'register' : 'login'; msg = ''; }
     else if (b.dataset.do === 'logout') { safeSet(CURRENT_KEY, null); code = ''; onLogin(null); }
     else if (b.dataset.do === 'export') {
@@ -201,8 +249,9 @@ export function createAccountUI(root, { getSave, onLogin, onImport }) {
 
   const api = {
     isOpen: () => !root.hidden,
-    open() { msg = ''; draw(); root.hidden = false; },
+    open() { msg = ''; preload?.(); draw(); root.hidden = false; },
     close() { root.hidden = true; },
+    refresh() { if (!root.hidden) draw(); },
   };
   return api;
 }
