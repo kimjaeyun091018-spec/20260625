@@ -13,7 +13,8 @@ function safeSet(key, value) {
 
 // ---------------------------------------------------------------- 설정
 const SETTINGS_KEY = 'sk-settings';
-export const settings = { autoAim: false, damageNumbers: true, ...safeGet(SETTINGS_KEY, {}) };
+export const settings = { autoAim: false, damageNumbers: true, zoom: 1.25, ...safeGet(SETTINGS_KEY, {}) };
+export const ZOOMS = [1, 1.25, 1.5];
 
 export function createSettingsUI(root) {
   function draw() {
@@ -24,7 +25,9 @@ export function createSettingsUI(root) {
         스킬도 가까운 적을 노립니다. 마우스 없이 키보드만으로 플레이할 때 켜세요.</small></span></label>
       <label class="toggle"><input type="checkbox" data-set="damageNumbers" ${settings.damageNumbers ? 'checked' : ''}>
         <span><b>피해 숫자 표시</b><small>적에게 준 피해를 숫자로 보여 줍니다. 치명타는 노란색, 지속 피해는 회색.</small></span></label>
-      <p class="help">키보드만으로: 이동 WASD · 공격 Enter(오토에임) · 무기 스킬 V · 궁극기 Q · 스킬 1~4 · 증강 카드 Z/X/C</p>
+      <div class="toggle"><span><b>화면 확대</b><small>캐릭터와 적을 크게 봅니다. 크게 할수록 한 번에 보이는 범위는 좁아져요.</small>
+        <span class="seg">${ZOOMS.map((z) => `<button data-zoom="${z}" class="${settings.zoom === z ? 'on' : ''}">${Math.round(z * 100)}%</button>`).join('')}</span></span></div>
+      <p class="help">키보드만으로: 이동 WASD · 공격 Enter(오토에임) · 무기 스킬 V · 궁극기 Q · 스킬 1~3 · 증강 카드 Z/X/C</p>
       <button data-close>닫기</button>`;
   }
   root.addEventListener('change', (e) => {
@@ -33,7 +36,11 @@ export function createSettingsUI(root) {
     settings[k] = e.target.checked;
     safeSet(SETTINGS_KEY, settings);
   });
-  root.addEventListener('click', (e) => { if (e.target.closest('[data-close]')) api.close(); });
+  root.addEventListener('click', (e) => {
+    if (e.target.closest('[data-close]')) { api.close(); return; }
+    const z = e.target.closest('[data-zoom]');
+    if (z) { settings.zoom = Number(z.dataset.zoom); safeSet(SETTINGS_KEY, settings); draw(); }
+  });
   const api = {
     isOpen: () => !root.hidden,
     open() { draw(); root.hidden = false; },

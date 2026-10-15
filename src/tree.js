@@ -1,12 +1,14 @@
 // 로비 스킬 트리 (성키우기처럼 가운데에서 뻗어 나가는 나무)
 // - 노드는 정수(게임 중 얻는 재화)로 해금하고, 한 번 해금하면 계정에 영구 저장됩니다.
-// - 빌드 칸(최대 4개): 캐릭터 속성 1개 + 해금한 스킬 중 4개 장착 (데드 바이 데이라이트의 퍽 4칸처럼)
+// - 빌드 칸(최대 4개): 캐릭터 속성 1개 + 액티브 3칸 + 패시브 2칸 장착
 //   처음 저장은 무료, 저장된 칸을 다시 고치려면 초기화 비용, 칸을 늘리려면 구매 비용.
 // - 일반 노드(스탯)는 해금하면 항상 적용, 숙련 노드는 캐릭터 속성이 같을 때만 적용.
 
 import { ELEMENTS, SKINS } from './data.js';
 
-export const LOADOUT_SIZE = 4;
+export const ACTIVE_SLOTS = 3;   // 액티브 칸 (1·2·3 키)
+export const PASSIVE_SLOTS = 2;  // 패시브 칸 (항상 켜짐)
+export const LOADOUT_SIZE = ACTIVE_SLOTS + PASSIVE_SLOTS;
 export const MAX_BUILD_SLOTS = 4;
 export const SLOT_PRICES = [0, 120, 240, 400]; // 1칸은 무료로 시작
 export const RESET_COST = 25;
@@ -14,7 +16,7 @@ export const START_ESSENCE = 40;
 
 const EL_ORDER = ['fire', 'water', 'electric', 'ice', 'wind', 'poison'];
 
-// 액티브 스킬 (장착하면 1~4 키로 사용)
+// 액티브 스킬 (액티브 칸에 장착하면 1~3 키로 사용)
 export const ACTIVES = {
   fireball: { el: 'fire', name: '화염구', cd: 6, desc: '부딪히면 폭발하는 화염구' },
   meteor: { el: 'fire', name: '메테오', cd: 16, desc: '마우스 위치에 1초 뒤 거대한 운석 낙하' },
@@ -33,7 +35,7 @@ export const ACTIVES = {
 // 패시브 특성 (장착 칸을 차지하지만 항상 켜져 있음)
 export const PERKS = {
   ember: { el: 'fire', name: '불씨', desc: '화상 걸린 적이 쓰러지면 작게 폭발' },
-  tide: { el: 'water', name: '치유의 물', desc: '방·웨이브를 클리어하면 체력 +1' },
+  tide: { el: 'water', name: '치유의 물', desc: '방을 클리어하면 체력 +1 (생존 모드: 1분마다)' },
   static: { el: 'electric', name: '정전기', desc: '대시 후 1.5초 동안 공격이 연쇄 번개를 일으킴' },
   frostarmor: { el: 'ice', name: '서리 갑옷', desc: '피격 시 주변 적 둔화' },
   tailwind: { el: 'wind', name: '순풍', desc: '대시 쿨타임 -30%, 이동 속도 +8%' },
@@ -85,6 +87,15 @@ function buildNodes() {
 export const TREE = buildNodes();
 export const NODE = Object.fromEntries(TREE.map((n) => [n.id, n]));
 export const equipable = (id) => ['active', 'perk'].includes(NODE[id]?.kind);
+export const isActive = (id) => NODE[id]?.kind === 'active';
+export const isPassive = (id) => NODE[id]?.kind === 'perk';
+
+// 장착 목록을 액티브 3칸 + 패시브 2칸 규칙에 맞게 자름 (순서 유지)
+export function fitLoadout(eq) {
+  const act = eq.filter(isActive).slice(0, ACTIVE_SLOTS);
+  const pas = eq.filter(isPassive).slice(0, PASSIVE_SLOTS);
+  return [...act, ...pas];
+}
 
 // 노드를 해금할 수 있는지 (이웃 노드 중 하나가 해금돼 있어야 함)
 export function canUnlock(unlocked, id) {
@@ -131,7 +142,7 @@ export function currentBuild(save) {
   const firstRoot = save.unlocked.map((id) => NODE[id]).find((n) => n?.kind === 'root');
   const el = slot.el || firstRoot?.el || null;
   // 장착 칸이 비어 있고 저장(잠금) 전이면, 해금한 스킬을 차례로 자동 장착
-  const eq = slot.eq.length || slot.saved ? [...slot.eq] : save.unlocked.filter(equipable).slice(0, LOADOUT_SIZE);
+  const eq = fitLoadout(slot.eq.length || slot.saved ? slot.eq : save.unlocked.filter(equipable));
   return { el, eq, nodes: save.unlocked, skin: save.skin };
 }
 
@@ -139,7 +150,7 @@ export function currentBuild(save) {
 export function sanitizeBuild(b) {
   const nodes = (Array.isArray(b?.nodes) ? b.nodes : []).filter((id) => typeof id === 'string' && NODE[id]).slice(0, TREE.length);
   const el = ELEMENTS[b?.el] && nodes.includes(`${b.el}_root`) ? b.el : null;
-  const eq = [...new Set((Array.isArray(b?.eq) ? b.eq : []).filter((id) => nodes.includes(id) && equipable(id)))].slice(0, LOADOUT_SIZE);
+  const eq = fitLoadout([...new Set((Array.isArray(b?.eq) ? b.eq : []).filter((id) => nodes.includes(id) && equipable(id)))]);
   const skin = SKINS[b?.skin] ? b.skin : 'shadow';
   return { el, eq, nodes, skin };
 }

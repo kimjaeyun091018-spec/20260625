@@ -6,7 +6,7 @@ export const VIEW_H = 640;
 export const MAX_PLAYERS = 4;
 
 export const MODES = {
-  camp: { name: '베이스캠프', desc: '중앙 캠프에 울타리·터렛을 짓고 끝없는 웨이브를 버티기' },
+  camp: { name: '베이스캠프', desc: '탕탕특공대처럼 10분 동안 몰려오는 적을 버티기 (자동 스킬·조합 진화)' },
   adv: { name: '모험', desc: '랜덤 던전의 방을 하나씩 정복하고 포털로 다음 스테이지로' },
 };
 
@@ -138,10 +138,11 @@ export const ENEMY_TYPES = {
   caster: { name: '해골 마법사', r: 12, hp: 3.5, speed: 70, fireEvery: 2.4, bulletSpeed: 170, score: 22, gold: 4, xp: 4, mp: 10, from: 5 },
   shield: { name: '방패병', r: 16, hp: 8, speed: 55, touch: 2, score: 25, gold: 5, xp: 5, mp: 8, from: 6 },
   totem: { name: '저주 토템', r: 14, hp: 7, speed: 0, fireEvery: 0.45, bulletSpeed: 170, score: 25, gold: 5, xp: 5, mp: 10, from: 7 },
+  elite: { name: '정예 오크', r: 26, hp: 45, speed: 75, touch: 2, score: 120, gold: 20, xp: 20, mp: 20, from: 99 },
   boss: { name: '보스', r: 34, hp: 0, speed: 70, touch: 2, score: 300, gold: 40, xp: 30, mp: 60, from: 99 },
 };
 // 정수(로비에서 스킬 트리를 해금하는 재화): 처치하면 모든 플레이어가 똑같이 받음
-export const ESSENCE = { default: 0.6, brute: 2, bigslime: 1.5, shield: 2, totem: 2, boss: 30, room: 2, stage: 8, wave: 1 };
+export const ESSENCE = { elite: 6, default: 0.6, brute: 2, bigslime: 1.5, shield: 2, totem: 2, boss: 30, room: 2, stage: 8, wave: 1 };
 
 // 월드마다 다른 보스 (x-5 스테이지). patterns: 보스마다 쓰는 공격 (game.js의 BOSS_PATTERNS)
 export const BOSSES = [
@@ -149,6 +150,49 @@ export const BOSSES = [
   { name: '해골 궁수 대장', color: '#9575cd', hp: 360, patterns: ['volley', 'arrowRain', 'teleport', 'homing', 'summon', 'spiral', 'wall'] },
   { name: '심연의 골렘', color: '#e57373', hp: 520, patterns: ['laser', 'shockwave', 'rock', 'charge', 'arrowRain', 'sweep', 'ring'] },
 ];
+
+// ---------- 베이스캠프 = 생존 모드 (탕탕특공대 방식) ----------
+// 10분 버티기: 적이 끊임없이 몰려오고, 2:30·5:00·7:30에 정예, 10:00에 보스. 보스를 잡으면 승리.
+export const SURVIVAL = {
+  prep: 15,              // 시작 준비 시간 (G로 건너뛰기)
+  duration: 600,         // 보스가 나오는 시각
+  elites: [150, 300, 450],
+  maxEnemies: 150,
+  chestEvery: 120,       // 캠프 옆에 상자
+  reviveTime: 20,        // 쓰러지면 20초 뒤 캠프에서 부활
+  hpMul: 0.7,            // 적 하나하나는 약하게, 대신 많이
+  bonusHp: 3,            // 생존 모드 시작 체력 보너스
+};
+
+// 자동 스킬 (레벨업 카드로 얻음, 혼자 발동). Lv1~5, Lv5 + 짝 패시브가 있으면 진화 카드가 나옴
+export const AUTO_SKILLS = {
+  blade: { name: '회전 칼날', evoName: '폭풍 칼날', pair: 'swift', color: '#e0f7fa', desc: '몸 주위를 도는 칼날', evoDesc: '칼날 6개가 멈추지 않고 돎' },
+  drone: { name: '드론', evoName: '드론 편대', pair: 'haste', color: '#80deea', desc: '가까운 적을 쏘는 드론', evoDesc: '드론 4대가 빠르게 연사' },
+  molotov: { name: '화염병', evoName: '지옥불', pair: 'area', color: '#ff7043', desc: '적에게 던져 불바다', evoDesc: '넓고 오래 타는 불바다 5개' },
+  lightning: { name: '낙뢰', evoName: '천둥신', pair: 'power', color: '#fff176', desc: '무작위 적에게 번개', evoDesc: '번개가 주변 적에게 연쇄' },
+  boomerang: { name: '부메랑', evoName: '원반 폭풍', pair: 'magnet', color: '#ffcc80', desc: '날아갔다 돌아오며 관통', evoDesc: '사방으로 부메랑 6개' },
+  aura: { name: '역장', evoName: '수호 역장', pair: 'vitality', color: '#b39ddb', desc: '주변 적에게 계속 피해', evoDesc: '더 넓고 적을 둔화, 가끔 체력 회복' },
+};
+export const PASSIVE_ITEMS = {
+  power: { name: '힘의 반지', desc: '모든 피해 +10%' },
+  haste: { name: '가속기', desc: '자동 스킬·무기 스킬 쿨타임 -8%' },
+  area: { name: '확장기', desc: '자동 스킬 범위 +10%' },
+  magnet: { name: '자석', desc: '구슬 줍는 거리 +30%' },
+  vitality: { name: '심장', desc: '최대 체력 +1' },
+  swift: { name: '날개 신발', desc: '이동 속도 +6%' },
+};
+export const AUTO_MAX_LV = 5;
+export const AUTO_SLOTS = 6;
+export const PASSIVE_SLOTS_RUN = 6;
+
+// ---------- 함정 (던전 전투 방·캠프 바깥) ----------
+// 플레이어와 적 모두 맞습니다. 적을 함정으로 유인해 보세요.
+export const TRAPS = {
+  spike: { name: '가시 함정', cycle: 2.4, warn: 1.2, on: 1.6, dmg: 1, edmg: 3 },
+  vent: { name: '화염 분사구', cycle: 3.2, warn: 1.6, on: 2.2, len: 96, w: 24, dmg: 1, edmg: 2 },
+  poison: { name: '독 웅덩이', r: 40, dmg: 1, every: 2, slow: 0.75 },
+  barrel: { name: '폭발 통', hp: 2, r: 90, dmg: 1, edmg: 8 },
+};
 
 // ---------- 베이스캠프 건물 ----------
 export const STRUCTS = {
@@ -256,7 +300,21 @@ export const SKINS = {
 
 // 카드 키('dmg', 'el:fire', 'rw:might', 'evo:twin')의 표시용 정보
 // weaponName: 지금 들고 있는 무기 이름 (속성 카드 설명에 씀)
-export function offerInfo(key, buffs = {}, weaponName = '무기', weaponEl = null, weaponElv = 0) {
+export function offerInfo(key, buffs = {}, weaponName = '무기', weaponEl = null, weaponElv = 0, run = {}) {
+  if (key.startsWith('au:')) {
+    const k = key.slice(3), d = AUTO_SKILLS[k], lv = (run.au?.[k] || 0) + 1;
+    return { name: d.name, desc: lv === 1 ? `자동 스킬: ${d.desc} (진화 짝: ${PASSIVE_ITEMS[d.pair].name})` : `${d.desc} 강화`, lv, max: AUTO_MAX_LV, color: d.color };
+  }
+  if (key.startsWith('pa:')) {
+    const k = key.slice(3), d = PASSIVE_ITEMS[k], lv = (run.pa?.[k] || 0) + 1;
+    const pairs = Object.values(AUTO_SKILLS).filter((a) => a.pair === k).map((a) => a.name).join(', ');
+    return { name: d.name, desc: `${d.desc}${pairs ? ` · ${pairs} 진화 짝` : ''}`, lv, max: AUTO_MAX_LV, color: '#a5d6a7' };
+  }
+  if (key.startsWith('ev:')) {
+    const d = AUTO_SKILLS[key.slice(3)];
+    return { name: `진화! ${d.evoName}`, desc: d.evoDesc, lv: null, max: null, color: '#ffd54f' };
+  }
+  if (key === 'heal') return { name: '고기', desc: '체력 +3 (반복 가능)', lv: null, max: null, color: '#ef9a9a' };
   if (key.startsWith('evo:')) {
     const k = key.slice(4), w = WEAPONS[k], i = weaponInfo(k);
     return {

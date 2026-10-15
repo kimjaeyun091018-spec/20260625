@@ -1,8 +1,8 @@
 // 로비 스킬 트리 화면 (이 브라우저의 저장 데이터만 다룸, 게임 계산과는 별개)
 import { ELEMENTS } from './data.js';
 import {
-  TREE, NODE, ACTIVES, LOADOUT_SIZE, MAX_BUILD_SLOTS, SLOT_PRICES, RESET_COST,
-  canUnlock, equipable, writeSave,
+  TREE, NODE, ACTIVES, ACTIVE_SLOTS, PASSIVE_SLOTS, MAX_BUILD_SLOTS, SLOT_PRICES, RESET_COST,
+  canUnlock, equipable, isActive, writeSave,
 } from './tree.js';
 
 const GENERAL_ICONS = { g_hp: '♥', g_dmg: '⚔', g_speed: '»', g_xp: '✦', g_ess: '◆', g_cd: '◷' };
@@ -18,6 +18,12 @@ function icon(n) {
   if (n.kind === 'active') return '✸';
   if (n.kind === 'perk') return '◈';
   return '▲';
+}
+
+// 그 종류(액티브/패시브) 칸에 자리가 있는지
+function hasRoom(s, id) {
+  const act = isActive(id);
+  return s.eq.filter((x) => isActive(x) === act).length < (act ? ACTIVE_SLOTS : PASSIVE_SLOTS);
 }
 
 export function createTreeUI(root, { getSave, onChange }) {
@@ -109,11 +115,10 @@ export function createTreeUI(root, { getSave, onChange }) {
       return `<button class="btab${i === save.active ? ' on' : ''}" data-tree="tab" data-i="${i}">${i + 1}. ${name}${sl.saved ? '' : '*'}</button>`;
     }).join('');
     const s = slot();
-    const slots = Array.from({ length: LOADOUT_SIZE }, (_, i) => {
-      const id = s.eq[i];
-      const n = id ? NODE[id] : null;
-      return `<div class="eqslot" style="--c:${n ? ELEMENTS[n.el].color : '#3a3556'}"><span>${i + 1}</span>${n ? `<b>${esc(n.name)}</b><small>${n.kind === 'perk' ? '패시브' : '액티브'}</small>` : '<small>비어 있음</small>'}</div>`;
-    }).join('');
+    const box = (n, label, kind) => `<div class="eqslot${kind === 'p' ? ' pas' : ''}" style="--c:${n ? ELEMENTS[n.el].color : '#3a3556'}"><span>${label}</span>${n ? `<b>${esc(n.name)}</b>` : '<small>비어 있음</small>'}</div>`;
+    const acts = s.eq.filter(isActive), pas = s.eq.filter((id) => !isActive(id));
+    const slots = `<div class="eqgroup"><small>액티브 (1~3 키)</small><div class="eqrow">${Array.from({ length: ACTIVE_SLOTS }, (_, i) => box(NODE[acts[i]], i + 1, 'a')).join('')}</div></div>
+      <div class="eqgroup"><small>패시브 (항상 켜짐)</small><div class="eqrow">${Array.from({ length: PASSIVE_SLOTS }, (_, i) => box(NODE[pas[i]], 'P', 'p')).join('')}</div></div>`;
     const el = s.el ? ELEMENTS[s.el] : null;
     const saveBtns = s.saved
       ? `<button data-tree="reset" ${save.essence < RESET_COST ? 'disabled' : ''}>초기화 ◆${RESET_COST}</button>`
@@ -158,15 +163,15 @@ export function createTreeUI(root, { getSave, onChange }) {
           // 해금하면 바로 쓰도록: 속성 각인 → 캐릭터 속성, 스킬 → 빈 장착 칸
           let note = '';
           if (editable() && n.kind === 'root' && !s.el) { s.el = n.el; note = ' 캐릭터 속성이 되었어요'; }
-          if (editable() && equipable(n.id) && s.eq.length < LOADOUT_SIZE && !s.eq.includes(n.id)) { s.eq.push(n.id); note = ` ${s.eq.length}번 칸에 장착했어요`; }
+          if (editable() && equipable(n.id) && hasRoom(s, n.id) && !s.eq.includes(n.id)) { s.eq.push(n.id); note = ` ${isActive(n.id) ? '액티브' : '패시브'} 칸에 장착했어요`; }
           commit(`${n.name} 해금!${note}`);
         }
         break;
       case 'equip':
         if (!editable()) break;
         if (s.eq.includes(n.id)) s.eq = s.eq.filter((id) => id !== n.id);
-        else if (s.eq.length < LOADOUT_SIZE) s.eq.push(n.id);
-        else { message = '장착 칸은 4개까지예요. 하나를 먼저 해제하세요'; draw(); break; }
+        else if (hasRoom(s, n.id)) s.eq.push(n.id);
+        else { message = isActive(n.id) ? `액티브 칸은 ${ACTIVE_SLOTS}개까지예요. 하나를 먼저 해제하세요` : `패시브 칸은 ${PASSIVE_SLOTS}개까지예요. 하나를 먼저 해제하세요`; draw(); break; }
         commit();
         break;
       case 'element':

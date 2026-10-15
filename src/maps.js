@@ -27,15 +27,54 @@ function walledRoom(cols, rows) {
   return m;
 }
 
+// 넓은 들판(72x52) 가운데 캠프. 바깥에는 바위와 함정이 흩어져 있습니다.
 export function buildCampMap() {
-  const cols = 44, rows = 30;
+  const cols = 72, rows = 52;
   const m = walledRoom(cols, rows);
-  for (const [bx, by] of [[7, 5], [35, 5], [7, 23], [35, 23], [21, 3], [21, 25], [3, 14], [39, 14]]) {
-    for (let dy = 0; dy < 2; dy++) for (let dx = 0; dx < 2; dx++) setTile(m, bx + dx, by + dy, 1);
+  const cx = 36, cy = 26, campR = 8;
+  m.camp = { x: cx * TILE, y: cy * TILE, r: campR * TILE };
+  m.spawn = { x: cx * TILE, y: cy * TILE };
+  const far = (x, y, d) => Math.hypot(x - cx, y - cy) > campR + d;
+  for (let n = 0, guard = 0; n < 26 && guard < 500; guard++) {
+    const s = rand(1, 3), x = rand(3, cols - 4 - s), y = rand(3, rows - 4 - s);
+    if (!far(x, y, 4)) continue;
+    for (let dy = 0; dy < s; dy++) for (let dx = 0; dx < s; dx++) setTile(m, x + dx, y + dy, 1);
+    n++;
   }
-  m.camp = { x: 22 * TILE, y: 15 * TILE, r: 7 * TILE };
-  m.spawn = { x: 22 * TILE, y: 15 * TILE };
+  m.traps = [];
+  const counts = { spike: 22, vent: 8, poison: 8, barrel: 14 };
+  for (const [k, n] of Object.entries(counts)) {
+    for (let i = 0, guard = 0; i < n && guard < 400; guard++) {
+      const x = rand(2, cols - 3), y = rand(2, rows - 3);
+      if (!far(x, y, 3) || !floorAround(m, x, y)) continue;
+      addTrap(m, k, x, y);
+      i++;
+    }
+  }
   return m;
+}
+
+// ---------- 함정 ----------
+let trapSerial = 1;
+function floorAround(m, x, y) {
+  for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (m.tiles[(y + dy) * m.cols + x + dx] !== 0) return false;
+  return !(m.traps || []).some((t) => Math.abs(t.tx - x) < 2 && Math.abs(t.ty - y) < 2);
+}
+function addTrap(m, k, tx, ty) {
+  m.traps.push({ id: trapSerial++, k, tx, ty, x: tileCenter(tx), y: tileCenter(ty), a: rand(0, 3), off: Math.random() * 3 });
+}
+// 전투 방 안에 함정 몇 개 (문 앞과 한가운데는 피함)
+function roomTraps(m, r, n) {
+  const cx = r.x0 + r.w / 2, cy = r.y0 + r.h / 2;
+  const kinds = ['spike', 'spike', 'spike', 'vent', 'poison', 'barrel', 'barrel'];
+  for (let i = 0, guard = 0; i < n && guard < 200; guard++) {
+    const x = rand(r.x0 + 2, r.x0 + r.w - 3), y = rand(r.y0 + 2, r.y0 + r.h - 3);
+    if (Math.abs(x - cx) < 3 && Math.abs(y - cy) < 3) continue;
+    if (r.doors.some(([dx, dy]) => Math.abs(dx - x) + Math.abs(dy - y) < 4)) continue;
+    if (!floorAround(m, x, y)) continue;
+    addTrap(m, kinds[rand(0, kinds.length - 1)], x, y);
+    i++;
+  }
 }
 
 // ---------- 로비 (걸어 다니는 방) ----------
@@ -59,7 +98,7 @@ export function buildLobbyMap(charKeys) {
 // ---------- 랜덤 던전 ----------
 // 5x5 칸 격자 위에 방을 나무 모양으로 이어 붙이고, 이웃한 방끼리 3칸 폭 복도로 연결합니다.
 const GRID = 5;
-export const CELL = 30; // 한 칸 = 30x30 타일
+export const CELL = 40; // 한 칸 = 40x40 타일
 
 export function generateDungeon(stageIdx, { roomBonus = 0, boss = false } = {}) {
   const roomCount = Math.min(7 + Math.floor(stageIdx / 2) + roomBonus, GRID * GRID - 4);
@@ -107,8 +146,8 @@ export function generateDungeon(stageIdx, { roomBonus = 0, boss = false } = {}) 
   list.forEach((c, i) => {
     const type = c === first ? 'start' : c === last ? (boss ? 'boss' : 'portal') : special.get(c) || 'battle';
     const small = type !== 'battle' && type !== 'boss';
-    const w = type === 'boss' ? 25 : small ? 11 : rand(15, 21);
-    const h = type === 'boss' ? 21 : small ? 11 : rand(13, 17);
+    const w = type === 'boss' ? 33 : small ? 13 : rand(21, 29);
+    const h = type === 'boss' ? 27 : small ? 13 : rand(17, 23);
     c.room = {
       id: i, type, gx: c.gx, gy: c.gy,
       x0: c.gx * CELL + Math.floor((CELL - w) / 2),
@@ -139,7 +178,7 @@ export function generateDungeon(stageIdx, { roomBonus = 0, boss = false } = {}) 
   for (const r of m.rooms) {
     if (r.type !== 'battle') continue;
     const cx = r.x0 + Math.floor(r.w / 2), cy = r.y0 + Math.floor(r.h / 2);
-    for (let n = rand(3, 6), guard = 0; n > 0 && guard < 60; guard++) {
+    for (let n = rand(5, 9), guard = 0; n > 0 && guard < 90; guard++) {
       const s = Math.random() < 0.5 ? 1 : Math.random() < 0.7 ? 2 : 3;
       const px = rand(r.x0 + 2, r.x0 + r.w - 3 - s), py = rand(r.y0 + 2, r.y0 + r.h - 3 - s);
       if (Math.abs(px - cx) < 3 && Math.abs(py - cy) < 3) continue;
@@ -147,6 +186,10 @@ export function generateDungeon(stageIdx, { roomBonus = 0, boss = false } = {}) 
       n--;
     }
   }
+
+  // 전투 방마다 함정 (스테이지가 오를수록 많이)
+  m.traps = [];
+  for (const r of m.rooms) if (r.type === 'battle') roomTraps(m, r, rand(2, 3) + Math.min(4, Math.floor(stageIdx / 3)));
 
   const start = first.room, end = last.room;
   m.spawn = { x: (start.x0 + start.w / 2) * TILE, y: (start.y0 + start.h / 2) * TILE };
@@ -185,7 +228,7 @@ export function packMap(m) {
     id: m.id, cols: m.cols, rows: m.rows,
     tiles: m.tiles.join(''),
     rooms: m.rooms.map(({ id, type, gx, gy, x0, y0, w, h, doors, links }) => ({ id, type, gx, gy, x0, y0, w, h, doors, links })),
-    camp: m.camp || null, spawn: m.spawn, portal: m.portal || null, lobby: m.lobby || null, boss: !!m.boss,
+    camp: m.camp || null, spawn: m.spawn, portal: m.portal || null, lobby: m.lobby || null, boss: !!m.boss, traps: m.traps || [],
   };
 }
 

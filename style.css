@@ -108,8 +108,11 @@ small { display: block; color: #b0aacc; font-size: 12px; line-height: 1.35; }
 .btab.locked { color: #9e9e9e; }
 .bel { margin: 8px 0; font-size: 14px; }
 .bstate { display: block; font-size: 12px; color: #a5d6a7; margin-top: 2px; }
-.eqslots { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
-.eqslot { border: 2px solid var(--c); border-radius: 8px; padding: 6px; min-height: 58px; font-size: 12px; display: flex; flex-direction: column; gap: 2px; }
+.eqslots { display: grid; grid-template-columns: 3fr 2fr; gap: 10px; }
+.eqgroup > small { color: #9e9e9e; font-size: 11px; display: block; margin-bottom: 4px; }
+.eqrow { display: grid; grid-template-columns: repeat(auto-fit, minmax(0, 1fr)); gap: 6px; }
+.eqslot.pas { border-style: dashed; }
+.eqslot { border: 2px solid var(--c); border-radius: 8px; padding: 6px; min-height: 52px; font-size: 12px; display: flex; flex-direction: column; gap: 2px; }
 .eqslot span { color: #9e9e9e; font-size: 11px; }
 .eqslot b { font-size: 13px; }
 .bbtns { margin-top: 8px; display: flex; gap: 8px; }
@@ -228,3 +231,7 @@ button.link:hover:not(:disabled) { background: none; color: #d1c4e9; }
 .skin img { image-rendering: pixelated; }
 .skin button { padding: 5px 10px; font-size: 13px; }
 .reward.pressed, .weapon.pressed { transform: scale(0.97); border-color: #fff; }
+
+.seg { display: flex; gap: 6px; margin-top: 6px; }
+.seg button { padding: 4px 12px; font-size: 13px; opacity: .7; }
+.seg button.on { opacity: 1; outline: 2px solid #ffd54f; }

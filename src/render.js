@@ -1,7 +1,7 @@
 // 캔버스 그리기 전담 (게임 규칙 없음)
 import {
   TILE, VIEW_W, VIEW_H, STRUCTS, BUFFS, ELEMENTS, WEAPONS, SKILLS, SKINS, MAX_AUGMENT_TYPES, offerInfo, stageLabel, weaponFam,
-  CHARACTERS, weaponInfo, elColor, TIER_NAME, SHOP, reactionName, ENEMY_TYPES,
+  CHARACTERS, weaponInfo, elColor, TIER_NAME, SHOP, reactionName, ENEMY_TYPES, TRAPS, AUTO_SKILLS, PASSIVE_ITEMS, SURVIVAL,
 } from './data.js';
 import { CELL } from './maps.js';
 import { NODE } from './tree.js';
@@ -130,20 +130,20 @@ export function createRenderer(canvas) {
   }
 
   // ---------- 카메라 ----------
-  function cameraFor(map, focus) {
+  // z = 화면 확대 배율 (1.25면 세상이 1.25배 크게 보이고, 보이는 범위는 그만큼 좁아짐)
+  function cameraFor(map, focus, z = 1) {
+    const vw = VIEW_W / z, vh = VIEW_H / z;
     const mw = map.cols * TILE, mh = map.rows * TILE;
-    const cx = mw <= VIEW_W ? (mw - VIEW_W) / 2 : Math.max(0, Math.min(mw - VIEW_W, focus.x - VIEW_W / 2));
-    const cy = mh <= VIEW_H ? (mh - VIEW_H) / 2 : Math.max(0, Math.min(mh - VIEW_H, focus.y - VIEW_H / 2));
-    return { x: Math.round(cx), y: Math.round(cy) };
+    const cx = mw <= vw ? (mw - vw) / 2 : Math.max(0, Math.min(mw - vw, focus.x - vw / 2));
+    const cy = mh <= vh ? (mh - vh) / 2 : Math.max(0, Math.min(mh - vh, focus.y - vh / 2));
+    return { x: Math.round(cx), y: Math.round(cy), z };
   }
 
   // ---------- 맵 ----------
   function drawMap(map, cam, snap) {
-    ctx.fillStyle = '#0e0d18';
-    ctx.fillRect(0, 0, VIEW_W, VIEW_H);
     const tx0 = Math.max(0, Math.floor(cam.x / TILE)), ty0 = Math.max(0, Math.floor(cam.y / TILE));
-    const tx1 = Math.min(map.cols - 1, Math.floor((cam.x + VIEW_W) / TILE));
-    const ty1 = Math.min(map.rows - 1, Math.floor((cam.y + VIEW_H) / TILE));
+    const tx1 = Math.min(map.cols - 1, Math.floor((cam.x + VIEW_W / cam.z) / TILE));
+    const ty1 = Math.min(map.rows - 1, Math.floor((cam.y + VIEW_H / cam.z) / TILE));
     const camp = map.camp;
     for (let ty = ty0; ty <= ty1; ty++) {
       for (let tx = tx0; tx <= tx1; tx++) {
@@ -304,8 +304,9 @@ export function createRenderer(canvas) {
   const ENEMY_ORDER = ['slime', 'archer', 'brute', 'bat', 'spider', 'bomber', 'caster', 'shield', 'totem'];
   const ENEMY_FRAME = Object.fromEntries(ENEMY_ORDER.map((k, i) => [k, i * 3]));
   ENEMY_FRAME.bigslime = ENEMY_FRAME.slime;
+  ENEMY_FRAME.elite = ENEMY_FRAME.brute;
   const SOUL_FRAME = ENEMY_ORDER.length * 3;
-  const BASE_R = { bigslime: 13 };   // 큰 슬라임은 슬라임 그림을 크게
+  const BASE_R = { bigslime: 13, elite: 17 };   // 큰 슬라임·정예는 그림을 크게
   const BOSS_FRAME = { '#66bb6a': 0, '#9575cd': 3, '#e57373': 6 };
 
   function drawSprite(sheet, hitSheet, frame, size, scale, x, y, flip, hit) {
@@ -501,6 +502,18 @@ export function createRenderer(canvas) {
       ctx.restore();
       return;
     }
+    if (b.k === 'boomerang') {
+      ctx.save();
+      ctx.translate(b.x, b.y);
+      ctx.rotate(performance.now() / 50);
+      ctx.strokeStyle = '#fff'; ctx.lineWidth = 7; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(-9, -6); ctx.lineTo(0, 3); ctx.lineTo(9, -6); ctx.stroke();
+      ctx.strokeStyle = '#ffb74d'; ctx.lineWidth = 4;
+      ctx.stroke();
+      ctx.restore();
+      return;
+    }
+    if (b.k === 'drone') { circle(b.x, b.y, 3.5, '#fff'); circle(b.x, b.y, 2.5, '#00e5ff'); return; }
     if (b.k === 'javelin') {
       drawWeaponSprite('spear', b.x, b.y, 1.5, b.st ? b.a : b.a, false, 1);
       return;
@@ -614,6 +627,7 @@ export function createRenderer(canvas) {
 
   function drawZone(z, now) {
     const color = ELEMENTS[z.el]?.color || '#ffffff';
+    if (z.k === 'fire') { drawFireZone(z, now); return; }
     if (z.k && z.k !== 'rain') { drawSkillZone(z, now, color); return; }
     ctx.save();
     ctx.strokeStyle = color;
@@ -673,6 +687,8 @@ export function createRenderer(canvas) {
 
   function drawOrb(o, now) {
     const bob = Math.sin(now / 200 + o.id) * 2;
+    if (o.k === 'mag') { circle(o.x, o.y + bob, 8, '#fff'); ctx.strokeStyle = '#e53935'; ctx.lineWidth = 4; ctx.beginPath(); ctx.arc(o.x, o.y + bob, 5, Math.PI, 0); ctx.stroke(); return; }
+    if (o.k === 'h') { circle(o.x, o.y + bob, 6, '#fff'); circle(o.x, o.y + bob, 5, '#d84315'); circle(o.x + 3, o.y + 3 + bob, 2.5, '#fff3e0'); return; }
     if (o.k === 'm') { circle(o.x, o.y + bob, 5, '#fff'); circle(o.x, o.y + bob, 4, '#2196f3'); circle(o.x - 1, o.y - 1 + bob, 1.5, '#bbdefb'); return; }
     if (o.k === 'g') { circle(o.x, o.y + bob, 5, '#8d6e00'); circle(o.x, o.y + bob, 4, '#ffd54f'); ctx.fillStyle = '#ffecb3'; ctx.fillRect(o.x - 1, o.y - 2 + bob, 1.5, 4); return; }
     ctx.fillStyle = '#69f0ae';
@@ -802,6 +818,128 @@ export function createRenderer(canvas) {
     }
   }
 
+  // ---------- 함정 ----------
+  // 가시·분사구는 snap.tm(게임 시간)으로 박자를 맞춰 그립니다.
+  function drawTraps(map, snap, now) {
+    const traps = map.traps || [];
+    if (!traps.length) return;
+    const alive = new Set(snap.br || []);
+    const t = snap.tm ?? now / 1000;
+    for (const tr of traps) {
+      const x = tr.x, y = tr.y;
+      if (tr.k === 'barrel') {
+        if (!alive.has(tr.id)) {
+          ctx.fillStyle = 'rgba(30,20,20,.5)';
+          ctx.beginPath(); ctx.ellipse(x, y + 6, 14, 6, 0, 0, Math.PI * 2); ctx.fill();
+          continue;
+        }
+        ctx.fillStyle = '#fff'; ctx.fillRect(x - 11, y - 15, 22, 28);
+        ctx.fillStyle = '#c62828'; ctx.fillRect(x - 10, y - 14, 20, 26);
+        ctx.fillStyle = '#8e0000'; ctx.fillRect(x - 10, y - 8, 20, 3); ctx.fillRect(x - 10, y + 4, 20, 3);
+        ctx.fillStyle = '#ffd54f'; ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'center'; ctx.fillText('!', x, y + 2);
+        continue;
+      }
+      if (tr.k === 'poison') {
+        ctx.save();
+        ctx.globalAlpha = 0.45 + Math.sin(now / 300 + tr.id) * 0.08;
+        ctx.fillStyle = '#558b2f';
+        ctx.beginPath(); ctx.ellipse(x, y, TRAPS.poison.r, TRAPS.poison.r * 0.75, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.globalAlpha = 0.8;
+        for (let i = 0; i < 3; i++) circle(x + Math.cos(i * 2.1 + tr.id) * 18, y + Math.sin(i * 2.1 + tr.id) * 12 - ((now / 20 + i * 30) % 14), 3, '#9ccc65');
+        ctx.restore();
+        continue;
+      }
+      const D = TRAPS[tr.k];
+      const ph = (t + tr.off) % D.cycle;
+      const warn = ph >= D.warn && ph < D.on, on = ph >= D.on;
+      if (tr.k === 'spike') {
+        ctx.fillStyle = '#2a2438';
+        ctx.fillRect(x - 14, y - 14, 28, 28);
+        ctx.strokeStyle = warn ? '#ff8a80' : '#3f3656';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(x - 13, y - 13, 26, 26);
+        for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) {
+          const px = x - 9 + i * 9, py = y - 9 + j * 9;
+          if (on) {
+            ctx.fillStyle = '#eceff1';
+            ctx.beginPath(); ctx.moveTo(px - 3, py + 3); ctx.lineTo(px, py - 6); ctx.lineTo(px + 3, py + 3); ctx.fill();
+          } else circle(px, py, 1.6, warn && Math.floor(now / 80) % 2 ? '#ff8a80' : '#15121f');
+        }
+      } else if (tr.k === 'vent') {
+        const ux = [1, 0, -1, 0][tr.a], uy = [0, 1, 0, -1][tr.a];
+        ctx.fillStyle = '#37474f'; ctx.fillRect(x - 11, y - 11, 22, 22);
+        circle(x, y, 7, warn || on ? '#ff7043' : '#263238');
+        if (warn) {
+          ctx.save(); ctx.globalAlpha = 0.25; ctx.strokeStyle = '#ff5252'; ctx.lineWidth = D.w; ctx.lineCap = 'round';
+          ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + ux * D.len, y + uy * D.len); ctx.stroke(); ctx.restore();
+        }
+        if (on) {
+          ctx.save();
+          for (let i = 0; i < 6; i++) {
+            const d = 12 + i * (D.len - 12) / 5 + Math.sin(now / 50 + i) * 3;
+            ctx.globalAlpha = 0.85 - i * 0.08;
+            circle(x + ux * d, y + uy * d, D.w / 2 - i, i % 2 ? '#ffca28' : '#ff7043');
+          }
+          ctx.restore();
+        }
+      }
+    }
+  }
+
+  // 자동 스킬 그림 (생존 모드): 칼날·드론·역장. front = 캐릭터 앞에 그릴 것
+  function drawAutos(p, snap, now, front) {
+    if (!p.au?.length || !p.al) return;
+    const t = snap.tm ?? now / 1000;
+    for (const [k, lv, evo, on, n, r] of p.au) {
+      if (k === 'aura' && !front) {
+        ctx.save();
+        ctx.globalAlpha = 0.12 + Math.sin(now / 200) * 0.03;
+        circle(p.x, p.y, r, evo ? '#d1c4e9' : '#9575cd');
+        ctx.globalAlpha = 0.5;
+        ctx.strokeStyle = evo ? '#ede7f6' : '#b39ddb';
+        ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI * 2); ctx.stroke();
+        ctx.restore();
+      } else if (k === 'blade' && front && on > 0) {
+        for (let i = 0; i < n; i++) {
+          const a = t * (evo ? 5 : 4) + (i / n) * Math.PI * 2;
+          const bx = p.x + Math.cos(a) * r, by = p.y + Math.sin(a) * r;
+          ctx.save();
+          ctx.translate(bx, by);
+          ctx.rotate(a + Math.PI / 2 + now / 60);
+          ctx.fillStyle = '#fff';
+          ctx.beginPath(); ctx.moveTo(0, -13); ctx.lineTo(5, 0); ctx.lineTo(0, 13); ctx.lineTo(-5, 0); ctx.fill();
+          ctx.fillStyle = evo ? '#80deea' : '#b0bec5';
+          ctx.beginPath(); ctx.moveTo(0, -10); ctx.lineTo(3, 0); ctx.lineTo(0, 10); ctx.lineTo(-3, 0); ctx.fill();
+          ctx.restore();
+        }
+      } else if (k === 'drone' && front) {
+        for (let i = 0; i < n; i++) {
+          const a = t * 2 + (i / n) * Math.PI * 2;
+          const dx = p.x + Math.cos(a) * 30, dy = p.y - 24 + Math.sin(a) * 10;
+          ctx.fillStyle = '#fff'; ctx.fillRect(dx - 7, dy - 4, 14, 8);
+          ctx.fillStyle = evo ? '#00acc1' : '#546e7a'; ctx.fillRect(dx - 6, dy - 3, 12, 6);
+          circle(dx, dy, 2, '#80deea');
+          ctx.fillStyle = 'rgba(255,255,255,.6)';
+          ctx.fillRect(dx - 9 + Math.sin(now / 30) * 2, dy - 6, 6, 1.5); ctx.fillRect(dx + 3 - Math.sin(now / 30) * 2, dy - 6, 6, 1.5);
+        }
+      }
+    }
+  }
+
+  function drawFireZone(z, now) {
+    ctx.save();
+    ctx.globalAlpha = 0.28;
+    circle(z.x, z.y, z.r, '#ff5722');
+    for (let i = 0; i < 9; i++) {
+      const a = i * 2.4 + z.x, rr = z.r * (0.2 + ((i * 37) % 10) / 13);
+      const fy = (now / 8 + i * 40) % 22;
+      ctx.globalAlpha = 0.75 * (1 - fy / 22);
+      circle(z.x + Math.cos(a) * rr * 0.9, z.y + Math.sin(a) * rr * 0.6 - fy, 5 - fy / 6, i % 2 ? '#ffca28' : '#ff7043');
+    }
+    ctx.restore();
+  }
+
   // 쓰러진 적: 눕은 몸이 바래 가고, 영혼이 위로 빠져나감 (k: 1 → 0)
   function drawDeath(f, k) {
     if (!sprites.ready) return;
@@ -885,7 +1023,9 @@ export function createRenderer(canvas) {
     }
   }
 
-  function drawCards(me, mouse) {
+  const fmtT = (t) => `${t < 0 ? '-' : ''}${Math.floor(Math.abs(t) / 60)}:${String(Math.floor(Math.abs(t) % 60)).padStart(2, '0')}`;
+
+  function drawCards(me, mouse, camp) {
     cardRects = [];
     if (!me?.of) return;
     const w = 200, h = 84, gap = 14;
@@ -895,7 +1035,7 @@ export function createRenderer(canvas) {
     ctx.fillStyle = '#ffe082';
     ctx.font = 'bold 14px sans-serif';
     const more = me.oq > 0 ? ` (+${me.oq}장 대기)` : '';
-    ctx.fillText(`레벨 업! 증강을 클릭하거나 Z/X/C로 고르세요 · 증강 ${me.at}/${MAX_AUGMENT_TYPES}종${more}`, Math.max(16, (VIEW_W - 190 - total) / 2), y - 8);
+    ctx.fillText(camp ? `레벨 업! 자동 스킬·패시브를 고르세요 (Z/X/C)${more}` : `레벨 업! 증강을 클릭하거나 Z/X/C로 고르세요 · 증강 ${me.at}/${MAX_AUGMENT_TYPES}종${more}`, Math.max(16, (VIEW_W - 190 - total) / 2), y - 8);
     me.of.forEach((key, i) => {
       const x = Math.max(16, (VIEW_W - 190 - total) / 2) + i * (w + gap);
       const hover = mouse.sx >= x && mouse.sx <= x + w && mouse.sy >= y && mouse.sy <= y + h;
@@ -903,7 +1043,8 @@ export function createRenderer(canvas) {
       ctx.fillStyle = hover ? 'rgba(75,63,143,.97)' : 'rgba(30,27,52,.94)';
       ctx.fill();
       const cur = me.ws?.[me.sl];
-      const info = offerInfo(key, me.bf, cur ? weaponLabel(cur.k, null) : '무기', cur?.el, cur?.lv);
+      const run = { au: Object.fromEntries((me.au || []).map(([k, lv]) => [k, lv])), pa: me.pa || {} };
+      const info = offerInfo(key, me.bf, cur ? weaponLabel(cur.k, null) : '무기', cur?.el, cur?.lv, run);
       ctx.strokeStyle = info.color;
       ctx.lineWidth = 2;
       ctx.stroke();
@@ -915,7 +1056,8 @@ export function createRenderer(canvas) {
       ctx.fillStyle = '#fff';
       ctx.font = 'bold 16px sans-serif';
       ctx.fillText(info.name, x + 26, y + 26);
-      const owned = key.startsWith('el:') ? me.ws?.[me.sl]?.el === key.slice(3) : !!me.bf?.[key];
+      const owned = key.startsWith('el:') ? me.ws?.[me.sl]?.el === key.slice(3)
+        : key.startsWith('au:') ? !!run.au[key.slice(3)] : key.startsWith('pa:') ? !!run.pa[key.slice(3)] : key === 'heal' || key.startsWith('ev:') || !!me.bf?.[key];
       if (!owned) {
         ctx.fillStyle = '#80cbc4';
         ctx.font = 'bold 11px sans-serif';
@@ -926,7 +1068,7 @@ export function createRenderer(canvas) {
       ctx.fillStyle = '#b0aacc';
       ctx.font = '12px sans-serif';
       ctx.fillText(info.desc, x + 12, y + 50, w - 24);
-      ctx.fillText(`Lv ${info.lv} / ${info.max}`, x + 12, y + 70);
+      if (info.lv) ctx.fillText(`Lv ${info.lv} / ${info.max}`, x + 12, y + 70);
       cardRects.push({ x, y, w, h });
     });
   }
@@ -1066,7 +1208,7 @@ export function createRenderer(canvas) {
     ctx.fillRect(10, 10, 240, 92);
     ctx.fillStyle = '#fff';
     ctx.font = 'bold 16px sans-serif';
-    ctx.fillText(adv ? `스테이지 ${stageLabel(snap.si)}` : `웨이브 ${snap.w}`, 20, 32);
+    ctx.fillText(adv ? `스테이지 ${stageLabel(snap.si)}` : `⏱ ${fmtT(snap.sv?.t ?? 0)} · ${snap.sv?.k ?? 0}마리`, 20, 32);
     ctx.fillStyle = '#ffd54f';
     ctx.font = 'bold 15px sans-serif';
     if (!adv) ctx.fillText(`💰 ${snap.g}`, 175, 32);
@@ -1101,6 +1243,7 @@ export function createRenderer(canvas) {
       ctx.fillText(`${C ? C.name : ''} · ${el ? `${el.name} Lv ${me.elv}` : '속성 없음'}`, 20, 92);
       ctx.fillStyle = '#80deea';
       ctx.fillText(`◆ ${me.es}`, 190, 92);
+      if (!adv) { drawRunKit(me); } else {
       const owned = Object.entries(me.bf || {}).map(([k, n]) => `${BUFFS[k]?.name ?? k} ${n}`);
       ctx.fillStyle = 'rgba(0,0,0,.45)';
       ctx.fillRect(10, 106, 240, 16 * owned.length + 26);
@@ -1108,6 +1251,7 @@ export function createRenderer(canvas) {
       ctx.fillText(`증강 ${me.at}/${MAX_AUGMENT_TYPES}종`, 20, 122);
       ctx.fillStyle = '#c5b8ff';
       owned.forEach((t, i) => ctx.fillText(t, 20, 140 + i * 16));
+      }
     }
 
     ctx.textAlign = 'right';
@@ -1125,17 +1269,22 @@ export function createRenderer(canvas) {
       ctx.textAlign = 'left';
       ctx.font = '12px sans-serif';
       ctx.fillStyle = 'rgba(0,0,0,.5)';
-      ctx.fillRect(10, VIEW_H - 34, 400, 24);
+      ctx.fillRect(10, VIEW_H - 34, 560, 24);
       ctx.fillStyle = '#eee';
-      ctx.fillText(`캠프 안에서  E 울타리(${STRUCTS.fence.cost})  R 터렛(${STRUCTS.turret.cost})  F 철거 · 상자 근처에선 E 열기`, 18, VIEW_H - 18);
+      ctx.fillText(`캠프 안에서  E 울타리(${STRUCTS.fence.cost})  R 터렛(${STRUCTS.turret.cost})  F 철거 · 상자 근처에선 E 열기 · 함정으로 적을 유인하세요`, 18, VIEW_H - 18);
     }
 
     const alive = snap.p.filter((p) => p.al);
     if (snap.ph === 'over') banner(snap.ot, '잠시 후 로비로 돌아갑니다');
-    else if (!adv && snap.e.length === 0) {
+    else if (!adv && snap.sv && !snap.sv.st) {
       const ready = alive.filter((p) => p.rd).length;
-      banner(snap.w === 0 ? '베이스캠프를 준비하세요' : `웨이브 ${snap.w} 클리어!`,
-        `다음 웨이브까지 ${Math.ceil(snap.wt)}초 · G 준비 완료 (${ready}/${alive.length}) · 캠프 안에서 체력 회복`);
+      banner('생존 준비: 울타리·터렛을 지으세요', `${Math.ceil(-snap.sv.t)}초 뒤 적이 몰려옵니다 · G 바로 시작 (${ready}/${alive.length})`);
+    } else if (!adv && me && !me.al && me.rv > 0) {
+      banner('쓰러졌어요', `${me.rv}초 뒤 캠프에서 부활합니다`);
+    } else if (!adv && snap.sv && !snap.sv.b) {
+      // 다음 정예·보스까지 남은 시간
+      const t = snap.sv.t, next = [...SURVIVAL.elites, SURVIVAL.duration].find((x) => x > t);
+      if (next !== undefined && next - t < 10) banner(next === SURVIVAL.duration ? '보스가 다가옵니다!' : '정예가 다가옵니다!', `${Math.ceil(next - t)}초`);
     } else if (adv && snap.ar < 0 && snap.rs && map.rooms.filter((r) => r.type === 'battle' || r.type === 'boss').every((r) => snap.rs[r.id] === 'c')) {
       banner('모든 방 정복!', '팀원 모두 포털 위에 모이면 다음 스테이지로 출발합니다');
     } else if (adv && snap.ar < 0 && map.boss && !snap.po && snap.rs?.length) {
@@ -1160,13 +1309,77 @@ export function createRenderer(canvas) {
     ctx.fillRect(x, y + 16, (w * Math.max(0, bs.hp)) / bs.mh, 9);
   }
 
-  // 화면 아래 가운데: 스킬 트리에서 장착한 4칸 (1~4 키)
+  // 생존 모드: 자동 스킬 6칸 + 패시브 6칸 (왼쪽 위)
+  function drawRunKit(me) {
+    const au = me.au || [], pa = Object.entries(me.pa || {});
+    const box = 34, gap = 4, x0 = 14, y0 = 108;
+    ctx.fillStyle = 'rgba(0,0,0,.45)';
+    ctx.fillRect(10, 104, 6 * (box + gap) + 4, box * 2 + gap + 22);
+    for (let row = 0; row < 2; row++) {
+      for (let i = 0; i < 6; i++) {
+        const x = x0 + i * (box + gap), y = y0 + row * (box + gap);
+        ctx.fillStyle = 'rgba(15,13,28,.9)';
+        roundRect(x, y, box, box, 6);
+        ctx.fill();
+        const item = row === 0 ? au[i] : pa[i];
+        if (!item) continue;
+        if (row === 0) {
+          const [k, lv, evo] = item, d = AUTO_SKILLS[k];
+          ctx.strokeStyle = evo ? '#ffd54f' : d.color;
+          ctx.lineWidth = evo ? 3 : 2;
+          ctx.stroke();
+          ctx.fillStyle = '#fff';
+          ctx.font = 'bold 9px sans-serif';
+          ctx.textAlign = 'center';
+          ctx.fillText((evo ? d.evoName : d.name).slice(0, 4), x + box / 2, y + 15);
+          ctx.fillStyle = evo ? '#ffd54f' : '#b0bec5';
+          ctx.fillText(evo ? '진화' : `Lv${lv}`, x + box / 2, y + 28);
+        } else {
+          const [k, lv] = item;
+          ctx.strokeStyle = '#a5d6a7';
+          ctx.lineWidth = 2;
+          ctx.stroke();
+          ctx.fillStyle = '#e8f5e9';
+          ctx.font = 'bold 9px sans-serif';
+          ctx.textAlign = 'center';
+          ctx.fillText(PASSIVE_ITEMS[k].name.slice(0, 4), x + box / 2, y + 15);
+          ctx.fillStyle = '#a5d6a7';
+          ctx.fillText(`Lv${lv}`, x + box / 2, y + 28);
+        }
+      }
+    }
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#9e9e9e';
+    ctx.font = '10px sans-serif';
+    ctx.fillText('자동 스킬 · 패시브 (Lv5 + 짝 패시브 = 진화)', 14, y0 + box * 2 + gap + 13);
+  }
+
+  // 왼쪽 아래: 스킬 트리 액티브 3칸 (1~3 키) + 패시브 2칸
   function drawLoadout(me, camp) {
-    const ld = me.ld || [];
-    if (!ld.length) return;
+    const ld = me.ld || [], pp = me.pp || [];
+    if (!ld.length && !pp.length) return;
     const size = 52, gap = 6;
     const x0 = 14, y0 = VIEW_H - size - (camp ? 44 : 14);
-    for (let i = 0; i < 4; i++) {
+    pp.forEach((id, i) => {
+      const n = NODE[id];
+      if (!n) return;
+      const x = x0 + 3 * (size + gap) + i * 44, y = y0 + 14;
+      ctx.fillStyle = 'rgba(15,13,28,.85)';
+      roundRect(x, y, 40, size - 14, 6);
+      ctx.fill();
+      ctx.setLineDash([3, 3]);
+      ctx.strokeStyle = ELEMENTS[n.el].color;
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = '#ddd';
+      ctx.font = 'bold 9px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(n.name.slice(0, 4), x + 20, y + 17);
+      ctx.fillStyle = '#9e9e9e';
+      ctx.fillText('패시브', x + 20, y + 30);
+    });
+    for (let i = 0; i < 3; i++) {
       const id = ld[i], n = NODE[id];
       const x = x0 + i * (size + gap);
       ctx.fillStyle = 'rgba(15,13,28,.85)';
@@ -1186,11 +1399,7 @@ export function createRenderer(canvas) {
       const parts = n.name.includes(' ') ? n.name.split(' ') : [n.name];
       ctx.font = `bold ${parts.some((t) => t.length > 4) ? 10 : 11.5}px sans-serif`;
       parts.slice(0, 2).forEach((t, k) => ctx.fillText(t, x + size / 2, y0 + (parts.length > 1 ? 24 + k * 12 : 30)));
-      if (n.kind === 'perk') {
-        ctx.fillStyle = '#9e9e9e';
-        ctx.font = '9px sans-serif';
-        ctx.fillText('패시브', x + size / 2, y0 + 48);
-      } else if (me.cs?.[i] > 0) {
+      if (me.cs?.[i] > 0) {
         ctx.fillStyle = 'rgba(0,0,0,.6)';
         roundRect(x, y0, size, size, 8);
         ctx.fill();
@@ -1352,7 +1561,7 @@ export function createRenderer(canvas) {
     roundRect(VIEW_W / 2 - 300, VIEW_H - 64, 600, 24, 6);
     ctx.fill();
     ctx.fillStyle = '#eee';
-    ctx.fillText('동상에서 E로 캐릭터 · 제단(K) 스킬 트리 · 옷장 스킨 · 1~4 스킬 시험 · 모두 포털에 들어가면 출발', VIEW_W / 2, VIEW_H - 48);
+    ctx.fillText('동상에서 E로 캐릭터 · 제단(K) 스킬 트리 · 옷장 스킨 · 1~3 스킬 시험 · 모두 포털에 들어가면 출발', VIEW_W / 2, VIEW_H - 48);
     if (snap.lp && snap.lpt) banner('출발할 수 없어요', snap.lp);
   }
 
@@ -1401,15 +1610,21 @@ export function createRenderer(canvas) {
     const now = performance.now();
     showDamage = extra.damageNumbers !== false;
     const me = snap.p.find((p) => p.id === myId);
-    const cam = cameraFor(map, me || map.spawn);
+    const cam = cameraFor(map, me || map.spawn, extra.zoom || 1);
+    ctx.fillStyle = '#0e0d18';
+    ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+    ctx.save();
+    ctx.scale(cam.z, cam.z); // 화면 확대: 세상 그리기 전체에 적용 (HUD는 그대로)
     drawMap(map, cam, snap);
 
     ctx.save();
     ctx.translate(-cam.x, -cam.y);
+    drawTraps(map, snap, now);
     if (map.camp) drawCampfire(map.camp.x, map.camp.y, now);
     if (map.portal) drawPortal(map.portal.x, map.portal.y, now, snap.pt, 'adv', !snap.po);
     if (map.lobby) drawLobbyStations(map.lobby, snap, me, now);
-    for (const o of snap.xo || []) if (!o.tk.includes(myId)) drawOrb(o, now);
+    const myBit = 1 << Math.max(0, snap.p.findIndex((p) => p.id === myId));
+    for (const [id, k, x, y, m] of snap.xo || []) if (!(m & myBit)) drawOrb({ id, k, x, y }, now);
     for (const z of snap.zn || []) drawZone(z, now);
     for (const h of snap.hz || []) drawHazard(h, now);
     for (const c of snap.cs || []) drawChest(c);
@@ -1443,7 +1658,9 @@ export function createRenderer(canvas) {
     }
     for (const b of snap.b) drawBullet(b);
     for (const e of snap.e) drawEnemy(e, now, me);
+    for (const p of snap.p) drawAutos(p, snap, now, false);
     for (const p of snap.p) drawPlayer(p, p.id === myId, now);
+    for (const p of snap.p) drawAutos(p, snap, now, true);
     drawFx(snap.fx);
     if (map.lobby && nearStatue) drawStatueTip(nearStatue);
     if (chest) label('E 열기', chest.x, chest.y - 24, '#ffd54f');
@@ -1456,10 +1673,11 @@ export function createRenderer(canvas) {
       }
     }
     ctx.restore();
+    ctx.restore(); // 확대 끝
 
     if (snap.ph === 'lobby') drawLobbyHud(snap, me, extra);
     else drawHud(snap, me, map);
-    if (snap.ph === 'playing') drawCards(me, mouse);
+    if (snap.ph === 'playing') drawCards(me, mouse, snap.md === 'camp');
     else cardRects = [];
     return cam;
   }

@@ -142,7 +142,7 @@ const NUMBER_KEYS = { Digit1: 1, Digit2: 2, Digit3: 3, Digit4: 4, Numpad1: 1, Nu
 const keys = new Set();
 // sx/sy: 화면 좌표, x/y: 맵(월드) 좌표
 const mouse = { sx: VIEW_W / 2, sy: VIEW_H / 2, x: 0, y: 0, down: false };
-let cam = { x: 0, y: 0 };
+let cam = { x: 0, y: 0, z: 1 };
 const actionQueue = [];
 let actionSeq = 0;
 
@@ -256,8 +256,8 @@ function autoTarget(me) {
 }
 
 function readInput(me) {
-  mouse.x = mouse.sx + cam.x;
-  mouse.y = mouse.sy + cam.y;
+  mouse.x = mouse.sx / (cam.z || 1) + cam.x;
+  mouse.y = mouse.sy / (cam.z || 1) + cam.y;
   if (session?.paused || anyOverlay()) return { aim: me?.a ?? me?.angle ?? 0, seq: actionSeq, pz: !!session?.paused };
   const act = actionQueue.shift() || null;
   if (act) actionSeq++;
@@ -384,7 +384,7 @@ async function startClient() {
     s.net = await joinRoom(code, playerName(), {
       onWelcome(id) { s.myId = id; },
       onState(snap) {
-        s.buffer.push({ t: performance.now(), s: snap });
+        s.buffer.push({ t: performance.now(), s: unpackSnap(snap) });
         if (s.buffer.length > 30) s.buffer.shift();
       },
       onMap(m) { s.map = unpackMap(m); },
@@ -475,13 +475,20 @@ function afterRender(snap, map, myId) {
   else overlayCache.stage = '';
 }
 
-const renderExtra = () => ({ essence: save.essence, build: buildSummary(), damageNumbers: settings.damageNumbers });
+const renderExtra = () => ({ essence: save.essence, build: buildSummary(), damageNumbers: settings.damageNumbers, zoom: settings.zoom || 1 });
 
 // ---------- 프레임 ----------
 function hostFrame(s, now) {
   const dt = Math.min((now - s.last) / 1000, 0.1);
   s.last = now;
-  if (!(s.solo && s.paused)) {
+  // 혼자 하는 생존 모드에서는 레벨업 카드를 고르는 동안 시간이 멈춤 (탕탕특공대처럼)
+  const meP = s.state.players[s.myId];
+  const cardHold = s.solo && meP?.offer && s.state.mode === 'camp' && s.state.phase === 'playing';
+  if (cardHold && !s.paused) {
+    s.inputs[s.myId] = readInput(meP);
+    step(s.state, s.inputs, 0); // 카드 선택만 처리
+    s.acc = 0;
+  } else if (!(s.solo && s.paused)) {
     s.acc += dt;
     s.inputs[s.myId] = readInput(s.state.players[s.myId]);
     while (s.acc >= STEP) {
@@ -496,11 +503,33 @@ function hostFrame(s, now) {
   }
   const snap = snapshot(s.state);
   if (s.net && now - s.lastSend >= SEND_STATE_MS) {
-    s.net.broadcast({ t: 's', s: snap });
+    s.net.broadcast({ t: 's', s: packSnap(snap) });
     s.lastSend = now;
   }
   cam = renderer.render(snap, s.state.map, s.myId, mouse, renderExtra());
   afterRender(snap, s.state.map, s.myId);
+}
+
+// ---------- 네트워크용 스냅샷 줄이기 (적이 많은 생존 모드 대비) ----------
+const E_KEYS = ['id', 'k', 'x', 'y', 'r', 'hp', 'mh', 'h', 's', 'c', 'ch', 'f', 'fu', 'ai', 'w'];
+function packSnap(snap) {
+  let dn = 0, die = 0;
+  const fx = [];
+  for (let i = snap.fx.length - 1; i >= 0; i--) {
+    const f = snap.fx[i];
+    if (f.k === 'dn' && ++dn > 50) continue;
+    if (f.k === 'die' && ++die > 30) continue;
+    fx.push(f);
+  }
+  return {
+    ...snap,
+    e: snap.e.map((e) => E_KEYS.map((k) => (k === 'hp' ? Math.round(e.hp * 10) / 10 : e[k]))),
+    fx: fx.reverse(),
+  };
+}
+function unpackSnap(snap) {
+  if (!snap?.e?.length || !Array.isArray(snap.e[0])) return snap;
+  return { ...snap, e: snap.e.map((a) => Object.fromEntries(E_KEYS.map((k, i) => [k, a[i]]))) };
 }
 
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -541,12 +570,13 @@ function clientFrame(s, now) {
   }
   // 카드·골드·단계는 최신 상태로 (보간 X)
   const view = {
-    ...snap, g: latest.g, ph: latest.ph, sh: latest.sh, hz: latest.hz, lp: latest.lp, lpt: latest.lpt, md: latest.md, tt: latest.tt, rid: latest.rid,
+    ...snap, g: latest.g, ph: latest.ph, sh: latest.sh, hz: latest.hz, sv: latest.sv, br: latest.br, xo: latest.xo, lp: latest.lp, lpt: latest.lpt, md: latest.md, tt: latest.tt, rid: latest.rid,
     p: snap.p.map((p) => {
       const q = latest.p.find((o) => o.id === p.id) || p;
       return {
         ...p, of: q.of, oq: q.oq, at: q.at, rw: q.rw, rwd: q.rwd, ev: q.ev, evd: q.evd, cr: q.cr, xp: q.xp, lv: q.lv, xn: q.xn,
         ws: q.ws, sl: q.sl, sw: q.sw, ld: q.ld, cs: q.cs, es: q.es, mp: q.mp, mm: q.mm, wst: q.wst, sk: q.sk, co: q.co, sh: q.sh, cb: q.cb,
+        au: q.au, pa: q.pa, rv: q.rv, pp: q.pp,
       };
     }),
   };

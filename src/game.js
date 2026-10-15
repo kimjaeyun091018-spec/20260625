@@ -8,7 +8,7 @@ import {
   TILE, MAX_PLAYERS, WEAPONS, START_WEAPON, weaponFam, SKILLS, WEAPON_SLOTS, SWAP_COOLDOWN, RESONANCE, COMBO_EVERY,
   DROP_TIERS, DROP_ELEMENT_CHANCE, CHARACTERS, CHARACTER_KEYS, sameCharLimit, ENEMY_TYPES, STRUCTS, BUFFS,
   ELEMENTS, ELEMENT_MAX, ELEMENT_MAX_BONUS, MAX_AUGMENT_TYPES, STAGE_REWARDS, STAGES_PER_WORLD, WORLDS, ESSENCE,
-  BOSSES, SHOP, stageLabel, xpToNext, enemyScale, MANA, activeManaCost, SKINS,
+  BOSSES, SHOP, SURVIVAL, AUTO_SKILLS, PASSIVE_ITEMS, AUTO_MAX_LV, AUTO_SLOTS, PASSIVE_SLOTS_RUN, TRAPS, stageLabel, xpToNext, enemyScale, MANA, activeManaCost, SKINS,
 } from './data.js';
 import { buildCampMap, buildLobbyMap, generateDungeon, tileCenter } from './maps.js';
 import { ACTIVES, PERKS, NODE, LOADOUT_SIZE, sanitizeBuild, buildBonus } from './tree.js';
@@ -23,7 +23,7 @@ const WAVE_BREAK = 12;
 const FIRST_BREAK = 10;
 const OVER_DELAY = 4;
 const START_GOLD = 20;
-const CAMP_HEAL_EVERY = 1.5;
+const CAMP_HEAL_EVERY = 5;
 const MAX_STRUCTS = 40;
 const MAX_ORBS = 260;
 const ORB_RANGE = 42;
@@ -63,7 +63,7 @@ export function sanitizeName(name) {
 function runLists() {
   return {
     enemies: [], bullets: [], structs: [], structMap: new Map(), fx: [], orbs: [],
-    grenades: [], zones: [], chests: [], pickups: [], shop: [], hazards: [],
+    grenades: [], zones: [], chests: [], pickups: [], shop: [], hazards: [], barrels: [],
     doorSet: new Set(), activeRoom: null, portalT: 0, chestsThisStage: 0,
     lobbyPortal: null, lobbyPortalT: 0,
   };
@@ -248,7 +248,7 @@ function freshRunStats(p) {
     buffs: {}, augTypes: [], offer: null, offerQueue: 0, element: null, elementLv: 0,
     level: 1, xp: 0, ready: false, reward: null, rewardDone: false, evo: null, evoDone: true, rewardsTaken: [],
     bonus: { dmgPct: 0, rate: 0, speed: 0, xpMul: 1, iron: false, vamp: 0, slot: false, cdMul: 1, phoenix: false, essMul: 1, ultMul: 1, coinMul: 1 },
-    mana: C.mana, manaMsgT: 0, comboN: 0, shieldT: 0, dsx: 0, dsy: 0,
+    mana: C.mana, manaMsgT: 0, comboN: 0, shieldT: 0, dsx: 0, dsy: 0, au: {}, pa: {}, reviveT: SURVIVAL.reviveTime, poisonT: 0, runMode: null,
     weapons: [newSlot(START_WEAPON)], slot: 0, swapCd: 0,
     parry: 0, markId: null, markN: 0, spin: 0, spinIdle: 0, chargeT: 0,
     sdash: null, dashHits: [], javelin: null, ultT: 0, ultTick: 0, ultStep: 0,
@@ -272,9 +272,11 @@ function applyBuild(p) {
     p.element = b.el;
     p.elementLv = 1 + bb.elLv;
   }
-  p.loadout = [...b.eq];
-  p.casts = [0, 0, 0, 0];
-  p.perks = b.eq.filter((id) => NODE[id].kind === 'perk').map((id) => NODE[id].perk);
+  // 액티브 칸(1~3 키)과 패시브 칸(항상 켜짐)을 따로
+  p.loadout = b.eq.filter((id) => NODE[id].kind === 'active');
+  p.casts = p.loadout.map(() => 0);
+  p.perkIds = b.eq.filter((id) => NODE[id].kind === 'perk');
+  p.perks = p.perkIds.map((id) => NODE[id].perk);
 }
 
 export function setBuild(state, id, build) {
@@ -299,6 +301,7 @@ export function addPlayer(state, id, name) {
   if (state.phase !== 'lobby') {
     p.alive = false;
     p.hp = 0;
+    p.runMode = state.mode;
   }
   placeAtSpawn(state, p, Object.keys(state.players).length);
   state.players[id] = p;
@@ -336,7 +339,7 @@ function stats(p) {
   const ae = attackElement(p);
   // 광전사: 잃은 체력 1칸마다 피해 +8%
   const rage = ch === 'berserker' ? 0.08 * Math.max(0, maxHpOf(p) - p.hp) : 0;
-  const mul = (1 + 0.12 * (b.dmg || 0) + B.dmgPct + rage) * (ae.resonance ? RESONANCE.dmg : 1);
+  const mul = (1 + 0.12 * (b.dmg || 0) + B.dmgPct + rage + 0.1 * (p.pa?.power || 0)) * (ae.resonance ? RESONANCE.dmg : 1);
   const rate = (1 + 0.08 * (b.rate || 0) + B.rate) * (1 + (fam === 'gun' ? p.spin : 0)) * (gunUlt ? 3 : 1);
   return {
     W, fam, mul,
@@ -347,7 +350,7 @@ function stats(p) {
     critX: (W.critX || 2) + (ch === 'rogue' ? 0.5 : 0),
     inacc: (W.inacc || 0) + (gunUlt ? 0.3 : 0),
     shots: 1 + (b.multi || 0),
-    speed: PLAYER_SPEED * (1 + 0.06 * (b.speed || 0) + B.speed + (tail ? 0.08 : 0) + (ch === 'ranger' ? 0.15 : 0)),
+    speed: PLAYER_SPEED * (1 + 0.06 * (b.speed || 0) + B.speed + (tail ? 0.08 : 0) + (ch === 'ranger' ? 0.15 : 0) + 0.06 * (p.pa?.swift || 0)) * (p.slowT > 0 ? TRAPS.poison.slow : 1),
     pierce: (W.pierce || 0) + (b.pierce || 0),
     bounce: b.bounce || 0,
     reach: 1 + 0.1 * (b.reach || 0),
@@ -403,6 +406,7 @@ function giveEssence(state, amount) {
 // ---------- 증강 (레벨업) ----------
 // 증강 종류는 한 판에 최대 5종류 (속성 카드도 1종류). 5종류를 채우면 가진 것만 레벨업 카드로 나옵니다.
 function makeOffer(p) {
+  if (p.runMode === 'camp') return survivalOffer(p);
   const kind = WEAPONS[held(p).key].kind;
   const ranged = kind === 'ranged';
   const full = p.augTypes.length >= MAX_AUGMENT_TYPES;
@@ -427,6 +431,7 @@ function makeOffer(p) {
 }
 
 function applyBuff(p, key) {
+  if (key === 'heal' || /^(au|pa|ev):/.test(key)) { applySurvivalCard(p, key); return; }
   const type = key.startsWith('el:') ? 'el' : key;
   if (!p.augTypes.includes(type)) p.augTypes.push(type);
   if (key.startsWith('el:')) {
@@ -555,17 +560,21 @@ function updateLobby(state, players, dt) {
 function startRun(state) {
   Object.assign(state, runLists());
   state.runId++;
-  for (const p of Object.values(state.players)) { freshRunStats(p); applyBuild(p); }
+  for (const p of Object.values(state.players)) {
+    freshRunStats(p); applyBuild(p); p.runMode = state.mode;
+    if (state.mode === 'camp') { p.maxHp += SURVIVAL.bonusHp; p.hp = p.maxHp; } // 생존 모드는 체력 여유
+  }
   state.phase = 'playing';
   state.overText = '';
   if (state.mode === 'camp') {
-    Object.assign(state, { gold: START_GOLD, wave: 0, waveTimer: FIRST_BREAK, cleared: true });
+    Object.assign(state, { gold: START_GOLD, wave: 0, waveTimer: 0, cleared: true, survT: 0, started: false, eliteIdx: 0, bossSpawned: false, nextChest: SURVIVAL.chestEvery, spawnT: 0, kills: 0 });
     state.map = buildCampMap();
   } else {
     state.stageIdx = 0;
     state.map = generateDungeon(0, { boss: isBossStage(0) });
     setupStageRooms(state);
   }
+  loadTraps(state);
   Object.values(state.players).forEach((p, i) => placeAtSpawn(state, p, i));
 }
 
@@ -630,7 +639,7 @@ function spawnChest(state, x, y, big = false) {
 
 // 지금 월드(모험) 또는 웨이브(캠프)에 맞는 무기 하나: 단계(1~3)와 속성(있음/없음)을 무작위로
 function worldOf(state) {
-  return state.mode === 'camp' ? Math.min(2, Math.floor(state.wave / 6)) : Math.min(2, Math.floor(state.stageIdx / STAGES_PER_WORLD));
+  return state.mode === 'camp' ? Math.min(2, Math.floor(state.wave / 4)) : Math.min(2, Math.floor(state.stageIdx / STAGES_PER_WORLD));
 }
 
 function randomWeaponDrop(state, minTier = 1) {
@@ -888,6 +897,7 @@ function melee(state, p, st) {
       const d = Math.hypot(e.x - p.x, e.y - p.y) || 1;
       meleeHit(state, p, e, dmg, (e.x - p.x) / d, (e.y - p.y) / d, W.knock, ae);
     }
+    for (const b of state.barrels) if (b.hp > 0 && Math.hypot(b.x - cx, b.y - cy) < rad + 12) hitBarrel(state, b, 1, p.id);
     if (W.quake) {
       for (let i = 0; i < 8; i++) {
         const a = (i / 8) * Math.PI * 2;
@@ -912,6 +922,11 @@ function melee(state, p, st) {
     // 창 패시브: 창끝 일격
     const tip = st.fam === 'spear' && d > range * 0.6;
     meleeHit(state, p, e, tip ? dmg * 1.5 : dmg, (e.x - p.x) / (d || 1), (e.y - p.y) / (d || 1), W.knock, ae);
+  }
+  // 근접 공격으로 폭발 통도 터뜨림
+  for (const b of state.barrels) {
+    const d = Math.hypot(b.x - p.x, b.y - p.y);
+    if (b.hp > 0 && d < range + 12 && angleDiff(Math.atan2(b.y - p.y, b.x - p.x), p.angle) < W.arc / 2 + 0.3) hitBarrel(state, b, 1, p.id);
   }
   // 검 계열: 적 총알을 베어 없앰 (대검은 범위 2배)
   if (st.fam === 'sword') {
@@ -940,7 +955,7 @@ function useSkill(state, p, inp) {
   }
   if (s.charges <= 0 || !spendMana(state, p, MANA.weaponSkill)) return;
   s.charges--;
-  if (s.cd <= 0) s.cd = skillCdOf(s.key);
+  if (s.cd <= 0) s.cd = skillCdOf(s.key) * autoHaste(p);
   const st = stats(p);
   const ax = Math.cos(p.angle), ay = Math.sin(p.angle);
   if (fam === 'sword') {
@@ -973,7 +988,7 @@ function useSkill(state, p, inp) {
   }
 }
 
-// ---------- 스킬 트리 액티브 스킬 (1~4) ----------
+// ---------- 스킬 트리 액티브 스킬 (1~3) ----------
 function castActive(state, p, idx, inp) {
   const id = p.loadout[idx];
   const node = NODE[id];
@@ -1240,21 +1255,30 @@ function updatePlayer(state, p, inp, dt) {
   updateUlt(state, p, st, dt);
 
   // 구슬(경험치 초록·마나 파랑·동전 노랑): 플레이어마다 따로 줍습니다 (1P가 먹어도 2P 몫은 남아 있음)
+  const orbR = ORB_RANGE * (1 + 0.3 * paLv(p, 'magnet'));
   for (const o of state.orbs) {
     if (o.taken.includes(p.id)) continue;
-    if ((o.x - p.x) ** 2 + (o.y - p.y) ** 2 < ORB_RANGE * ORB_RANGE) {
+    if ((o.x - p.x) ** 2 + (o.y - p.y) ** 2 < orbR * orbR) {
       o.taken.push(p.id);
-      if (o.k === 'm') p.mana = Math.min(st.maxMana, p.mana + o.v * st.manaGain);
+      if (o.k === 'mag') {
+        // 자석: 맵의 내 경험치 구슬을 모두 흡수
+        for (const q of state.orbs) if (q.k === 'x' && !q.taken.includes(p.id)) { q.taken.push(p.id); gainXp(p, q.v); }
+        floatText(state, p.x, p.y - 34, '자석!', '#80deea', 1);
+      } else if (o.k === 'h') heal(p, 1);
+      else if (o.k === 'm') p.mana = Math.min(st.maxMana, p.mana + o.v * st.manaGain);
       else if (o.k === 'g') p.coins += o.v * p.bonus.coinMul;
       else gainXp(p, o.v);
     }
   }
 
-  // 베이스캠프: 쉬는 시간에 캠프 안에 있으면 체력 회복
+  // 생존 모드: 자동 스킬
+  if (state.mode === 'camp') updateAutos(state, p, st, dt);
+
+  // 베이스캠프: 캠프 안에 있으면 체력이 천천히 회복 (준비 시간에는 빠르게)
   const camp = state.map.camp;
-  if (camp && state.enemies.length === 0 && Math.hypot(p.x - camp.x, p.y - camp.y) <= camp.r && p.hp < maxHpOf(p)) {
+  if (camp && Math.hypot(p.x - camp.x, p.y - camp.y) <= camp.r && p.hp < maxHpOf(p)) {
     p.healT += dt;
-    if (p.healT >= CAMP_HEAL_EVERY) { p.healT = 0; heal(p, 1); }
+    if (p.healT >= (state.started ? CAMP_HEAL_EVERY : 0.5)) { p.healT = 0; heal(p, 1); }
   } else {
     p.healT = 0;
   }
@@ -1835,6 +1859,16 @@ function updateEnemy(state, e, alivePlayers, dt) {
       e.face += Math.max(-1.8 * dt, Math.min(1.8 * dt, da));
       break;
     }
+    case 'elite':
+      // 정예: 3.5초마다 주변을 내려찍음 (빨간 경고 원)
+      e.modeT -= dt;
+      if (e.modeT <= 0) {
+        e.modeT = 3.5;
+        addHazard(state, { k: 'circle', x: e.x, y: e.y, r: 100, warn: 0.9, dmg: e.sc.dmg + 1, src: e.id, after: 'ring' });
+        e.slamT = 0.9;
+      }
+      if (e.slamT > 0) { e.slamT -= dt; spMul = 0; }
+      break;
     case 'totem':
       spMul = 0;
       if (e.cd <= 0) {
@@ -1901,6 +1935,11 @@ function updateTurrets(state, dt) {
 
 // 구슬 뿌리기: k = 'x' 경험치, 'm' 마나, 'g' 동전
 function dropOrbs(state, x, y, k, count, spread, value = 1) {
+  if (state.orbs.length >= MAX_ORBS) {
+    // 구슬이 너무 많으면 가까운 같은 종류 구슬(아무도 안 주운 것)에 합침
+    const o = nearest(state.orbs.filter((q) => q.k === k && !q.taken.length), x, y, 400);
+    if (o) { o.v += value * count; return; }
+  }
   for (let i = 0; i < count && state.orbs.length < MAX_ORBS; i++) {
     const a = Math.random() * Math.PI * 2, r = 4 + Math.random() * spread;
     const spot = { x: x + Math.cos(a) * r, y: y + Math.sin(a) * r };
@@ -1914,8 +1953,18 @@ function killEnemy(state, e) {
   const boss = e.kind === 'boss';
   // 쓰러진 모습 + 빠져나가는 영혼
   addFx(state, { k: 'die', x: e.x, y: e.y, ek: e.kind, r: e.r, c: e.color || 0, t: 1.4, life: 1.4 });
-  if (state.mode === 'camp') state.gold += T.gold;
-  giveEssence(state, ESSENCE[e.kind] ?? ESSENCE.default);
+  const camp = state.mode === 'camp';
+  if (camp) {
+    // 생존 모드: 적이 아주 많으니 골드·정수는 조금씩
+    state.kills = (state.kills || 0) + 1;
+    state.goldFrac = (state.goldFrac || 0) + T.gold * 0.5;
+    state.gold += Math.floor(state.goldFrac);
+    state.goldFrac %= 1;
+    if (e.kind === 'elite') spawnChest(state, e.x, e.y);
+    if (Math.random() < 0.004 && state.orbs.length < MAX_ORBS) state.orbs.push({ id: state.nextId++, k: 'mag', x: e.x, y: e.y, v: 1, taken: [], t: ORB_LIFE * 2 });
+    else if (Math.random() < 0.012 && state.orbs.length < MAX_ORBS) state.orbs.push({ id: state.nextId++, k: 'h', x: e.x, y: e.y, v: 1, taken: [], t: ORB_LIFE });
+  }
+  giveEssence(state, (ESSENCE[e.kind] ?? ESSENCE.default) * (camp && e.kind !== 'boss' ? 0.3 : 1));
   const spread = boss ? 46 : 14;
   dropOrbs(state, e.x, e.y, 'x', T.xp, spread);
   const mn = Math.max(1, Math.round(T.mp / 4));
@@ -2039,6 +2088,26 @@ function updateBullets(state, dt) {
     if (b.dead) continue;
     if (b.kind === 'javelin') { updateJavelin(state, b, dt); continue; }
     if (b.home > 0) steerBullet(state, b, dt);
+    if (b.kind === 'boomerang') {
+      // 부메랑: 날아가다가 주인에게 돌아옴 (벽 통과)
+      b.out -= dt;
+      const owner = state.players[b.shooter];
+      if (b.out <= 0 && owner) {
+        if (!b.back) { b.back = true; b.hits = []; }
+        const dx = owner.x - b.x, dy = owner.y - b.y, d = Math.hypot(dx, dy) || 1;
+        b.vx = (dx / d) * 520; b.vy = (dy / d) * 520;
+        if (d < 18) { b.dead = true; continue; }
+      }
+      b.x += b.vx * dt; b.y += b.vy * dt; b.life -= dt;
+      if (b.life <= 0) { b.dead = true; continue; }
+      for (const e of state.enemies) {
+        if (e.hp <= 0 || b.hits.includes(e.id)) continue;
+        if ((e.x - b.x) ** 2 + (e.y - b.y) ** 2 < (e.r + b.r) ** 2) { b.hits.push(e.id); damageEnemy(state, e, b.dmg, b.shooter); }
+      }
+      const br = state.barrels.length ? barrelAt(state, b.x, b.y, b.r) : null;
+      if (br) hitBarrel(state, br, 1, b.shooter);
+      continue;
+    }
     b.x += b.vx * dt;
     b.y += b.vy * dt;
     b.life -= dt;
@@ -2049,6 +2118,8 @@ function updateBullets(state, dt) {
     }
 
     if (b.owner === 'p') {
+      const br = state.barrels.length ? barrelAt(state, b.x, b.y, b.r) : null;
+      if (br) { hitBarrel(state, br, b.dmg, b.shooter); if (b.kind !== 'boomerang') { b.dead = true; continue; } }
       for (const e of state.enemies) {
         if (e.hp <= 0 || b.hits.includes(e.id)) continue;
         if ((e.x - b.x) ** 2 + (e.y - b.y) ** 2 < (e.r + b.r) ** 2) {
@@ -2086,6 +2157,11 @@ function updateGrenadesAndZones(state, dt) {
     g.t += dt;
     if (g.t < g.dur) continue;
     g.dead = true;
+    if (g.kind === 'molotov') {
+      // 화염병: 떨어진 자리에 불바다
+      state.zones.push({ id: state.nextId++, kind: 'fire', x: g.tx, y: g.ty, r: g.r, t: g.life, tick: 0, every: 0.4, src: g.src, dmg: g.burn, el: 'fire', elv: 1, elChance: 0.25 });
+      continue;
+    }
     addFx(state, { k: 'r', x: g.tx, y: g.ty, r: g.r, c: g.kind === 'meteor' ? '#ff7043' : '#ffab40', t: 0.4, life: 0.4 });
     if (g.kind === 'meteor') addFx(state, { k: 'r', x: g.tx, y: g.ty, r: g.r * 0.6, c: '#ffd54f', t: 0.3, life: 0.3 });
     for (const e of enemiesNear(state, g.tx, g.ty, g.r)) {
@@ -2133,46 +2209,298 @@ function updateGrenadesAndZones(state, dt) {
   state.zones = state.zones.filter((z) => z.t > 0);
 }
 
-// ---------- 베이스캠프 모드: 웨이브 ----------
+// ---------- 함정 ----------
+// 가시·화염 분사구는 시간에 맞춰 반복 (state.time 기준이라 참가자 화면도 같은 박자로 그림)
+function loadTraps(state) {
+  const traps = state.map.traps || [];
+  state.barrels = traps.filter((t) => t.k === 'barrel').map((t) => ({ ...t, hp: TRAPS.barrel.hp }));
+}
+
+const trapPhase = (state, t, cycle) => (state.time + t.off) % cycle;
+
+// 한 주기에 한 번만 맞도록 (key = 함정 id + 주기 번호)
+function trapOnce(obj, key) {
+  if (obj.trapKey === key) return false;
+  obj.trapKey = key;
+  return true;
+}
+
+function hitByTrap(state, t, x, y, r) {
+  if (t.k === 'spike') return Math.abs(x - t.x) < TILE / 2 + r * 0.6 && Math.abs(y - t.y) < TILE / 2 + r * 0.6;
+  if (t.k === 'vent') {
+    const ux = [1, 0, -1, 0][t.a], uy = [0, 1, 0, -1][t.a];
+    const rx = x - t.x, ry = y - t.y, along = rx * ux + ry * uy, side = Math.abs(rx * uy - ry * ux);
+    return along > -10 && along < TRAPS.vent.len + 10 && side < TRAPS.vent.w / 2 + r;
+  }
+  return false;
+}
+
+function updateTraps(state, dt) {
+  const players = Object.values(state.players).filter((p) => p.alive);
+  for (const p of players) { p.slowT = Math.max(0, (p.slowT || 0) - dt); p.poisonT = Math.max(0, (p.poisonT || 0) - dt); }
+  for (const t of state.map.traps || []) {
+    if (t.k === 'barrel') continue;
+    // 가까운 것만 계산
+    const near = (o) => Math.abs(o.x - t.x) < 140 && Math.abs(o.y - t.y) < 140;
+    if (t.k === 'poison') {
+      const R = TRAPS.poison.r;
+      for (const p of players) {
+        if (!near(p) || Math.hypot(p.x - t.x, p.y - t.y) > R + p.r * 0.5) continue;
+        p.slowT = 0.2;
+        if (p.poisonT <= 0) { p.poisonT = TRAPS.poison.every; damagePlayer(state, p, TRAPS.poison.dmg); }
+      }
+      if (Math.floor(state.time) !== Math.floor(state.time - dt)) {
+        for (const e of enemiesNear(state, t.x, t.y, R)) applyElement(state, e, { el: 'poison', elv: 1, vx: 0, vy: 1 });
+      }
+      continue;
+    }
+    const D = TRAPS[t.k];
+    const ph = trapPhase(state, t, D.cycle);
+    if (ph < D.on) continue;
+    const key = t.id * 100000 + Math.floor((state.time + t.off) / D.cycle);
+    for (const p of players) {
+      if (near(p) && p.dashT <= 0 && hitByTrap(state, t, p.x, p.y, p.r) && trapOnce(p, key)) damagePlayer(state, p, D.dmg);
+    }
+    for (const e of state.enemies) {
+      if (e.hp <= 0 || e.air || !near(e) || !hitByTrap(state, t, e.x, e.y, e.r) || !trapOnce(e, key)) continue;
+      damageEnemy(state, e, D.edmg * (e.kind === 'boss' ? 2 : 1), e.lastHit);
+      if (t.k === 'vent' && e.hp > 0) applyElement(state, e, { el: 'fire', elv: 1, shooter: e.lastHit, vx: 0, vy: 1 });
+    }
+  }
+}
+
+// 폭발 통: 맞으면 터져서 주변 적에게 큰 피해 (다른 통도 연쇄 폭발)
+function hitBarrel(state, b, dmg, src) {
+  if (b.hp <= 0) return;
+  b.hp -= dmg > 0 ? 1 : 0;
+  if (b.hp > 0) return;
+  const D = TRAPS.barrel;
+  addFx(state, { k: 'r', x: b.x, y: b.y, r: D.r, c: '#ff7043', t: 0.45, life: 0.45 });
+  addFx(state, { k: 'r', x: b.x, y: b.y, r: D.r * 0.55, c: '#ffd54f', t: 0.3, life: 0.3 });
+  for (const e of enemiesNear(state, b.x, b.y, D.r)) {
+    damageEnemy(state, e, D.edmg, src);
+    if (e.hp > 0) {
+      const d = Math.hypot(e.x - b.x, e.y - b.y) || 1;
+      push(state, e, (e.x - b.x) / d, (e.y - b.y) / d, 40);
+    }
+  }
+  for (const p of playersInCircle(state, b.x, b.y, D.r * 0.7)) damagePlayer(state, p, D.dmg);
+  for (const o of state.barrels) if (o !== b && o.hp > 0 && Math.hypot(o.x - b.x, o.y - b.y) < D.r) hitBarrel(state, o, 1, src);
+}
+
+function barrelAt(state, x, y, r) {
+  return state.barrels.find((b) => b.hp > 0 && (b.x - x) ** 2 + (b.y - y) ** 2 < (r + 13) ** 2);
+}
+
+// ---------- 베이스캠프 = 생존 모드 (탕탕특공대 방식) ----------
+// 적이 끊임없이 몰려오고, 레벨업 카드로 자동 스킬·패시브를 모아 조합 진화합니다.
+const campLvl = (state) => Math.max(0, state.survT - SURVIVAL.prep) / 40;
+
+// 화면 바깥(플레이어 기준 520~720px)의 바닥에서 적이 나옴
 function campSpawnPoint(state) {
   const m = state.map, camp = m.camp;
   const alive = Object.values(state.players).filter((p) => p.alive);
-  let x = tileCenter(2), y = tileCenter(2);
-  for (let tries = 0; tries < 100; tries++) {
-    const tx = 1 + Math.floor(Math.random() * (m.cols - 2));
-    const ty = 1 + Math.floor(Math.random() * (m.rows - 2));
-    if (isWallTile(state, tx, ty) || Math.hypot(tileCenter(tx) - camp.x, tileCenter(ty) - camp.y) < camp.r + TILE * 2) continue;
-    x = tileCenter(tx); y = tileCenter(ty);
-    if (alive.every((p) => (p.x - x) ** 2 + (p.y - y) ** 2 > 220 ** 2)) break;
+  const ref = alive[Math.floor(Math.random() * alive.length)] || camp;
+  for (let tries = 0; tries < 30; tries++) {
+    const a = Math.random() * Math.PI * 2, d = 520 + Math.random() * 200;
+    const x = ref.x + Math.cos(a) * d, y = ref.y + Math.sin(a) * d;
+    const tx = Math.floor(x / TILE), ty = Math.floor(y / TILE);
+    if (isWallTile(state, tx, ty) || Math.hypot(x - camp.x, y - camp.y) < camp.r + TILE * 2) continue;
+    if (alive.some((p) => (p.x - x) ** 2 + (p.y - y) ** 2 < 400 ** 2)) continue;
+    return { x: tileCenter(tx), y: tileCenter(ty) };
   }
-  return { x, y };
+  for (let tries = 0; tries < 100; tries++) {
+    const tx = 1 + Math.floor(Math.random() * (m.cols - 2)), ty = 1 + Math.floor(Math.random() * (m.rows - 2));
+    if (!isWallTile(state, tx, ty) && Math.hypot(tileCenter(tx) - camp.x, tileCenter(ty) - camp.y) > camp.r + TILE * 3) return { x: tileCenter(tx), y: tileCenter(ty) };
+  }
+  return { x: tileCenter(2), y: tileCenter(2) };
+}
+
+function spawnCampEnemy(state, kind) {
+  const { x, y } = campSpawnPoint(state);
+  const e = makeEnemy(state, kind, x, y, campLvl(state));
+  if (kind !== 'boss') { e.hp = e.maxHp = Math.round(e.maxHp * SURVIVAL.hpMul * 10) / 10; }
+  // 많이 부딪히는 모드라 피해는 천천히 오름 (4분마다 +1)
+  e.sc = { ...e.sc, dmg: 1 + Math.floor(Math.max(0, state.survT - SURVIVAL.prep) / 240) };
+  state.enemies.push(e);
+  return e;
 }
 
 function updateCamp(state, players, dt) {
-  if (state.enemies.length > 0) return;
-  if (!state.cleared) {
-    state.cleared = true;
-    state.waveTimer = WAVE_BREAK;
-    state.gold += 5 + state.wave * 2;
-    giveEssence(state, ESSENCE.wave + state.wave);
-    for (const p of players) if (p.alive && hasPerk(p, 'tide')) heal(p, 1);
-    // 3웨이브마다 캠프 옆에 보물상자
-    if (state.wave % 3 === 0) spawnChest(state, state.map.camp.x + 64, state.map.camp.y);
-  }
-  state.waveTimer -= dt;
+  state.survT += dt;
+  const S = SURVIVAL;
   const alive = players.filter((p) => p.alive);
-  if (state.waveTimer > 0 && !alive.every((p) => p.ready)) return;
-
-  state.wave++;
-  state.cleared = false;
-  for (const p of players) {
-    p.ready = false;
-    if (!p.alive) revive(state, p, 0.5);
+  // 준비 시간 (모두 G를 누르면 바로 시작)
+  if (!state.started) {
+    if (state.survT < S.prep && !(alive.length && alive.every((p) => p.ready))) return;
+    state.started = true;
+    state.survT = Math.max(state.survT, S.prep);
+    for (const p of players) p.ready = false;
+    floatText(state, state.map.camp.x, state.map.camp.y - 80, '적이 몰려온다!', '#ff8a80', 2);
   }
-  const count = Math.min(3 + state.wave * 2, 26);
-  for (let i = 0; i < count; i++) {
-    const { x, y } = campSpawnPoint(state);
-    state.enemies.push(makeEnemy(state, pickKind(state.wave), x, y, state.wave * 0.6));
+  const t = state.survT - S.prep;
+  const minuteNow = Math.floor(t / 60) + 1;
+  if (minuteNow > state.wave && state.wave > 0) for (const p of alive) if (hasPerk(p, 'tide')) heal(p, 1); // 치유의 물
+  state.wave = minuteNow; // 무기 단계용 (분)
+
+  // 쓰러진 팀원은 20초 뒤 캠프에서 부활
+  for (const p of players) {
+    if (p.alive) continue;
+    p.reviveT = (p.reviveT ?? S.reviveTime) - dt;
+    if (p.reviveT <= 0) { p.reviveT = S.reviveTime; revive(state, p, 0.5, freeSpotNear(state, state.map.camp.x, state.map.camp.y)); }
+  }
+
+  // 정예와 보스
+  while (state.eliteIdx < S.elites.length && t >= S.elites[state.eliteIdx]) {
+    state.eliteIdx++;
+    const e = spawnCampEnemy(state, 'elite');
+    e.hp = e.maxHp = Math.round(ENEMY_TYPES.elite.hp * (1 + 0.5 * state.eliteIdx) * (1 + 0.5 * (players.length - 1)));
+    floatText(state, alive[0]?.x ?? e.x, (alive[0]?.y ?? e.y) - 60, '정예 등장!', '#ffab40', 2);
+  }
+  if (!state.bossSpawned && t >= S.duration) {
+    state.bossSpawned = true;
+    const m = state.map;
+    const room = { x0: 1, y0: 1, w: m.cols - 2, h: m.rows - 2 };
+    const spot = campSpawnPoint(state);
+    spawnBoss(state, { ...room, x0: Math.floor(spot.x / TILE) - 12, y0: Math.floor(spot.y / TILE) - 3, w: 24 });
+    const boss = state.enemies[state.enemies.length - 1];
+    boss.room = room;
+    boss.x = spot.x; boss.y = spot.y;
+  }
+  if (state.bossSpawned && !state.enemies.some((e) => e.kind === 'boss')) {
+    endRun(state, '생존 성공! 🎉');
+    return;
+  }
+
+  // 상자
+  if (t >= state.nextChest) {
+    state.nextChest += S.chestEvery;
+    spawnChest(state, state.map.camp.x + (Math.random() - 0.5) * 160, state.map.camp.y + 90);
+  }
+
+  // 끊임없이 몰려옴: 시간이 갈수록 자주, 많이, 강하게 (보스가 나오면 잠잠해짐)
+  state.spawnT -= dt;
+  if (state.spawnT > 0 || state.bossSpawned && t > S.duration + 5) return;
+  const minute = t / 60;
+  state.spawnT = Math.max(0.35, 1.6 - minute * 0.14) / (1 + 0.25 * (players.length - 1));
+  const batch = 2 + Math.floor(minute / 1.2) + (Math.random() < 0.15 ? 5 : 0); // 가끔 떼로
+  const room = S.maxEnemies - state.enemies.length;
+  for (let i = 0; i < Math.min(batch, room); i++) spawnCampEnemy(state, pickKind(1 + minute * 1.2));
+}
+
+// ---------- 자동 스킬 ----------
+// p.au = { blade: { lv, evo, cd } } · p.pa = { power: 2 }
+const paLv = (p, k) => p.pa?.[k] || 0;
+const autoArea = (p) => 1 + 0.1 * paLv(p, 'area');
+const autoHaste = (p) => 1 - 0.08 * paLv(p, 'haste');
+
+function autoTargets(state, p, range, n) {
+  return shuffle(enemiesNear(state, p.x, p.y, range)).slice(0, n);
+}
+
+function updateAutos(state, p, st, dt) {
+  const mul = st.mul;
+  for (const [k, a] of Object.entries(p.au)) {
+    const lv = a.lv, evo = a.evo;
+    a.cd -= dt;
+    if (k === 'blade') {
+      // 칼날: 켜졌다 꺼졌다 (진화하면 계속)
+      a.on = evo ? 1 : Math.max(0, (a.on || 0) - dt);
+      if (!evo && a.cd <= 0 && a.on <= 0) { a.on = 3 + 0.3 * lv; a.cd = 6 * autoHaste(p); }
+      if (a.on > 0) {
+        const n = evo ? 6 : lv + 1, R = 72 * autoArea(p);
+        a.n = n; a.r = R;
+        for (let i = 0; i < n; i++) {
+          const ang = state.time * (evo ? 5 : 4) + (i / n) * Math.PI * 2;
+          const bx = p.x + Math.cos(ang) * R, by = p.y + Math.sin(ang) * R;
+          for (const e of enemiesNear(state, bx, by, 16 + 18)) {
+            if ((e.bladeT || 0) > state.time) continue;
+            e.bladeT = state.time + 0.35;
+            damageEnemy(state, e, (1.5 + 0.6 * lv) * mul * (evo ? 1.5 : 1), p.id);
+            if (e.hp > 0) push(state, e, Math.cos(ang + Math.PI / 2), Math.sin(ang + Math.PI / 2), 10);
+          }
+        }
+      }
+      continue;
+    }
+    if (k === 'aura') {
+      a.r = (80 + 8 * lv) * autoArea(p) * (evo ? 1.4 : 1);
+      if (a.cd <= 0) {
+        a.cd = 0.5;
+        for (const e of enemiesNear(state, p.x, p.y, a.r)) {
+          damageEnemy(state, e, (0.6 + 0.3 * lv) * mul * (evo ? 1.6 : 1), p.id, 'dot');
+          if (evo && e.hp > 0) e.st.chill = Math.max(e.st.chill, 1);
+        }
+      }
+      if (evo) { a.healT = (a.healT ?? 10) - dt; if (a.healT <= 0) { a.healT = 10; heal(p, 1); } }
+      continue;
+    }
+    if (a.cd > 0) continue;
+    if (k === 'drone') {
+      a.n = evo ? 4 : 1 + Math.floor(lv / 2);
+      a.cd = (evo ? 0.35 : 1.0 - 0.06 * lv) * autoHaste(p);
+      const targets = autoTargets(state, p, 420, a.n);
+      targets.forEach((t, i) => {
+        const ang = state.time * 2 + (i / a.n) * Math.PI * 2;
+        const ox = p.x + Math.cos(ang) * 30, oy = p.y - 24 + Math.sin(ang) * 10;
+        const aim = Math.atan2(t.y - oy, t.x - ox);
+        state.bullets.push({ ...makeBullet(state, p, aim, 620, { kind: 'drone', r: 3, dmg: (1.2 + 0.4 * lv) * mul, life: 0.8, el: null, elv: 0 }), x: ox, y: oy });
+      });
+    } else if (k === 'molotov') {
+      a.cd = (evo ? 2.5 : 3.5) * autoHaste(p);
+      const n = evo ? 5 : Math.min(3, 1 + Math.floor(lv / 2));
+      const targets = autoTargets(state, p, 360, n);
+      for (const t of targets) {
+        state.grenades.push({
+          id: state.nextId++, kind: 'molotov', sx: p.x, sy: p.y, tx: t.x, ty: t.y, t: 0, dur: 0.6, src: p.id,
+          dmg: 0, r: (48 + 4 * lv) * autoArea(p) * (evo ? 1.4 : 1), burn: (0.8 + 0.3 * lv) * mul * (evo ? 1.4 : 1), life: evo ? 4 : 2.5,
+        });
+      }
+    } else if (k === 'lightning') {
+      a.cd = (evo ? 1.6 : 2.4 - 0.1 * lv) * autoHaste(p);
+      const targets = autoTargets(state, p, 460, (evo ? 4 : 1) + lv);
+      for (const t of targets) {
+        addFx(state, { k: 'l', x: t.x + (Math.random() - 0.5) * 30, y: t.y - 240, x2: t.x, y2: t.y, c: '#fff176', t: 0.25, life: 0.25 });
+        damageEnemy(state, t, (3 + 1.5 * lv) * mul, p.id);
+        if (evo && t.hp > 0) chainLightning(state, t, 3, 2 * mul, p.id);
+      }
+    } else if (k === 'boomerang') {
+      a.cd = (evo ? 2 : 2.8 - 0.1 * lv) * autoHaste(p);
+      const n = evo ? 6 : 1 + Math.floor(lv / 3);
+      const t = nearest(state.enemies.filter((e) => e.hp > 0), p.x, p.y, 500);
+      const base = t ? Math.atan2(t.y - p.y, t.x - p.x) : p.angle;
+      for (let i = 0; i < n; i++) {
+        const ang = evo ? base + (i / n) * Math.PI * 2 : base + (i - (n - 1) / 2) * 0.35;
+        state.bullets.push(makeBullet(state, p, ang, 460, { kind: 'boomerang', r: 9, dmg: (2 + 0.8 * lv) * mul * (evo ? 1.3 : 1), life: 3, pierce: 99, el: null, elv: 0, out: 0.55, home: 0 }));
+      }
+    }
+  }
+}
+
+// 레벨업 카드 (생존 모드): 자동 스킬 6칸 · 패시브 6칸 · 조합 진화
+function survivalOffer(p) {
+  const auN = Object.keys(p.au).length, paN = Object.keys(p.pa).length;
+  const evos = Object.entries(p.au).filter(([k, a]) => !a.evo && a.lv >= AUTO_MAX_LV && paLv(p, AUTO_SKILLS[k].pair) > 0).map(([k]) => `ev:${k}`);
+  const autos = Object.keys(AUTO_SKILLS).filter((k) => (p.au[k] ? p.au[k].lv < AUTO_MAX_LV : auN < AUTO_SLOTS)).map((k) => `au:${k}`);
+  const pas = Object.keys(PASSIVE_ITEMS).filter((k) => (p.pa[k] ? p.pa[k] < AUTO_MAX_LV : paN < PASSIVE_SLOTS_RUN)).map((k) => `pa:${k}`);
+  const offer = [...evos.slice(0, 1), ...shuffle([...autos, ...autos, ...pas]).filter((k, i, arr) => arr.indexOf(k) === i)].slice(0, 3);
+  // 처음엔 자동 스킬이 꼭 하나는 나오게
+  if (!auN && autos.length && !offer.some((k) => k.startsWith('au:'))) offer[offer.length - 1] = shuffle(autos)[0];
+  while (offer.length < 3 && !offer.includes('heal')) offer.push('heal');
+  return offer;
+}
+
+function applySurvivalCard(p, key) {
+  if (key === 'heal') { heal(p, 3); return; }
+  const k = key.slice(3);
+  if (key.startsWith('au:')) {
+    if (p.au[k]) p.au[k].lv = Math.min(AUTO_MAX_LV, p.au[k].lv + 1);
+    else p.au[k] = { lv: 1, evo: false, cd: 0.5 };
+  } else if (key.startsWith('pa:')) {
+    p.pa[k] = Math.min(AUTO_MAX_LV, (p.pa[k] || 0) + 1);
+    if (k === 'vitality') { p.maxHp += 1; if (p.alive) p.hp += 1; }
+  } else if (key.startsWith('ev:') && p.au[k]) {
+    p.au[k].evo = true;
   }
 }
 
@@ -2336,6 +2664,7 @@ function updateTransition(state, players, dt) {
   state.activeRoom = null;
   state.chestsThisStage = 0;
   setupStageRooms(state);
+  loadTraps(state);
   state.phase = 'playing';
   players.forEach((p, i) => {
     if (!p.alive) revive(state, p, 0.5);
@@ -2377,6 +2706,7 @@ export function step(state, inputs, dt) {
   updateTurrets(state, dt);
   updateBullets(state, dt);
   updateHazards(state, dt);
+  updateTraps(state, dt);
   updateGrenadesAndZones(state, dt);
   // 총알·스킬·지속 피해·반응 어떤 이유로든 쓰러진 적은 마지막으로 때린 사람에게 점수를 줍니다.
   for (const e of state.enemies) if (e.hp <= 0) killEnemy(state, e);
@@ -2385,12 +2715,14 @@ export function step(state, inputs, dt) {
 
   if (players.length === 0) return;
   if (!players.some((p) => p.alive)) {
-    endRun(state, state.mode === 'camp' ? `전멸! (웨이브 ${state.wave})` : `전멸! (${stageLabel(state.stageIdx)})`);
+    endRun(state, state.mode === 'camp' ? `전멸! (${fmtTime(state.survT - SURVIVAL.prep)} 생존 · ${state.kills || 0}마리 처치)` : `전멸! (${stageLabel(state.stageIdx)})`);
     return;
   }
   if (state.mode === 'camp') updateCamp(state, players, dt);
   else updateAdventure(state, players, dt);
 }
+
+const fmtTime = (t) => `${Math.floor(Math.max(0, t) / 60)}:${String(Math.floor(Math.max(0, t) % 60)).padStart(2, '0')}`;
 
 // ---------- 스냅샷 ----------
 const r1 = (n) => Math.round(n * 10) / 10;
@@ -2452,6 +2784,9 @@ export function snapshot(state) {
     ot: state.overText,
     w: state.wave,
     wt: r1(Math.max(0, state.waveTimer)),
+    tm: r2(state.time),
+    sv: state.mode === 'camp' ? { t: r1(state.survT - SURVIVAL.prep), st: state.started ? 1 : 0, k: state.kills || 0, b: state.bossSpawned ? 1 : 0, ei: state.eliteIdx } : null,
+    br: state.barrels.filter((b) => b.hp > 0).map((b) => b.id),
     g: state.gold,
     p: Object.values(state.players).map((p) => ({
       id: p.id, n: p.name, c: p.color, x: r1(p.x), y: r1(p.y),
@@ -2467,7 +2802,8 @@ export function snapshot(state) {
         cd: r1(Math.max(0, s.cd)), c: s.charges, cm: WEAPONS[s.key].charges || 1,
       })),
       sl: p.slot, sw: r1(p.swapCd), ut: r1(p.ultT), cb: inCombat(state) ? 1 : 0,
-      jv: p.javelin ? 1 : 0, ld: p.loadout, cs: p.casts.map(r1), sgt: r2(p.swingT / SWING_TIME), sgd: p.swingDir,
+      jv: p.javelin ? 1 : 0, ld: p.loadout, pp: p.perkIds || [], cs: p.casts.map(r1), sgt: r2(p.swingT / SWING_TIME), sgd: p.swingDir,
+      au: Object.entries(p.au).map(([k, a]) => [k, a.lv, a.evo ? 1 : 0, r1(a.on || 0), a.n || 0, Math.round(a.r || 0)]), pa: p.pa, rv: p.alive ? 0 : Math.ceil(p.reviveT),
       mp: Math.floor(p.mana), mm: stats(p).maxMana, sk: p.skin, wst: weaponStats(p),
     })),
     e: state.enemies.map((e) => ({
@@ -2489,13 +2825,17 @@ export function snapshot(state) {
       ...state.grenades.map((g) => {
         const t = g.t / g.dur;
         if (g.kind === 'meteor') return { x: r1(g.sx + (g.tx - g.sx) * t), y: r1(g.sy + (g.ty - g.sy) * t), r: 14, o: 0, el: g.el, k: 'meteor', a: 0, tx: r1(g.tx), ty: r1(g.ty), rr: g.r };
-        return { x: r1(g.sx + (g.tx - g.sx) * t), y: r1(g.sy + (g.ty - g.sy) * t - Math.sin(Math.PI * t) * 40), r: 5, o: 0, el: g.el || 0, k: 'grenade', a: 0 };
+        return { x: r1(g.sx + (g.tx - g.sx) * t), y: r1(g.sy + (g.ty - g.sy) * t - Math.sin(Math.PI * t) * 40), r: 5, o: 0, el: g.el || (g.kind === 'molotov' ? 'fire' : 0), k: 'grenade', a: 0 };
       }),
     ],
     zn: state.zones.map((z) => ({ k: z.kind, x: r1(z.x), y: r1(z.y), r: z.r, t: r1(z.t), el: z.el || 0 })),
     cs: state.chests.map((c) => ({ id: c.id, x: c.x, y: c.y, o: c.open ? 1 : 0, b: c.big ? 1 : 0 })),
     pk: state.pickups.map((o) => ({ id: o.id, x: r1(o.x), y: r1(o.y), k: o.key, el: o.el || 0, lv: o.elv || 0 })),
-    xo: state.orbs.map((o) => ({ id: o.id, k: o.k, x: r1(o.x), y: r1(o.y), tk: o.taken })),
+    // 구슬은 많아서 짧게: [id, 종류, x, y, 주운 사람 비트] (비트 순서 = p 목록 순서)
+    xo: (() => {
+      const ids = Object.keys(state.players);
+      return state.orbs.map((o) => [o.id, o.k, Math.round(o.x), Math.round(o.y), o.taken.reduce((m, id) => m | (1 << Math.max(0, ids.indexOf(id))), 0)]);
+    })(),
     fx: state.fx.map((f) => ({ ...f, x: r1(f.x), y: r1(f.y), t: r1(f.t) })),
   };
 }
