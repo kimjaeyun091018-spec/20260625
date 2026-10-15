@@ -45,6 +45,7 @@ P = {
     'fur': ((150, 120, 92, 255), (190, 160, 128, 255), (100, 78, 60, 255)),
     'green': ((70, 128, 70, 255), (108, 168, 100, 255), (40, 80, 44, 255)),
     'glass': ((120, 210, 230, 255), (200, 244, 252, 255), (60, 130, 160, 255)),
+    'rock': ((132, 126, 156, 255), (170, 164, 192, 255), (84, 78, 108, 255)),   # 거인(돌 피부)
     'cloth': CLOTH,
 }
 
@@ -274,19 +275,18 @@ def alchemist(s, f):
 
 
 def scout(s, f):
+    """스카웃: 어두운 두건과 망토, 가벼운 가죽옷 (쌍검은 게임이 손에 그림)"""
     b = f['bob']
-    legs(s, f, 'leather', boot='dleather')
-    s.part(rect(9, 13 + b, 12, 22 + b), 'cloth')     # 망토
-    arm(s, f, 10, 'leather')
-    torso(s, f, 'leather', belt='dleather')
-    s.part(rect(12, 15 + b, 19, 16 + b), 'cloth')
+    legs(s, f, 'dleather', boot='dleather')
+    s.part(rect(9, 13 + b, 12, 22 + b), 'dsteel')      # 망토
+    arm(s, f, 10, 'dleather')
+    torso(s, f, 'dleather', belt='cloth')
+    s.part(rect(12, 15 + b, 19, 16 + b), 'cloth')      # 목도리 (천 색)
     face(s, f)
-    # 모자 (챙 달린 가죽 모자)
-    cap = ellipse(15.5, 6.5 + b, 6, 3.6) - rect(8, 8 + b, 24, 20 + b)
-    s.part(cap | rect(10, 6 + b, 21, 7 + b), 'dsteel')
-    s.part(rect(18, 7 + b, 24, 8 + b), 'dsteel', light_dir=False)
-    s.part(rect(10, 8 + b, 12, 12 + b), 'hair')
-    arm(s, f, 20, 'leather', glove='dleather')
+    hd = (ellipse(15.5, 8.5 + b, 6.6, 6.2) | rect(9, 9 + b, 14, 16 + b)) - rect(15, 9 + b, 23, 13 + b)
+    s.part(hd, 'dsteel')
+    s.part({(21, 5 + b), (22, 6 + b), (20, 4 + b)}, 'dsteel', light_dir=False)   # 두건 끝
+    arm(s, f, 20, 'dleather', glove='dleather')
 
 
 def priest(s, f):
@@ -314,26 +314,26 @@ def giant(s, f):
     for i, side in enumerate((-1, 1)):
         off = f['legs'] * (1 if i == 0 else -1)
         x0 = 11 if side < 0 else 17
-        s.part(rect(x0 + off, 21, x0 + off + 3, 24), 'skin')
+        s.part(rect(x0 + off, 21, x0 + off + 3, 24), 'rock')
         s.part(rect(x0 + off - 1, 24, x0 + off + 4, 25), 'fur')
     sw = f['arm']
-    s.part(rect(6, 12 + b, 9, 20 + b + sw), 'skin')               # 뒤 팔
-    s.part(ellipse(7.5, 21 + b + sw, 2.2, 1.8), 'skin')
-    s.part(ellipse(15.5, 15.5 + b, 8.2, 6.4), 'skin')             # 큰 몸
-    s.part(ellipse(17, 17 + b, 4.5, 3.2), ((246, 200, 160, 255), (252, 222, 190, 255), (210, 160, 120, 255)), light_dir=False)  # 배
+    s.part(rect(6, 12 + b, 9, 20 + b + sw), 'rock')               # 뒤 팔
+    s.part(ellipse(7.5, 21 + b + sw, 2.2, 1.8), 'rock')
+    s.part(ellipse(15.5, 15.5 + b, 8.2, 6.4), 'rock')             # 큰 몸
+    s.part(ellipse(17, 17 + b, 4.5, 3.2), ((150, 144, 174, 255), (186, 180, 206, 255), (110, 104, 134, 255)), light_dir=False)  # 배
     s.part(rect(9, 20 + b, 22, 22 + b), 'cloth')                   # 허리 천
     s.part(rect(9, 20 + b, 22, 20 + b), 'leather', light_dir=False)
     s.part(ellipse(10, 11.5 + b, 4, 2.2), 'fur')                  # 털 어깨
-    s.part(ellipse(18.5, 7.5 + b, 4.6, 4.2), 'skin')              # 머리
+    s.part(ellipse(18.5, 7.5 + b, 4.6, 4.2), 'rock')              # 머리
     s.put(17, 7 + b, EYE); s.put(20, 7 + b, EYE)
     s.put(17, 8 + b, INK); s.put(20, 8 + b, INK)
     for x in range(16, 22):
-        s.put(x, 6 + b, P['skin'][2])                               # 눈썹
+        s.put(x, 6 + b, P['rock'][2])                               # 눈썹
     s.put(18, 10 + b, P['bone'][0]); s.put(21, 10 + b, P['bone'][0])  # 엄니
     for x in range(18, 22):
-        s.put(x, 11 + b, P['skin'][2])
-    s.part(rect(21, 12 + b, 24, 20 + b + sw), 'skin')             # 앞 팔
-    s.part(ellipse(22.5, 21 + b + sw, 2.4, 2), 'skin')
+        s.put(x, 11 + b, P['rock'][2])
+    s.part(rect(21, 12 + b, 24, 20 + b + sw), 'rock')             # 앞 팔
+    s.part(ellipse(22.5, 21 + b + sw, 2.4, 2), 'rock')
 
 
 DESIGNS = {

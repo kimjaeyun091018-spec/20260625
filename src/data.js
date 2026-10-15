@@ -168,7 +168,7 @@ export const SURVIVAL = {
 // ---------- 성 (성 지키기 모드의 가운데 탑) ----------
 // 성이 무너지면 패배. 골드로 강화(T 키): 최대 체력 +30, 화살 강화 (5레벨부터 2발)
 export const CASTLE = {
-  hp: 120, r: 30, range: 300, arrowEvery: 0.9, arrowDmg: 2.5,
+  hp: 120, r: 46, range: 300, arrowEvery: 0.9, arrowDmg: 2.5,
   upgradeCost: (lv) => 50 + 40 * (lv - 1), maxLv: 8, hpPerLv: 30,
   startGold: 40,
 };

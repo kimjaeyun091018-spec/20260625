@@ -13,7 +13,8 @@ import {
 import { buildCampMap, buildLobbyMap, generateDungeon, tileCenter } from './maps.js';
 import { ACTIVES, PERKS, NODE, LOADOUT_SIZE, sanitizeBuild, buildBonus } from './tree.js';
 
-const PLAYER_COLORS = ['#4fc3f7', '#ffb74d', '#f06292', '#aed581'];
+// 1P 빨강 · 2P 초록 · 3P 파랑 · 4P 노랑 (발밑 고리·이름 색)
+const PLAYER_COLORS = ['#ef5350', '#66bb6a', '#42a5f5', '#ffee58'];
 const PLAYER_RADIUS = 12;
 const PLAYER_SPEED = 190;
 const DASH_SPEED = 560;

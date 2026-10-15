@@ -20,9 +20,9 @@ const PIXEL = 2;            // 도트 1칸 = 화면 2픽셀
 const GRIP_X = 3, GRIP_Y = 6; // 무기 그림에서 손잡이 위치
 
 // ---------- 이미지 불러오기 ----------
-const sprites = { ready: false, heroes: new Image(), weapons: new Image(), enemies: new Image(), bosses: new Image() };
+const sprites = { ready: false, heroes: new Image(), weapons: new Image(), enemies: new Image(), bosses: new Image(), castle: new Image(), fence: new Image(), turret: new Image() };
 {
-  const list = ['heroes', 'weapons', 'enemies', 'bosses'];
+  const list = ['heroes', 'weapons', 'enemies', 'bosses', 'castle', 'fence', 'turret'];
   let left = list.length;
   const done = () => {
     if (--left > 0) return;
@@ -236,26 +236,22 @@ export function createRenderer(canvas) {
     ctx.restore();
   }
 
+  // 울타리(나무 말뚝)·터렛(돌탑 + 회전 쇠뇌): assets/fence.png, turret.png를 2배로
   function drawStruct(s, cam) {
     const x = s.tx * TILE - cam.x, y = s.ty * TILE - cam.y, cx = x + TILE / 2, cy = y + TILE / 2;
     if (s.k === 'fence') {
-      ctx.fillStyle = '#8d6e63';
-      for (const ox of [3, 14, 25]) ctx.fillRect(x + ox, y + 6, 4, 22);
-      ctx.fillStyle = '#a1887f';
-      ctx.fillRect(x + 1, y + 10, 30, 4);
-      ctx.fillRect(x + 1, y + 20, 30, 4);
+      if (sprites.ready) ctx.drawImage(sprites.fence, x, y, 32, 32);
     } else {
-      ctx.fillStyle = '#546e7a';
-      ctx.fillRect(x + 4, y + 4, 24, 24);
-      circle(cx, cy, 8, '#90a4ae');
+      if (sprites.ready) ctx.drawImage(sprites.turret, x, y + 32 - 52, 32, 52);
       ctx.save();
-      ctx.translate(cx, cy);
+      ctx.translate(cx, y - 8);
       ctx.rotate(s.a);
-      ctx.fillStyle = '#cfd8dc';
-      ctx.fillRect(0, -3, 16, 6);
+      ctx.fillStyle = '#1a1622'; ctx.fillRect(-2, -6, 6, 12); ctx.fillRect(0, -2, 16, 4);
+      ctx.fillStyle = '#8d6e63'; ctx.fillRect(-1, -5, 4, 10);
+      ctx.fillStyle = '#cfd8dc'; ctx.fillRect(1, -1, 14, 2);
       ctx.restore();
     }
-    if (s.hp < s.mh) hpBar(cx, y - 2, 26, s.hp, s.mh);
+    if (s.hp < s.mh) hpBar(cx, y - (s.k === 'fence' ? 2 : 26), 26, s.hp, s.mh);
   }
 
   // ---------- 캐릭터 ----------
@@ -825,41 +821,22 @@ export function createRenderer(canvas) {
   }
 
   // ---------- 성 지키기: 성과 군단 ----------
+  // 성: assets/castle.png (64x70)를 2배로. 맞으면 잠깐 빨갛게
   function drawCastle(ca, now) {
     const x = ca.x, y = ca.y;
     ctx.fillStyle = 'rgba(0,0,0,.3)';
-    ctx.beginPath(); ctx.ellipse(x, y + 26, 40, 13, 0, 0, Math.PI * 2); ctx.fill();
-    // 돌탑
-    ctx.fillStyle = ca.h ? '#ffffff' : '#ffffff';
-    ctx.fillRect(x - 30, y - 46, 60, 76);
-    ctx.fillStyle = ca.h ? '#ffcdd2' : '#cfd8dc';
-    ctx.fillRect(x - 28, y - 44, 56, 72);
-    ctx.fillStyle = ca.h ? '#ef9a9a' : '#90a4ae';
-    for (let row = 0; row < 7; row++) for (let col = 0; col < 4; col++) {
-      const bx = x - 28 + col * 14 + (row % 2 ? 7 : 0), by = y - 44 + row * 10;
-      if (bx + 12 <= x + 28) ctx.fillRect(bx, by + 8, 12, 2);
+    ctx.beginPath(); ctx.ellipse(x, y + 36, 70, 18, 0, 0, Math.PI * 2); ctx.fill();
+    if (sprites.ready) {
+      ctx.drawImage(sprites.castle, Math.round(x - 64), Math.round(y + 44 - 140), 128, 140);
+      if (ca.h) {
+        ctx.fillStyle = 'rgba(255,82,82,.22)';
+        ctx.beginPath(); ctx.ellipse(x, y - 20, 62, 62, 0, 0, Math.PI * 2); ctx.fill();
+      }
     }
-    // 성가퀴 + 문
-    ctx.fillStyle = '#b0bec5';
-    for (let i = 0; i < 5; i++) ctx.fillRect(x - 32 + i * 14, y - 54, 8, 10);
-    ctx.fillStyle = '#5d4037';
-    ctx.beginPath(); ctx.moveTo(x - 10, y + 28); ctx.lineTo(x - 10, y + 10); ctx.arc(x, y + 10, 10, Math.PI, 0); ctx.lineTo(x + 10, y + 28); ctx.fill();
-    // 뾰족 지붕
-    ctx.fillStyle = '#fff';
-    ctx.beginPath(); ctx.moveTo(x - 36, y - 52); ctx.lineTo(x, y - 108); ctx.lineTo(x + 36, y - 52); ctx.fill();
-    ctx.fillStyle = '#8d4e2a';
-    ctx.beginPath(); ctx.moveTo(x - 33, y - 54); ctx.lineTo(x, y - 104); ctx.lineTo(x + 33, y - 54); ctx.fill();
-    ctx.fillStyle = '#6d3a1f';
-    for (let i = 1; i < 4; i++) ctx.fillRect(x - 30 + i * 4, y - 58 - i * 10, 60 - i * 8, 2);
-    // 깃발
-    ctx.fillStyle = '#5d4037'; ctx.fillRect(x - 1, y - 124, 2, 20);
-    ctx.fillStyle = '#e53935';
-    ctx.beginPath(); ctx.moveTo(x + 1, y - 124); ctx.lineTo(x + 16 + Math.sin(now / 200) * 2, y - 119); ctx.lineTo(x + 1, y - 114); ctx.fill();
-    // 체력·레벨
-    const w = 80;
-    ctx.fillStyle = 'rgba(0,0,0,.7)'; ctx.fillRect(x - w / 2, y - 140, w, 7);
-    ctx.fillStyle = ca.hp < ca.mh * 0.3 ? '#ff5252' : '#66bb6a'; ctx.fillRect(x - w / 2, y - 140, (w * ca.hp) / ca.mh, 7);
-    label(`성 Lv${ca.lv}`, x, y - 146, '#ffe082', 11);
+    const w = 96;
+    ctx.fillStyle = 'rgba(0,0,0,.7)'; ctx.fillRect(x - w / 2, y - 112, w, 7);
+    ctx.fillStyle = ca.hp < ca.mh * 0.3 ? '#ff5252' : '#66bb6a'; ctx.fillRect(x - w / 2, y - 112, (w * ca.hp) / ca.mh, 7);
+    label(`성 Lv${ca.lv}`, x, y - 118, '#ffe082', 11);
   }
 
   const UNIT_ORDER = Object.keys(UNITS);
@@ -1664,7 +1641,7 @@ export function createRenderer(canvas) {
     ctx.restore();
     drawCampfire(fx, fy, now);
     if (sprites.ready) {
-      const colors = ['#4fc3f7', '#ffb74d', '#f06292', '#aed581'];
+      const colors = ['#ef5350', '#66bb6a', '#42a5f5', '#ffee58'];
       const spots = [[-110, -10, false], [110, -10, true], [-60, 40, false], [60, 40, true]];
       spots.forEach(([dx, dy, flip], i) => {
         const frame = Math.floor(now / 220 + i) % 4;
@@ -1735,8 +1712,11 @@ export function createRenderer(canvas) {
       }
     }
     for (const b of snap.b) drawBullet(b);
+    // 성보다 위쪽(뒤)에 있는 유닛은 성 뒤에, 아래쪽(앞)은 성 앞에 그림
+    const behind = (u) => snap.ca && u[3] < snap.ca.y + 20;
+    for (const u of snap.un || []) if (behind(u)) drawUnit(u, snap, now);
     if (snap.ca) drawCastle(snap.ca, now);
-    for (const u of snap.un || []) drawUnit(u, snap, now);
+    for (const u of snap.un || []) if (!behind(u)) drawUnit(u, snap, now);
     for (const e of snap.e) drawEnemy(e, now, me);
     for (const p of snap.p) drawPlayer(p, p.id === myId, now);
     drawFx(snap.fx);
