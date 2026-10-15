@@ -52,7 +52,7 @@ function whiteSilhouette(img) {
 const hexRgb = (h) => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
 
 // 캐릭터 도트: assets/heroes.png (tools/make_heroes.py). 한 줄 = 디자인 하나, 가로 13프레임
-// 바깥 흰 테두리 → 팀 색, 천 색(7,0,0/1/2) → 스킨·유닛 색, 안쪽 흰색(눈) → 스킨 눈 색
+// 발밑 고리(254,254,254) → 팀 색, 천 색(7,0,0/1/2) → 스킨·유닛 색, 흰색(눈) → 스킨 눈 색
 export const DESIGNS = ['knight', 'ranger', 'mage', 'berserker', 'rogue', 'alchemist', 'scout', 'priest', 'giant', 'darkknight', 'samurai', 'wizard'];
 // 디자인마다 기본 천 색 (기본 스킨 '그림자'일 때)
 const DESIGN_CLOTH = {
@@ -80,11 +80,6 @@ export function tintedPlayer(color, skin = 'shadow', design = 'knight') {
   g.drawImage(img, 0, row * 32, img.width, 32, 0, 0, img.width, 32);
   const data = g.getImageData(0, 0, c.width, c.height);
   const px = data.data, w = c.width, h = c.height;
-  const isOpen = (x, y) => {
-    if (x < 0 || y < 0 || x >= w || y >= h || (x % 32 === 0 && false)) return true;
-    const i = (y * w + x) * 4;
-    return px[i + 3] === 0 || (px[i] === 80 && px[i + 1] === 73 && px[i + 2] === 73); // 투명 또는 그림자
-  };
   const team = hexRgb(color), eye = hexRgb(S.eye || '#ffffff'), base = hexRgb(cloth);
   const clothCols = [base, shade(base, 0.35), shade(base, -0.45)];
   const out = new Uint8ClampedArray(px);
@@ -93,9 +88,8 @@ export function tintedPlayer(color, skin = 'shadow', design = 'knight') {
       const i = (y * w + x) * 4;
       if (px[i + 3] === 0) continue;
       if (px[i] === 7 && px[i + 1] === 0 && px[i + 2] <= 2) { const cc = clothCols[px[i + 2]]; out[i] = cc[0]; out[i + 1] = cc[1]; out[i + 2] = cc[2]; continue; }
-      if (px[i] !== 255 || px[i + 1] !== 255 || px[i + 2] !== 255) continue;
-      const cc = isOpen(x + 1, y) || isOpen(x - 1, y) || isOpen(x, y + 1) || isOpen(x, y - 1) ? team : eye;
-      out[i] = cc[0]; out[i + 1] = cc[1]; out[i + 2] = cc[2];
+      if (px[i] === 254 && px[i + 1] === 254 && px[i + 2] === 254) { out[i] = team[0]; out[i + 1] = team[1]; out[i + 2] = team[2]; continue; }
+      if (px[i] === 255 && px[i + 1] === 255 && px[i + 2] === 255) { out[i] = eye[0]; out[i + 1] = eye[1]; out[i + 2] = eye[2]; }
     }
   }
   g.putImageData(new ImageData(out, w, h), 0, 0);

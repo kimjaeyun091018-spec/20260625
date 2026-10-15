@@ -207,6 +207,18 @@ export function createAccountUI(root, { getSave, onLogin, onImport }) {
   return api;
 }
 
+// ---------------------------------------------------------------- 해금 연출 (빛줄기 + 큰 그림 + 이름)
+export function showReveal(imgSrc, name, sub = '') {
+  document.querySelector('.reveal')?.remove();
+  const el = document.createElement('div');
+  el.className = 'reveal';
+  el.innerHTML = `<div class="rays"></div><div class="rbody"><img src="${imgSrc}" alt=""><b>${esc(name)}</b>${sub ? `<small>${esc(sub)}</small>` : ''}</div>`;
+  const close = () => el.remove();
+  el.addEventListener('pointerdown', close);
+  setTimeout(close, 2600);
+  document.getElementById('wrap').appendChild(el);
+}
+
 // ---------------------------------------------------------------- 병영 (군단 편성)
 // 성키우기처럼: 정수로 유닛 해금·레벨업, 성 지키기에 데려갈 4종 선택 (4~7 키로 소환)
 export function createArmyUI(root, { getSave, onChange, preview }) {
@@ -246,7 +258,7 @@ export function createArmyUI(root, { getSave, onChange, preview }) {
     switch (b.dataset.army) {
       case 'close': api.close(); return;
       case 'unlock':
-        if (save.essence >= U.unlock && !A.unlocked.includes(k)) { save.essence -= U.unlock; A.unlocked.push(k); msg = `${U.name} 해금!`; }
+        if (save.essence >= U.unlock && !A.unlocked.includes(k)) { save.essence -= U.unlock; A.unlocked.push(k); msg = `${U.name} 해금!`; showReveal(preview(k), U.name, '새 군단 유닛 해금!'); }
         break;
       case 'up': {
         const lv = A.lv[k] || 1, cost = unitLevelCost(lv);
@@ -255,7 +267,10 @@ export function createArmyUI(root, { getSave, onChange, preview }) {
       }
       case 'sel':
         if (A.sel.includes(k)) A.sel = A.sel.filter((x) => x !== k);
-        else if (A.sel.length < ARMY_SLOTS) { if (k === 'giant' && !A.unlocked.includes(k)) A.unlocked.push(k); A.sel.push(k); }
+        else if (A.sel.length < ARMY_SLOTS) {
+          if (k === 'giant' && !A.unlocked.includes(k)) { A.unlocked.push(k); showReveal(preview(k), U.name, '전설 유닛 합류!'); }
+          A.sel.push(k);
+        }
         else msg = `${ARMY_SLOTS}종까지 데려갈 수 있어요. 하나를 먼저 빼세요`;
         break;
       default:

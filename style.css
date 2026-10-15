@@ -271,3 +271,17 @@ button.link:hover:not(:disabled) { background: none; color: #d1c4e9; }
 .gcolors input { display: none; }
 .gcolors i { display: block; width: 28px; height: 28px; border-radius: 50%; border: 3px solid transparent; cursor: pointer; }
 .gcolors input:checked + i { border-color: #fff; }
+
+/* 해금 연출: 빛줄기 + 큰 도트 + 이름 */
+.reveal { position: absolute; inset: 0; z-index: 50; display: grid; place-items: center; overflow: hidden;
+  background: radial-gradient(circle, rgba(60,24,52,.85) 0%, rgba(10,6,14,.94) 70%); animation: rv-in .25s ease-out; cursor: pointer; }
+.reveal .rays { position: absolute; width: 180vmax; height: 180vmax; left: 50%; top: 50%; translate: -50% -50%;
+  background: repeating-conic-gradient(rgba(255,255,255,.13) 0 9deg, transparent 9deg 30deg); animation: rv-spin 14s linear infinite;
+  mask-image: radial-gradient(circle, #000 0%, transparent 45%); -webkit-mask-image: radial-gradient(circle, #000 0%, transparent 45%); }
+.reveal .rbody { position: relative; display: grid; justify-items: center; gap: 4px; animation: rv-pop .5s cubic-bezier(.2,1.6,.4,1); }
+.reveal img { width: 256px; height: 256px; image-rendering: pixelated; filter: drop-shadow(0 6px 0 rgba(0,0,0,.35)); }
+.reveal b { font-size: 64px; line-height: 1; color: #fff; margin-top: -40px; text-shadow: 0 4px 0 #1b1424, 0 0 18px rgba(0,0,0,.6); }
+.reveal small { color: #ffd54f; font-size: 18px; font-weight: 700; }
+@keyframes rv-spin { to { rotate: 360deg; } }
+@keyframes rv-in { from { opacity: 0; } }
+@keyframes rv-pop { from { scale: .3; opacity: 0; } }

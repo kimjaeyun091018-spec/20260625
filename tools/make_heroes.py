@@ -5,7 +5,7 @@
         assets/src/heroes-<디자인>.piskel  Piskel에서 열어 고칠 수 있는 한 줄짜리 원본
 
 색 약속 (게임이 바꿔 칠하는 색):
-  바깥 흰 테두리(255,255,255)  → 1P~4P 팀 색
+  발밑 고리(254,254,254)        → 1P~4P 팀 색 (캐릭터 테두리는 진한 검정)
   천 색 (7,0,0)/(7,0,1)/(7,0,2) → 스킨·유닛 색 (기본·밝게·어둡게)
   눈 흰색(255,255,255, 안쪽)    → 스킨 눈 색
 """
@@ -23,7 +23,8 @@ SRC = ASSETS / 'src'
 W = H = 32
 FRAMES = 13
 
-OUT_LINE = (255, 255, 255, 255)
+OUT_LINE = (24, 20, 30, 255)     # 바깥 테두리: 진한 검정 (참고 그림처럼)
+TEAM = (254, 254, 254, 255)       # 발밑 고리 → 팀 색
 EYE = (255, 255, 255, 255)
 CLOTH = ((7, 0, 0, 255), (7, 0, 1, 255), (7, 0, 2, 255))   # 기본, 밝게, 어둡게
 SHADOW = (80, 73, 73, 255)
@@ -137,46 +138,49 @@ def draw_eyes(s, f, y, x=(17, 20), tall=2):
 
 
 def knight(s, f, steel='steel', plume=True, eye_glow=False, samurai=False):
+    """참고 그림의 기사: 큰 통투구 + 십자 눈 틈, 등 뒤로 흘러내리는 깃털, 4등분 겉옷"""
     b = f['bob']
-    legs(s, f, steel)
-    # 등 뒤 망토
-    s.part(rect(9, 14 + b, 12, 22 + b), 'cloth')
-    arm(s, f, 10, steel)
-    torso(s, f, steel, belt='leather')
-    # 체크 무늬 겉옷 (천 색 + 흰색)
-    for y in range(16, 20):
-        for x in range(12, 20):
-            s.put(x, y + b, CLOTH[0] if ((x // 2 + y // 2) % 2 == 0) else P['white'][0])
-    for x in range(12, 20):
-        s.put(x, 15 + b, P[steel][2])
-    # 투구
-    helm = ellipse(16.5, 9.5 + b, 6.4, 6.2) | rect(11, 9 + b, 22, 15 + b)
-    s.part(helm, steel)
-    # 얼굴 가리개 + 눈 틈
-    s.part(rect(15, 10 + b, 22, 13 + b), (P[steel][2], P[steel][2], INK), light_dir=False)
-    for x in range(16, 22):
-        s.put(x, 11 + b, INK)
-    for ex in (18, 21):
-        s.put(ex, 11 + b, EYE if not eye_glow else (255, 82, 82, 255))
-    for y in (12, 13):
-        for x in range(17, 22, 2):
-            s.put(x, y + b, INK)
-    # 이마 줄
-    for x in range(12, 22):
-        s.put(x, 7 + b, P[steel][1])
-    if samurai:
-        # 투구 장식 (금색 뿔)
-        s.part({(13, 2 + b), (13, 3 + b), (14, 3 + b), (14, 4 + b), (20, 2 + b), (20, 3 + b), (19, 3 + b), (19, 4 + b)}, 'gold', light_dir=False)
-        s.part(rect(15, 3 + b, 18, 4 + b), 'gold')
-    elif plume:
-        # 깃털 (천 색): 투구 위에서 뒤로 넘어감
-        pl = ellipse(13, 3 + b, 3.2, 2.6) | ellipse(10.5, 5 + b, 2.4, 2.4) | ellipse(15.5, 2.5 + b, 2.2, 1.8)
+    legs(s, f, steel, boot='dsteel')
+    # 깃털 (투구 위에서 등 뒤로 흘러내림) - 투구보다 먼저 그려서 뒤에 있게
+    if plume and not samurai:
+        pl = (ellipse(12, 3 + b, 4.2, 3.2) | ellipse(9.5, 7 + b, 3.6, 3.6) | ellipse(8.5, 11.5 + b, 3, 3.4)
+              | ellipse(8.5, 15.5 + b, 2.6, 2.6) | ellipse(15.5, 1.8 + b, 3, 2))
         s.part(pl, 'cloth')
-    arm(s, f, 20, steel)
-    # 방패 (뒤쪽 팔)
-    sh = ellipse(9, 18 + b, 3.2, 4)
-    s.part(sh, 'cloth')
-    s.part(rect(8, 16 + b, 9, 20 + b), 'gold', light_dir=False)
+        for (x, y) in [(11, 3), (9, 7), (13, 5), (8, 11), (10, 9), (9, 15), (14, 2)]:
+            s.put(x, y + b, CLOTH[1])          # 깃털 결 (밝게)
+        for (x, y) in [(12, 6), (8, 9), (10, 13), (7, 14), (16, 3)]:
+            s.put(x, y + b, CLOTH[2])          # 깃털 결 (어둡게)
+    arm(s, f, 10, steel, glove='dsteel')
+    # 몸: 4등분 겉옷 (천 색 / 흰색)
+    tab = rect(10, 14 + b, 20, 22 + b) - {(10, 22 + b), (20, 22 + b)}
+    s.part(tab, 'white')
+    for (x, y) in tab:
+        if not any((x + dx, y + dy) not in tab for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1))):
+            top, left = y - b < 18, x < 15
+            if top == left:
+                s.put(x, y, CLOTH[2] if (x == 11 or y - b == 15) and False else CLOTH[0])
+    # 큰 통투구
+    helm = ellipse(17, 8.5 + b, 6.4, 6.2) | rect(11, 8 + b, 23, 14 + b)
+    s.part(helm, steel)
+    for x in range(12, 23):                      # 아래쪽 어두운 그늘
+        s.put(x, 14 + b, P[steel][2])
+    for (x, y) in [(14, 4), (15, 4), (13, 5), (14, 5), (13, 6)]:
+        s.put(x, y + b, P[steel][1])             # 반짝임
+    # 십자 눈 틈
+    for x in range(16, 23):
+        s.put(x, 9 + b, INK)
+    for y in range(6, 13):
+        s.put(20, y + b, INK)
+    eye = EYE if not eye_glow else (255, 82, 82, 255)
+    s.put(18, 9 + b, eye)
+    s.put(22, 9 + b, eye)
+    for (x, y) in [(17, 11), (17, 12), (22, 11), (22, 12)]:
+        s.put(x, y + b, P[steel][2])             # 숨구멍
+    if samurai:
+        s.part({(13, 2 + b), (13, 3 + b), (14, 3 + b), (14, 4 + b), (21, 2 + b), (21, 3 + b), (20, 3 + b), (20, 4 + b)}, 'gold', light_dir=False)
+        s.part(rect(15, 2 + b, 19, 3 + b), 'gold')
+        s.part(rect(9, 11 + b, 11, 16 + b), steel)   # 볼 가리개
+    arm(s, f, 20, steel, glove='dsteel')
 
 
 def ranger(s, f, hood='cloth', cloak='green'):
@@ -358,7 +362,7 @@ def frame_info(i):
 
 
 def exterior_outline(im):
-    """바깥 테두리 1칸 (팀 색으로 바뀜)"""
+    """바깥 테두리 1칸 (진한 검정)"""
     out = im.copy()
     for y in range(H):
         for x in range(W):
@@ -370,12 +374,20 @@ def exterior_outline(im):
     return out
 
 
+def ground(base, cx, cy, rx, ry):
+    """발밑 그림자 + 팀 색 고리"""
+    inside = lambda x, y: ((x + 0.5 - cx) / rx) ** 2 + ((y + 0.5 - cy) / ry) ** 2 <= 1
+    for y in range(H):
+        for x in range(W):
+            if not inside(x, y):
+                continue
+            edge = not all(inside(x + dx, y + dy) for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)))
+            base.putpixel((x, y), TEAM if edge else SHADOW)
+
+
 def with_shadow(fig):
     base = Image.new('RGBA', (W, H), (0, 0, 0, 0))
-    for y in range(23, 30):
-        for x in range(4, 29):
-            if ((x - 16) / 10.5) ** 2 + ((y - 26.5) / 2.6) ** 2 <= 1:
-                base.putpixel((x, y), SHADOW)
+    ground(base, 16, 26.5, 10.5, 2.8)
     base.alpha_composite(fig)
     return base
 
@@ -384,10 +396,7 @@ def dead(fig_closed):
     """쓰러짐: 눈 감고 옆으로 누움"""
     body = fig_closed.crop((4, 0, 28, 27)).rotate(90, expand=True)
     out = Image.new('RGBA', (W, H), (0, 0, 0, 0))
-    for y in range(24, 30):
-        for x in range(2, 30):
-            if ((x - 16) / 14) ** 2 + ((y - 27) / 3) ** 2 <= 1:
-                out.putpixel((x, y), SHADOW)
+    ground(out, 16, 27, 14, 3)
     bb = body.getbbox()
     part = body.crop(bb)
     out.alpha_composite(part, (16 - part.width // 2, 29 - part.height))
