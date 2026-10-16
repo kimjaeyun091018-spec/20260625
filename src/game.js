@@ -8,7 +8,7 @@ import {
   TILE, MAX_PLAYERS, WEAPONS, START_WEAPON, weaponFam, SKILLS, WEAPON_SLOTS, SWAP_COOLDOWN, RESONANCE, COMBO_EVERY,
   DROP_TIERS, DROP_ELEMENT_CHANCE, CHARACTERS, CHARACTER_KEYS, ENEMY_TYPES, STRUCTS, BUFFS,
   ELEMENTS, ELEMENT_MAX, ELEMENT_MAX_BONUS, MAX_AUGMENT_TYPES, STAGE_REWARDS, STAGES_PER_WORLD, WORLDS, ESSENCE,
-  BOSSES, SHOP, SURVIVAL, CASTLE, UNITS, ARMY_CAP, unitScale, guildPerks, SPOILS, SUPPLIES, TRAPS, stageLabel, xpToNext, enemyScale, MANA, activeManaCost, CHARGE, KEEP, ROUND, SKINS, baseSkin, TREASURES, TREASURE_KEYS, TREASURE_DUP_ESSENCE, TREASURE_CHEST_CHANCE, ESSENCE_MUL,
+  BOSSES, SHOP, SURVIVAL, CASTLE, UNITS, ARMY_CAP, unitScale, guildPerks, SPOILS, SUPPLIES, TRAPS, stageLabel, xpToNext, enemyScale, MANA, activeManaCost, CHARGE, KEEP, ROUND, BARRACKS, CAMP_SHOP, SKINS, baseSkin, TREASURES, TREASURE_KEYS, TREASURE_DUP_ESSENCE, TREASURE_CHEST_CHANCE, ESSENCE_MUL,
 } from './data.js';
 import { buildCampMap, buildLobbyMap, generateDungeon, tileCenter } from './maps.js';
 import { ACTIVES, PERKS, NODE, LOADOUT_SIZE, sanitizeBuild, buildBonus } from './tree.js';
@@ -368,7 +368,7 @@ function freshRunStats(p) {
     buffs: {}, augTypes: [], offer: null, offerQueue: 0, element: null, elementLv: 0,
     level: 1, xp: 0, ready: false, reward: null, rewardDone: false, evo: null, evoDone: true, rewardsTaken: [],
     bonus: { dmgPct: 0, rate: 0, speed: 0, xpMul: 1, iron: false, vamp: 0, slot: false, cdMul: 1, phoenix: false, essMul: 1, ultMul: 1, coinMul: 1 },
-    mana: C.mana, manaMsgT: 0, comboN: 0, shieldT: 0, dsx: 0, dsy: 0, crowns: 0, spoils: 0, reviveT: SURVIVAL.reviveTime, poisonT: 0, runMode: null,
+    mana: C.mana, manaMsgT: 0, comboN: 0, shieldT: 0, dsx: 0, dsy: 0, crowns: 0, spoils: 0, trainQ: [], trainT: 0, sumCd: {}, reviveT: SURVIVAL.reviveTime, poisonT: 0, runMode: null,
     weapons: [newSlot(START_WEAPON)], slot: 0, swapCd: 0,
     parry: 0, markId: null, markN: 0, spin: 0, spinIdle: 0, chargeT: 0,
     sdash: null, dashHits: [], javelin: null, ultT: 0, ultTick: 0, ultStep: 0,
@@ -731,6 +731,7 @@ function startRun(state) {
       round: keep.round, campPhase: 'prep', toSpawn: 0, spawnT: 0, clears: 0, defeats: 0, roundBoss: false });
     state.map = buildCampMap();
     setupCastle(state);
+    setupCampShop(state);
   } else {
     state.stageIdx = 0;
     state.map = generateDungeon(0, { boss: isBossStage(0) });
@@ -842,6 +843,21 @@ function setupStageRooms(state) {
 
 function buy(state, p, item) {
   if (item.sold) return;
+  if (item.gold) {
+    // 캠프 상점 (팀 골드)
+    if (state.gold < item.price) { floatText(state, item.x, item.y - 30, `골드가 모자라요 (${item.price})`, '#ffcc80', 1); return; }
+    const c = state.castle;
+    if (item.kind === 'repair' && c && c.hp >= c.maxHp) { floatText(state, item.x, item.y - 30, '성이 멀쩡해요', '#ffcc80', 1); return; }
+    state.gold -= item.price;
+    item.sold = true;
+    if (item.kind === 'cheal') heal(p, 3);
+    else if (item.kind === 'repair' && c) c.hp = Math.min(c.maxHp, c.hp + c.maxHp * 0.3);
+    else if (item.kind === 'rally') state.rally = true;
+    else if (item.kind === 'volley') state.volley = true;
+    else if (item.kind === 'horn') p.sumCd = {};
+    floatText(state, item.x, item.y - 30, `${SHOP[item.kind].name}!`, '#ffd54f', 1.2);
+    return;
+  }
   const price = Math.max(1, Math.round(item.price * (1 - (p.bb?.shop || 0))));
   if (p.coins < price) {
     floatText(state, item.x, item.y - 30, `동전이 모자라요 (${price})`, '#ffcc80', 1);
@@ -945,7 +961,7 @@ function doAction(state, p, inp) {
     if (act === 'fence') interact(state, p); // 모험 모드에서 E = 상호작용
   } else if (act === 'fence' || act === 'turret') {
     // 캠프에서도 상자·무기가 가까우면 E는 상호작용
-    if (act === 'fence' && (nearest(state.chests.filter((c) => !c.open), p.x, p.y, INTERACT_RANGE) || nearest(state.pickups, p.x, p.y, INTERACT_RANGE))) interact(state, p);
+    if (act === 'fence' && (nearest(state.chests.filter((c) => !c.open), p.x, p.y, INTERACT_RANGE) || nearest(state.pickups, p.x, p.y, INTERACT_RANGE) || nearest(state.shop.filter((o) => !o.sold), p.x, p.y, INTERACT_RANGE - 10))) interact(state, p);
     else build(state, p, act, inp.bx, inp.by);
   } else if (act === 'demolish') demolish(state, inp.bx, inp.by);
 }
@@ -2573,13 +2589,13 @@ function updateCastle(state, dt) {
       const a = c.a + (i - (n - 1) / 2) * 0.12;
       state.bullets.push({
         id: state.nextId++, owner: 'p', shooter: null, kind: 'bow', fam: 'bow', x: c.x + Math.cos(a) * (c.r + 6), y: c.y + Math.sin(a) * (c.r + 6),
-        vx: Math.cos(a) * 640, vy: Math.sin(a) * 640, r: 5, dmg: CASTLE.arrowDmg * (1 + KEEP.arrowPerLv * (c.lv - 1)) * c.arrow,
+        vx: Math.cos(a) * 640, vy: Math.sin(a) * 640, r: 5, dmg: CASTLE.arrowDmg * (1 + KEEP.arrowPerLv * (c.lv - 1)) * c.arrow * (state.volley ? 1.5 : 1),
         life: 0.7, pierce: 0, bounce: 0, hits: [], el: null, elv: 0,
       });
     }
   }
   // 거치한 무기: 모험에서 가져온 무기가 탑 위에서 자동 공격 (속성 그대로)
-  const mul = KEEP.mountMul(c.lv);
+  const mul = KEEP.mountMul(c.lv) * (state.volley ? 1.5 : 1);
   c.mounts.forEach((m, i) => {
     const W = WEAPONS[m.k];
     if (!W) return;
@@ -2615,28 +2631,81 @@ function updateCastle(state, dt) {
 }
 
 // 군단 소환 (4~7 키): 팀 골드를 써서 성 옆에 유닛을 부름
-const unitCost = (p, k) => Math.max(1, Math.round(UNITS[k].cost * (1 - (p.bb?.summon || 0) - (p.guild ? guildPerks(p.guild.lv).summon : 0))));
-const armyCap = (p) => ARMY_CAP + (p.bb?.armyCap || 0);
+// 군단: 준비 단계엔 훈련소(기본 병력, 살아남으면 계속 남음), 전투 중엔 쿨타임 지원 소환(그 라운드만)
+const barracksLv = (p) => p.build?.keep?.bk || 1;
+const armyCap = (p) => BARRACKS.cap(barracksLv(p)) + (p.bb?.armyCap || 0);
+const supportCdOf = (p, k) => Math.max(2, BARRACKS.supportCd[k] * BARRACKS.cdMul(barracksLv(p)) * (1 - (p.bb?.summon || 0) - (p.guild ? guildPerks(p.guild.lv).summon : 0)));
+const trainedOf = (state, p) => state.units.filter((u) => u.owner === p.id && !u.temp && u.hp > 0).length;
 
 function summonUnit(state, p, idx) {
   const c = state.castle;
   const k = p.army?.sel?.[idx];
   if (!c || !k || !UNITS[k]) return;
-  const U = UNITS[k], cost = unitCost(p, k);
-  const mine = state.units.filter((u) => u.owner === p.id).length;
-  if (mine >= armyCap(p)) { floatText(state, p.x, p.y - 34, `군단이 가득 찼어요 (${armyCap(p)})`, '#ffcc80', 0.9); return; }
-  if (state.gold < cost) { floatText(state, p.x, p.y - 34, `골드 부족 (${cost})`, '#ffcc80', 0.9); return; }
-  state.gold -= cost;
+  const U = UNITS[k];
+  if (state.campPhase !== 'fight') {
+    // 훈련소: 대기열에 넣으면 차례로 훈련됨
+    if (trainedOf(state, p) + p.trainQ.length >= armyCap(p)) { floatText(state, p.x, p.y - 34, `훈련소가 가득 찼어요 (${armyCap(p)})`, '#ffcc80', 0.9); return; }
+    p.trainQ.push(k);
+    floatText(state, p.x, p.y - 34, `${U.name} 훈련 대기 (${p.trainQ.length})`, '#90caf9', 0.8);
+    return;
+  }
+  // 지원 소환: 쿨타임마다
+  if ((p.sumCd[k] || 0) > 0) { floatText(state, p.x, p.y - 34, `${U.name} 지원 ${Math.ceil(p.sumCd[k])}초 남음`, '#ffcc80', 0.8); return; }
+  if (state.units.filter((u) => u.owner === p.id && u.temp && u.hp > 0).length >= BARRACKS.supportMax) { floatText(state, p.x, p.y - 34, '지원 병력이 가득 찼어요', '#ffcc80', 0.9); return; }
+  p.sumCd[k] = supportCdOf(p, k);
+  spawnUnit(state, p, k, true);
+}
+
+function spawnUnit(state, p, k, temp) {
+  const c = state.castle, U = UNITS[k];
   const lv = p.army.lv?.[k] || 1, sc = unitScale(lv);
   const a = Math.random() * Math.PI * 2;
   const spot = freeSpotNear(state, c.x + Math.cos(a) * 60, c.y + Math.sin(a) * 60);
   const hp = Math.round(U.hp * sc * (1 + (p.bb?.unitHp || 0)) * 10) / 10;
   state.units.push({
-    id: state.nextId++, kind: k, owner: p.id, x: spot.x, y: spot.y, r: U.r, hp, maxHp: hp, lv,
+    id: state.nextId++, kind: k, owner: p.id, x: spot.x, y: spot.y, r: U.r, hp, maxHp: hp, lv, temp: !!temp,
     dmg: U.dmg * sc * (1 + (p.bb?.unitDmg || 0)), heal: (U.heal || 0) * sc, cd: 0.5, face: 1, atkT: 0,
     guard: Math.random() * Math.PI * 2, hitT: 0,
   });
-  addFx(state, { k: 'r', x: spot.x, y: spot.y, r: 20, c: '#90caf9', t: 0.3, life: 0.3 });
+  addFx(state, { k: 'r', x: spot.x, y: spot.y, r: 20, c: temp ? '#ffd54f' : '#90caf9', t: 0.3, life: 0.3 });
+}
+
+// 준비 단계: 훈련 대기열 진행 / 전투 중: 지원 소환 쿨타임
+function updateArmy(state, players, dt) {
+  for (const p of players) {
+    if (state.campPhase === 'fight') {
+      for (const k in p.sumCd) p.sumCd[k] = Math.max(0, p.sumCd[k] - dt);
+      continue;
+    }
+    if (!p.trainQ.length) { p.trainT = 0; continue; }
+    p.trainT += dt;
+    const k = p.trainQ[0];
+    if (p.trainT >= BARRACKS.trainTime(k)) {
+      p.trainT = 0;
+      p.trainQ.shift();
+      if (trainedOf(state, p) < armyCap(p)) spawnUnit(state, p, k, false);
+    }
+  }
+}
+
+// 라운드가 끝나면(이기든 지든): 지원 병력은 돌아가고, 기본 병력은 회복. 상점·일시 강화 초기화
+function resetRoundArmy(state, players) {
+  state.units = state.units.filter((u) => !u.temp && u.hp > 0);
+  for (const u of state.units) u.hp = u.maxHp;
+  for (const p of players) p.sumCd = {};
+  state.rally = false;
+  state.volley = false;
+  setupCampShop(state);
+}
+
+// 캠프 상점: 성 아래쪽 진열대 (팀 골드)
+function setupCampShop(state) {
+  const c = state.castle;
+  if (!c) return;
+  state.shop = CAMP_SHOP.map((kind, i) => ({
+    id: state.nextId++, kind, gold: true, price: SHOP[kind].price,
+    x: c.x + (i - (CAMP_SHOP.length - 1) / 2) * 64, y: c.y + 160, sold: false,
+  }));
 }
 
 function damageUnit(state, u, dmg) {
@@ -2689,11 +2758,11 @@ function updateUnits(state, dt) {
           const a = Math.atan2(dy, dx);
           state.bullets.push({
             id: state.nextId++, owner: 'p', shooter: src, kind: U.splash ? 'unitBolt' : 'bow', fam: U.splash ? null : 'bow', x: u.x, y: u.y - 6,
-            vx: Math.cos(a) * 520, vy: Math.sin(a) * 520, r: U.splash ? 6 : 4, dmg: u.dmg, life: 0.8, pierce: 0, bounce: 0, hits: [],
+            vx: Math.cos(a) * 520, vy: Math.sin(a) * 520, r: U.splash ? 6 : 4, dmg: u.dmg * (state.rally ? 1.3 : 1), life: 0.8, pierce: 0, bounce: 0, hits: [],
             el: null, elv: 0, blast: U.splash || 0,
           });
         } else {
-          damageEnemy(state, target, u.dmg, src);
+          damageEnemy(state, target, u.dmg * (state.rally ? 1.3 : 1), src);
           if (target.hp > 0) push(state, target, dx / d, dy / d, 6);
         }
       }
@@ -2772,6 +2841,7 @@ function spawnCampEnemy(state, kind) {
 function updateCamp(state, players, dt) {
   const S = SURVIVAL;
   const alive = players.filter((p) => p.alive);
+  updateArmy(state, players, dt);
   // 준비 단계: 시간이 흘러도 시작하지 않음. 모두 G(준비)를 누르면 이번 라운드 시작
   if (state.campPhase === 'prep') {
     if (!(alive.length && alive.every((p) => p.ready))) return;
@@ -2840,6 +2910,7 @@ function roundCleared(state, players) {
   state.clears++;
   state.round++;
   state.campPhase = 'prep';
+  resetRoundArmy(state, players);
   state.hazards = [];
   if (state.castle) state.castle.hp = state.castle.maxHp;
   const c = state.map.camp;
@@ -2850,6 +2921,7 @@ function roundCleared(state, players) {
 function campDefeat(state, why) {
   state.defeats++;
   state.campPhase = 'prep';
+  resetRoundArmy(state, Object.values(state.players));
   state.toSpawn = 0;
   state.enemies = [];
   state.hazards = [];
@@ -3185,8 +3257,10 @@ export function snapshot(state) {
       })),
       sl: p.slot, sw: r1(p.swapCd), ut: r1(p.ultT), cb: inCombat(state) ? 1 : 0,
       jv: p.javelin ? 1 : 0, ld: p.loadout, pp: p.perkIds || [], cs: p.casts.map(r1), sgt: r2(p.swingT / SWING_TIME), sgd: p.swingDir,
-      cg: p.chargeT > 0 && WEAPONS[held(p)?.key]?.charge ? r2(Math.min(1.5, p.chargeT / WEAPONS[held(p).key].charge)) : 0, cw: p.crowns, tr: p.trRun?.length ? p.trRun : 0, gd: p.guild ? [p.guild.name, p.guild.color] : 0, uc: state.units.filter((u) => u.owner === p.id).length, ucap: armyCap(p),
-      ar: (p.army?.sel || []).map((k) => [k, unitCost(p, k), p.army.lv?.[k] || 1]),
+      cg: p.chargeT > 0 && WEAPONS[held(p)?.key]?.charge ? r2(Math.min(1.5, p.chargeT / WEAPONS[held(p).key].charge)) : 0, cw: p.crowns, tr: p.trRun?.length ? p.trRun : 0, gd: p.guild ? [p.guild.name, p.guild.color] : 0, uc: state.castle ? trainedOf(state, p) + (p.trainQ?.length || 0) : 0, ucap: armyCap(p),
+      ar: (p.army?.sel || []).map((k) => [k, r1(p.sumCd?.[k] || 0), r1(supportCdOf(p, k)), p.army.lv?.[k] || 1,
+        state.units.filter((u) => u.owner === p.id && !u.temp && u.hp > 0 && u.kind === k).length, (p.trainQ || []).filter((q) => q === k).length]),
+      tq: p.trainQ?.length ? [p.trainQ[0], r2(p.trainT / BARRACKS.trainTime(p.trainQ[0]))] : 0,
       sp: p.spoils, rv: p.alive ? 0 : Math.ceil(p.reviveT),
       mp: Math.floor(p.mana), mm: stats(p).maxMana, sk: p.skin, wst: weaponStats(p),
     })),
@@ -3201,7 +3275,7 @@ export function snapshot(state) {
       k: h.k, x: r1(h.x), y: r1(h.y), r: h.r || 0, a: r2(h.a || 0), len: h.len || 0, w: h.w || 0,
       p: r2(Math.min(1, h.t / h.warn)), on: h.t >= h.warn ? 1 : 0, c: h.c || 0,
     })),
-    sh: state.shop.map((o) => ({ id: o.id, x: o.x, y: o.y, kd: o.kind, k: o.key || 0, el: o.el || 0, lv: o.elv || 0, pr: o.price, so: o.sold ? 1 : 0 })),
+    sh: state.shop.map((o) => ({ id: o.id, x: o.x, y: o.y, kd: o.kind, k: o.key || 0, el: o.el || 0, lv: o.elv || 0, pr: o.price, so: o.sold ? 1 : 0, gd: o.gold ? 1 : 0 })),
     st: state.structs.map((s) => ({
       id: s.id, k: s.kind, tx: s.tx, ty: s.ty, hp: s.hp, mh: s.maxHp,
       a: s.angle !== undefined ? r2(s.angle) : 0,

@@ -1,5 +1,5 @@
 // 설정 · 옷장(스킨) · 계정(로그인, 저장 코드) 화면
-import { SKINS, skinsFor, CHARACTERS, CHARACTER_KEYS, TREASURES, KEEP, WEAPONS, ELEMENTS, TIER_NAME, UNITS, UNIT_KEYS, ARMY_SLOTS, UNIT_MAX_LV, unitLevelCost, unitScale, SUPPLIES, SPOIL_TO_ESSENCE } from './data.js';
+import { SKINS, skinsFor, CHARACTERS, CHARACTER_KEYS, TREASURES, KEEP, BARRACKS, WEAPONS, ELEMENTS, TIER_NAME, UNITS, UNIT_KEYS, ARMY_SLOTS, UNIT_MAX_LV, unitLevelCost, unitScale, SUPPLIES, SPOIL_TO_ESSENCE } from './data.js';
 import { exportSaveCode, importSaveCode } from './tree.js';
 
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -309,11 +309,11 @@ export function createArmyUI(root, { getSave, onChange, preview }) {
         <img src="${preview(k)}" alt="" width="64" height="64">
         <b>${U.name} ${own ? `Lv${lv}` : '🔒'}</b>
         <small>${U.desc}</small>
-        <small>체력 ${Math.round(U.hp * sc)} · ${U.heal ? `회복 ${Math.round(U.heal * sc * 10) / 10}` : `피해 ${Math.round(U.dmg * sc * 10) / 10}`} · 소환 ●${U.cost}</small>
+        <small>체력 ${Math.round(U.hp * sc)} · ${U.heal ? `회복 ${Math.round(U.heal * sc * 10) / 10}` : `피해 ${Math.round(U.dmg * sc * 10) / 10}`} · 훈련 ${BARRACKS.trainTime(k)}초 · 지원 쿨 ${BARRACKS.supportCd[k]}초</small>
         ${btn}</div>`;
     }).join('');
     root.innerHTML = `<div class="tree-head"><h2>병영 · 군단 편성</h2><span class="ess">◆ ${save.essence} 정수</span><button data-army="close" class="tclose">닫기 (Esc)</button></div>
-      <p class="sub">성 지키기 모드에서 골드로 소환할 유닛 ${ARMY_SLOTS}종을 고르세요 (게임 중 4·5·6·7 키). 레벨이 높을수록 체력·피해 +15%씩.</p>
+      <p class="sub">성 지키기에 데려갈 유닛 ${ARMY_SLOTS}종을 고르세요. 준비 단계엔 4·5·6·7 키로 <b>훈련</b>(기본 병력), 전투 중엔 같은 키로 <b>쿨타임 지원 소환</b>. 레벨이 높을수록 체력·피해 +15%씩.</p>
       <div class="skins">${cards}</div><p class="tmsg" role="status">${msg}</p>`;
   }
   root.addEventListener('click', (e) => {
@@ -424,7 +424,9 @@ export function createKeepUI(root, { getSave, onChange, icon, isHost }) {
       <div class="tree-head"><h2>성 강화</h2><span class="ess">◆ ${save.essence} 정수</span><button data-close class="tclose">닫기 (Esc)</button></div>
       <p class="sub">라운드 <b>${K.round}</b> (최고 ${K.best}) · 성 <b>Lv${lv}</b> · 성 체력 +${KEEP.hpPerLv * (lv - 1)} · 화살 +${Math.round(KEEP.arrowPerLv * (lv - 1) * 100)}% · 거치 무기 피해 x${KEEP.mountMul(lv).toFixed(2)}</p>
       ${isHost() ? '' : '<p class="help">지금 방의 성은 방장의 성이에요. 여기서 바꾼 건 내가 방장일 때 적용돼요.</p>'}
-      <div class="buttons"><button data-up ${max || save.essence < cost ? 'disabled' : ''}>${max ? '성 최대 레벨' : `성 레벨업 ◆${cost}`}</button></div>
+      <div class="buttons"><button data-up ${max || save.essence < cost ? 'disabled' : ''}>${max ? '성 최대 레벨' : `성 레벨업 ◆${cost}`}</button>
+        <button data-bk ${K.bk >= BARRACKS.maxLv || save.essence < BARRACKS.cost(K.bk) ? 'disabled' : ''}>${K.bk >= BARRACKS.maxLv ? '훈련소 최대' : `훈련소 Lv${K.bk + 1} ◆${BARRACKS.cost(K.bk)}`}</button></div>
+      <p class="help">훈련소 Lv${K.bk}: 기본 병력 ${BARRACKS.cap(K.bk)}명 · 지원 소환 쿨타임 ${Math.round(BARRACKS.cdMul(K.bk) * 100)}% (레벨마다 인원 +1, 쿨타임 -4%) · 훈련소는 내 것 (방장이 아니어도 적용)</p>
       <h3>무기 거치대 (${K.mounts.length}/${slots})</h3>
       <div class="mounts">${mountBoxes}</div>
       <h3>무기고 (${K.armory.length}/${KEEP.armoryMax}) · 모험에서 가져온 무기</h3>
@@ -441,6 +443,11 @@ export function createKeepUI(root, { getSave, onChange, icon, isHost }) {
       if (K.lv >= KEEP.maxLv || save.essence < cost) return;
       save.essence -= cost; K.lv++;
       msg = `성 Lv${K.lv}!${K.lv % 5 === 0 && KEEP.mountSlots(K.lv) > KEEP.mountSlots(K.lv - 1) ? ' 무기 거치대가 하나 늘었어요.' : ''}`;
+    } else if (b.hasAttribute('data-bk')) {
+      const cost = BARRACKS.cost(K.bk);
+      if (K.bk >= BARRACKS.maxLv || save.essence < cost) return;
+      save.essence -= cost; K.bk++;
+      msg = `훈련소 Lv${K.bk}! 기본 병력 ${BARRACKS.cap(K.bk)}명`;
     } else if (b.dataset.mount !== undefined) {
       const i = Number(b.dataset.mount);
       if (K.mounts.length < KEEP.mountSlots(K.lv) && !K.mounts.includes(i)) { K.mounts.push(i); msg = ''; }

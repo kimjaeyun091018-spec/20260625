@@ -183,6 +183,18 @@ export const KEEP = {
   mountCd: 1.4,                                      // 거치한 무기 공격 간격 = 무기 간격 × 1.4
   armoryMax: 12,                                     // 무기고 칸
 };
+// 훈련소 (클래시 오브 클랜처럼): 준비 단계에 4~7 키로 기본 병력을 훈련 → 살아남으면 다음 라운드에도 남음.
+// 전투 중 4~7 키는 쿨타임 '지원 소환' (그 라운드 동안만). 훈련소 레벨(정수)로 인원 +1, 쿨타임 -4%.
+export const BARRACKS = {
+  maxLv: 10,
+  cost: (lv) => 50 + 40 * lv,                  // lv → lv+1 정수
+  cap: (lv) => 3 + lv,                         // 기본 병력 인원 (Lv1 4명 … Lv10 13명)
+  cdMul: (lv) => 1 - 0.04 * (lv - 1),          // 지원 소환 쿨타임 배율
+  trainTime: (k) => UNITS[k].cost / 10,        // 한 명 훈련 시간 (초) — 기사 1.2초, 거인 4.5초
+  supportCd: { knight: 14, archer: 14, scout: 9, mage: 20, priest: 20, giant: 45 },
+  supportMax: 6,                               // 지원 소환으로 동시에 있을 수 있는 수 (한 사람당)
+};
+
 // 라운드: 들어가도 바로 시작하지 않고 G(모두 준비)로 시작. 이기면 다음 라운드가 저장되고, 져도 그 라운드에서 다시.
 export const ROUND = {
   count: (r) => Math.min(90, 6 + Math.floor(r * 1.6)),     // 이번 라운드 적 수
@@ -266,7 +278,14 @@ export const SHOP = {
   heal: { name: '체력 물약', price: 20, desc: '체력 +3' },
   mana: { name: '마나 물약', price: 15, desc: '마나 +60' },
   card: { name: '증강 두루마리', price: 45, desc: '증강 카드 1장 고르기' },
+  // 성 지키기 캠프 상점 (팀 골드, 라운드마다 다시 채워짐)
+  cheal: { name: '체력 물약', price: 15, desc: '체력 +3' },
+  repair: { name: '성 수리', price: 30, desc: '성 체력 +30%' },
+  rally: { name: '군기', price: 40, desc: '이번 라운드 군단 피해 +30%' },
+  volley: { name: '화살 다발', price: 40, desc: '이번 라운드 성 화살·거치 무기 피해 +50%' },
+  horn: { name: '나팔', price: 25, desc: '내 지원 소환 쿨타임 초기화' },
 };
+export const CAMP_SHOP = ['cheal', 'repair', 'rally', 'volley', 'horn'];
 
 // ---------- 증강 (레벨업할 때 3장 중 1장, 그 판에서만 유지) ----------
 export const BUFFS = {

@@ -787,7 +787,7 @@ function clientFrame(s, now) {
       return {
         ...p, of: q.of, oq: q.oq, at: q.at, rw: q.rw, rwd: q.rwd, ev: q.ev, evd: q.evd, cr: q.cr, xp: q.xp, lv: q.lv, xn: q.xn,
         ws: q.ws, sl: q.sl, sw: q.sw, ld: q.ld, cs: q.cs, es: q.es, mp: q.mp, mm: q.mm, wst: q.wst, sk: q.sk, co: q.co, sh: q.sh, cb: q.cb,
-        sp: q.sp, tr: q.tr, cg: q.cg, rv: q.rv, pp: q.pp, cw: q.cw, gd: q.gd, uc: q.uc, ucap: q.ucap, ar: q.ar,
+        sp: q.sp, tr: q.tr, cg: q.cg, tq: q.tq, rv: q.rv, pp: q.pp, cw: q.cw, gd: q.gd, uc: q.uc, ucap: q.ucap, ar: q.ar,
       };
     }),
   };

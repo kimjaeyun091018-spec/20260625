@@ -4,7 +4,7 @@
 //   처음 저장은 무료, 저장된 칸을 다시 고치려면 초기화 비용, 칸을 늘리려면 구매 비용.
 // - 일반 노드(스탯)는 해금하면 항상 적용, 숙련 노드는 캐릭터 속성이 같을 때만 적용.
 
-import { ELEMENTS, SKINS, UNITS, UNIT_MAX_LV, ARMY_SLOTS, SUPPLIES, CHARACTERS, CHARACTER_KEYS, baseSkin, OLD_SKIN_PRICE, TREASURES, KEEP, WEAPONS } from './data.js';
+import { ELEMENTS, SKINS, UNITS, UNIT_MAX_LV, ARMY_SLOTS, SUPPLIES, CHARACTERS, CHARACTER_KEYS, baseSkin, OLD_SKIN_PRICE, TREASURES, KEEP, WEAPONS, BARRACKS } from './data.js';
 
 export const ACTIVE_SLOTS = 3;   // 액티브 칸 (1·2·3 키)
 export const PASSIVE_SLOTS = 2;  // 패시브 칸 (항상 켜짐)
@@ -177,7 +177,7 @@ export function emptySlot() {
 export function loadSave(from) {
   let s = from || null;
   if (!s) try { s = JSON.parse(localStorage.getItem(SAVE_KEY)); } catch { /* 저장소 사용 불가 */ }
-  const base = { essence: START_ESSENCE, crowns: 0, spoils: 0, supplies: {}, unlocked: [], owned: 1, active: 0, slots: [emptySlot()], chars: ['knight'], treasures: [], keep: { round: 1, best: 1, lv: 1, mounts: [], armory: [] }, skins: [], skinOf: {}, army: { unlocked: ['knight', 'archer'], lv: {}, sel: ['knight', 'archer'] } };
+  const base = { essence: START_ESSENCE, crowns: 0, spoils: 0, supplies: {}, unlocked: [], owned: 1, active: 0, slots: [emptySlot()], chars: ['knight'], treasures: [], keep: { round: 1, best: 1, lv: 1, bk: 1, mounts: [], armory: [] }, skins: [], skinOf: {}, army: { unlocked: ['knight', 'archer'], lv: {}, sel: ['knight', 'archer'] } };
   if (!s || typeof s !== 'object') return base;
   const save = { ...base, ...s };
   save.unlocked = (Array.isArray(save.unlocked) ? save.unlocked : []).filter((id) => NODE[id]);
@@ -222,6 +222,7 @@ export function loadSave(from) {
   const round = Math.max(1, Math.floor(Number(kp.round) || 1));
   save.keep = {
     round, best: Math.max(round, Math.floor(Number(kp.best) || 1)), lv, armory,
+    bk: Math.max(1, Math.min(BARRACKS.maxLv, Math.floor(Number(kp.bk) || 1))), // 훈련소 레벨
     mounts: [...new Set((Array.isArray(kp.mounts) ? kp.mounts : []).filter((i) => Number.isInteger(i) && armory[i]))].slice(0, KEEP.mountSlots(lv)),
   };
   return save;
@@ -256,7 +257,7 @@ export function currentBuild(save) {
   const el = slot.el || firstRoot?.el || null;
   // 장착 칸이 비어 있고 저장(잠금) 전이면, 해금한 스킬을 차례로 자동 장착
   const eq = fitLoadout(slot.eq.length || slot.saved ? slot.eq : save.unlocked.filter(equipable));
-  return { el, eq, nodes: save.unlocked, chars: save.chars, skinOf: save.skinOf, tr: save.treasures, keep: { round: save.keep.round, lv: save.keep.lv, mounts: save.keep.mounts.map((i) => save.keep.armory[i]) }, army: { sel: save.army.sel, lv: save.army.lv }, guild: save.guild || null, supplies: { ...save.supplies } };
+  return { el, eq, nodes: save.unlocked, chars: save.chars, skinOf: save.skinOf, tr: save.treasures, keep: { round: save.keep.round, lv: save.keep.lv, bk: save.keep.bk, mounts: save.keep.mounts.map((i) => save.keep.armory[i]) }, army: { sel: save.army.sel, lv: save.army.lv }, guild: save.guild || null, supplies: { ...save.supplies } };
 }
 
 // 방장이 받은 빌드를 검사 (없는 노드, 해금 안 된 장착 등은 버림)
@@ -269,6 +270,7 @@ export function sanitizeBuild(b) {
   const klv = Math.max(1, Math.min(KEEP.maxLv, Math.floor(Number(b?.keep?.lv) || 1)));
   const keep = {
     round: Math.max(1, Math.min(99999, Math.floor(Number(b?.keep?.round) || 1))), lv: klv,
+    bk: Math.max(1, Math.min(BARRACKS.maxLv, Math.floor(Number(b?.keep?.bk) || 1))),
     mounts: (Array.isArray(b?.keep?.mounts) ? b.keep.mounts : []).map(cleanWeapon).filter(Boolean).slice(0, KEEP.mountSlots(klv)),
   };
   const skinOf = Object.fromEntries(CHARACTER_KEYS.map((c) => [c, SKINS[b?.skinOf?.[c]]?.char === c ? b.skinOf[c] : baseSkin(c)]));

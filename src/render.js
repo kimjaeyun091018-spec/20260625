@@ -639,7 +639,9 @@ export function createRenderer(canvas) {
   }
 
   // 상점 상품 (진열대 + 가격)
-  const SHOP_ICON = { heal: ['♥', '#ef5350'], mana: ['✦', '#42a5f5'], card: ['★', '#ffd54f'] };
+  const SHOP_ICON = { heal: ['♥', '#ef5350'], mana: ['✦', '#42a5f5'], card: ['★', '#ffd54f'],
+    cheal: ['♥', '#ef5350'], repair: ['⚒', '#bcaaa4'], rally: ['⚑', '#ef9a9a'], volley: ['➶', '#ffe082'], horn: ['♪', '#90caf9'] };
+  let teamGold = 0;
   function drawShopItem(o, now, me) {
     ctx.fillStyle = '#4e342e';
     ctx.fillRect(o.x - 22, o.y + 8, 44, 10);
@@ -652,8 +654,8 @@ export function createRenderer(canvas) {
       const [ic, c] = SHOP_ICON[o.kd];
       label(ic, o.x, o.y + 2 + bob, c, 20);
     }
-    const afford = (me?.co ?? 0) >= o.pr;
-    label(`● ${o.pr}`, o.x, o.y + 32, afford ? '#ffd54f' : '#ef9a9a', 11);
+    const afford = (o.gd ? teamGold : me?.co ?? 0) >= o.pr;
+    label(`${o.gd ? '💰' : '●'} ${o.pr}`, o.x, o.y + 32, afford ? '#ffd54f' : '#ef9a9a', 11);
   }
 
   function drawZone(z, now) {
@@ -927,23 +929,33 @@ export function createRenderer(canvas) {
   // 화면 아래 가운데: 군단 소환 (4~7 키) + 성 강화 (T)
   function drawSummonBar(snap, me) {
     const list = me?.ar || [];
-    const bw = 74, bh = 54, gap = 8, n = list.length + 1;
+    const fight = !!snap.sv?.f;
+    const bw = 74, bh = 54, gap = 8;
     const x0 = 282, y0 = VIEW_H - bh - 26;
-    const box = (i, title, sub, key, ok, color) => {
+    const box = (i, title, sub, key, ok, color, fill = 0) => {
       const x = x0 + i * (bw + gap);
       ctx.fillStyle = ok ? 'rgba(62,39,35,.92)' : 'rgba(30,25,25,.85)';
       roundRect(x, y0, bw, bh, 8);
       ctx.fill();
-      ctx.strokeStyle = ok ? color : 'rgba(255,255,255,.2)'; ctx.lineWidth = 2; ctx.stroke();
+      if (fill > 0) { ctx.fillStyle = 'rgba(0,0,0,.55)'; ctx.fillRect(x + 2, y0 + 2 + (bh - 4) * (1 - fill), bw - 4, (bh - 4) * fill); }
+      ctx.strokeStyle = ok ? color : 'rgba(255,255,255,.2)'; ctx.lineWidth = 2; roundRect(x, y0, bw, bh, 8); ctx.stroke();
       ctx.textAlign = 'center';
       ctx.fillStyle = ok ? '#fff' : '#9e9e9e'; ctx.font = 'bold 12px sans-serif'; ctx.fillText(title, x + bw / 2, y0 + 30);
       ctx.fillStyle = ok ? '#ffd54f' : '#8d6e63'; ctx.font = 'bold 11px sans-serif'; ctx.fillText(sub, x + bw / 2, y0 + 46);
       ctx.fillStyle = '#fff'; roundRect(x + bw - 18, y0 - 8, 22, 18, 5); ctx.fill();
       ctx.fillStyle = '#3e2723'; ctx.font = 'bold 11px sans-serif'; ctx.fillText(key, x + bw - 7, y0 + 5);
     };
-    list.forEach(([k, cost, lv], i) => {
+    // 위 제목: 준비 단계 = 훈련소, 전투 = 지원 소환
+    ctx.textAlign = 'left';
+    ctx.font = 'bold 12px sans-serif';
+    ctx.fillStyle = fight ? '#ffd54f' : '#90caf9';
+    const tq = me?.tq;
+    ctx.fillText(fight ? '지원 소환 (쿨타임, 이번 라운드만)' : `훈련소 ${me?.uc ?? 0}/${me?.ucap ?? 0}${tq ? ` · ${UNITS[tq[0]]?.name} 훈련 중 ${Math.round(tq[1] * 100)}%` : ' · 4~7 키로 훈련'}`, x0, y0 - 14);
+    const full = (me?.uc ?? 0) >= (me?.ucap ?? 0);
+    list.forEach(([k, cd, cdMax, lv, own, q], i) => {
       const U = UNITS[k];
-      box(i, `${U.name} Lv${lv}`, `● ${cost}`, String(4 + i), snap.g >= cost && me.uc < me.ucap, U.body);
+      if (fight) box(i, `${U.name} Lv${lv}`, cd > 0 ? `${Math.ceil(cd)}초` : '지원!', String(4 + i), cd <= 0, U.body, cd > 0 ? cd / cdMax : 0);
+      else box(i, `${U.name} Lv${lv}`, `보유 ${own}${q ? ` +${q}` : ''}`, String(4 + i), !full, U.body);
       if (sprites.ready) {
         const x = x0 + i * (bw + gap);
         ctx.drawImage(tintedPlayer(me.c, { body: U.body, eye: U.eye }, U.design), 0, 0, 32, 32, x + 4, y0 + 2, 22, 22);
@@ -951,6 +963,7 @@ export function createRenderer(canvas) {
     });
     box(list.length, '성 강화', `Lv${snap.ca.lv}`, 'T', true, '#ffd54f');
   }
+
 
   // ---------- 함정 ----------
   // 가시·분사구는 snap.tm(게임 시간)으로 박자를 맞춰 그립니다.
@@ -1397,7 +1410,7 @@ export function createRenderer(canvas) {
       ctx.textAlign = 'center';
       ctx.font = '11px sans-serif';
       ctx.fillStyle = '#d7ccc8';
-      ctx.fillText(`캠프 안: E 울타리(${STRUCTS.fence.cost}) · R 터렛(${STRUCTS.turret.cost}) · F 철거 · 함정으로 적을 유인`, VIEW_W / 2, 68);
+      ctx.fillText(`캠프 안: E 울타리(${STRUCTS.fence.cost}) · R 터렛(${STRUCTS.turret.cost}) · F 철거 · 성 아래 진열대에서 E로 상점(골드)`, VIEW_W / 2, 68);
     }
 
     const alive = snap.p.filter((p) => p.al);
@@ -1730,6 +1743,7 @@ export function createRenderer(canvas) {
   function render(snap, map, myId, mouse, extra = {}) {
     const now = performance.now();
     showDamage = extra.damageNumbers !== false;
+    teamGold = snap.g || 0;
     ownedChars = extra.chars || ['knight'];
     const me = snap.p.find((p) => p.id === myId);
     const cam = cameraFor(map, me || map.spawn, extra.zoom || 1);
@@ -1795,7 +1809,7 @@ export function createRenderer(canvas) {
       if (shopItem.kd === 'weapon') weaponTip(shopItem.k, shopItem.el, shopItem.lv, shopItem.x, shopItem.y - 16, `E 사기 ●${shopItem.pr}:`, me);
       else {
         const it = SHOP[shopItem.kd];
-        label(`E 사기 ●${shopItem.pr}: ${it.name} (${it.desc})`, shopItem.x, shopItem.y - 26, '#ffd54f', 12);
+        label(`E 사기 ${shopItem.gd ? '💰' : '●'}${shopItem.pr}: ${it.name} (${it.desc})`, shopItem.x, shopItem.y - 26, '#ffd54f', 12);
       }
     }
     ctx.restore();
