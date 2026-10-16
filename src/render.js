@@ -865,6 +865,13 @@ export function createRenderer(canvas) {
     ctx.fillStyle = 'rgba(0,0,0,.7)'; ctx.fillRect(x - w / 2, y - 112, w, 7);
     ctx.fillStyle = ca.hp < ca.mh * 0.3 ? '#ff5252' : '#66bb6a'; ctx.fillRect(x - w / 2, y - 112, (w * ca.hp) / ca.mh, 7);
     label(`성 Lv${ca.lv}`, x, y - 118, '#ffe082', 11);
+    // 거치한 무기 (모험에서 가져온 무기)
+    const MP = [[-30, -52], [30, -52], [-44, -10], [44, -10]];
+    (ca.mt || []).forEach(([k, a, el], i) => {
+      const [ox, oy] = MP[i] || [0, 0];
+      if (el && ELEMENTS[el]) circle(x + ox, y + oy, 9, ELEMENTS[el].color + '55');
+      drawWeaponSprite(k, x + ox, y + oy, 2, a, Math.cos(a) < 0);
+    });
   }
 
   const UNIT_ORDER = Object.keys(UNITS);
@@ -907,7 +914,7 @@ export function createRenderer(canvas) {
       ['골드', `${snap.g}`, '#ffd54f'],
       ['성 체력', `${ca.hp}/${ca.mh}`, ca.hp < ca.mh * 0.3 ? '#ff5252' : '#ef9a9a'],
       ['군단', `${me ? me.uc : 0}/${me ? me.ucap : 0}`, '#90caf9'],
-      ['킬', `${snap.sv?.k ?? 0}`, '#fff'],
+      ['라운드', `${snap.sv?.r ?? 1}`, '#fff'],
     ];
     cols.forEach(([t, v, c], i) => {
       const cx = x + w / 8 + (i * w) / 4;
@@ -942,8 +949,7 @@ export function createRenderer(canvas) {
         ctx.drawImage(tintedPlayer(me.c, { body: U.body, eye: U.eye }, U.design), 0, 0, 32, 32, x + 4, y0 + 2, 22, 22);
       }
     });
-    const ca = snap.ca;
-    box(list.length, ca.mx ? '성 최대' : `성 Lv${ca.lv + (ca.mx ? 0 : 1)}`, ca.mx ? 'MAX' : `● ${ca.uc}`, 'T', !ca.mx && snap.g >= ca.uc, '#ffd54f');
+    box(list.length, '성 강화', `Lv${snap.ca.lv}`, 'T', true, '#ffd54f');
   }
 
   // ---------- 함정 ----------
@@ -1323,7 +1329,7 @@ export function createRenderer(canvas) {
     ctx.fillRect(10, 10, 240, 92);
     ctx.fillStyle = '#fff';
     ctx.font = 'bold 16px sans-serif';
-    ctx.fillText(adv ? `스테이지 ${stageLabel(snap.si)}` : `⏱ ${fmtT(snap.sv?.t ?? 0)} · ${snap.sv?.k ?? 0}마리`, 20, 32);
+    ctx.fillText(adv ? `스테이지 ${stageLabel(snap.si)}` : `라운드 ${snap.sv?.r ?? 1}${snap.sv?.f ? ` · 남은 적 ${snap.sv.left}` : ' · 준비'}`, 20, 32);
     ctx.fillStyle = '#ffd54f';
     ctx.font = 'bold 15px sans-serif';
     if (!adv) ctx.fillText(`💰 ${snap.g}`, 175, 32);
@@ -1396,15 +1402,13 @@ export function createRenderer(canvas) {
 
     const alive = snap.p.filter((p) => p.al);
     if (snap.ph === 'over') banner(snap.ot, '잠시 후 로비로 돌아갑니다');
-    else if (!adv && snap.sv && !snap.sv.st) {
+    else if (!adv && snap.sv && !snap.sv.f) {
       const ready = alive.filter((p) => p.rd).length;
-      banner('성 지키기 준비: 울타리·터렛을 지으세요', `${Math.ceil(-snap.sv.t)}초 뒤 적이 몰려옵니다 · G 바로 시작 (${ready}/${alive.length})`);
+      const r = snap.sv.r;
+      banner(`라운드 ${r} 준비${r % 10 === 0 ? ' · 보스 라운드!' : r % 5 === 0 ? ' · 정예 등장' : ''}`,
+        `G 전투 시작 (${ready}/${alive.length}) · T 성 강화·무기 거치 · E 울타리 · R 터렛`);
     } else if (!adv && me && !me.al && me.rv > 0) {
       banner('쓰러졌어요', `${me.rv}초 뒤 캠프에서 부활합니다`);
-    } else if (!adv && snap.sv && !snap.sv.b) {
-      // 다음 정예·보스까지 남은 시간
-      const t = snap.sv.t, next = [...SURVIVAL.elites, SURVIVAL.duration].find((x) => x > t);
-      if (next !== undefined && next - t < 10) banner(next === SURVIVAL.duration ? '보스가 다가옵니다!' : '정예가 다가옵니다!', `${Math.ceil(next - t)}초`);
     } else if (adv && snap.ar < 0 && snap.rs && map.rooms.filter((r) => r.type === 'battle' || r.type === 'boss').every((r) => snap.rs[r.id] === 'c')) {
       banner('모든 방 정복!', '팀원 모두 포털 위에 모이면 다음 스테이지로 출발합니다');
     } else if (adv && snap.ar < 0 && map.boss && !snap.po && snap.rs?.length) {

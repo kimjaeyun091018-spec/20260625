@@ -1,5 +1,5 @@
 // 설정 · 옷장(스킨) · 계정(로그인, 저장 코드) 화면
-import { SKINS, skinsFor, CHARACTERS, CHARACTER_KEYS, TREASURES, UNITS, UNIT_KEYS, ARMY_SLOTS, UNIT_MAX_LV, unitLevelCost, unitScale, SUPPLIES, SPOIL_TO_ESSENCE } from './data.js';
+import { SKINS, skinsFor, CHARACTERS, CHARACTER_KEYS, TREASURES, KEEP, WEAPONS, ELEMENTS, TIER_NAME, UNITS, UNIT_KEYS, ARMY_SLOTS, UNIT_MAX_LV, unitLevelCost, unitScale, SUPPLIES, SPOIL_TO_ESSENCE } from './data.js';
 import { exportSaveCode, importSaveCode } from './tree.js';
 
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -393,6 +393,74 @@ export function createSupplyUI(root, { getSave, onChange }) {
   const api = {
     isOpen: () => !root.hidden,
     open() { draw(); root.hidden = false; },
+    close() { root.hidden = true; },
+  };
+  return api;
+}
+
+// ---------------------------------------------------------------- 성 강화 (성 지키기에서 T)
+// 성 키우기처럼: 모험에서 모은 정수(◆)로 성 레벨업, 모험에서 들고 나온 무기(무기고)를 성 탑에 거치.
+export function createKeepUI(root, { getSave, onChange, icon, isHost }) {
+  let msg = '';
+  function draw() {
+    const save = getSave(), K = save.keep, lv = K.lv;
+    const slots = KEEP.mountSlots(lv), cost = KEEP.lvCost(lv), max = lv >= KEEP.maxLv;
+    const wname = (w) => `${w.el && ELEMENTS[w.el] ? `${ELEMENTS[w.el].name}의 ` : ''}${WEAPONS[w.k].name}`;
+    const wcolor = (w) => (w.el && ELEMENTS[w.el] ? ELEMENTS[w.el].color : '#fff');
+    const mountBoxes = Array.from({ length: 4 }, (_, i) => {
+      if (i >= slots) return `<div class="mslot lock">🔒 성 Lv${i * 5}</div>`;
+      const ai = K.mounts[i], w = K.armory[ai];
+      return w ? `<div class="mslot on">${icon(w.k, 2)}<b style="color:${wcolor(w)}">${esc(wname(w))}</b><button data-unmount="${i}">내리기</button></div>`
+        : '<div class="mslot">빈 거치대<small>아래 무기고에서 거치</small></div>';
+    }).join('');
+    const items = K.armory.map((w, i) => {
+      const on = K.mounts.includes(i), W = WEAPONS[w.k];
+      return `<div class="skin arm${on ? ' on' : ''}">${icon(w.k, 2)}<b style="color:${wcolor(w)}">${esc(wname(w))}</b>
+        <small>${TIER_NAME[W.tier]} · ${W.kind === 'ranged' ? '원거리' : '근접(성 둘레 휩쓸기)'}${w.el ? ` · Lv${w.lv}` : ''}</small>
+        ${on ? '<span class="owned">거치 중</span>' : `<button data-mount="${i}" ${K.mounts.length >= slots ? 'disabled' : ''}>거치</button>`}
+        ${on ? '' : `<button data-scrap="${i}" class="danger">분해 ◆${5 * W.tier}</button>`}</div>`;
+    }).join('') || '<p class="help">무기고가 비어 있어요. 모험 모드를 끝내거나 나오면 들고 있던 무기가 여기에 들어와요 (기본 권총 제외).</p>';
+    root.innerHTML = `
+      <div class="tree-head"><h2>성 강화</h2><span class="ess">◆ ${save.essence} 정수</span><button data-close class="tclose">닫기 (Esc)</button></div>
+      <p class="sub">라운드 <b>${K.round}</b> (최고 ${K.best}) · 성 <b>Lv${lv}</b> · 성 체력 +${KEEP.hpPerLv * (lv - 1)} · 화살 +${Math.round(KEEP.arrowPerLv * (lv - 1) * 100)}% · 거치 무기 피해 x${KEEP.mountMul(lv).toFixed(2)}</p>
+      ${isHost() ? '' : '<p class="help">지금 방의 성은 방장의 성이에요. 여기서 바꾼 건 내가 방장일 때 적용돼요.</p>'}
+      <div class="buttons"><button data-up ${max || save.essence < cost ? 'disabled' : ''}>${max ? '성 최대 레벨' : `성 레벨업 ◆${cost}`}</button></div>
+      <h3>무기 거치대 (${K.mounts.length}/${slots})</h3>
+      <div class="mounts">${mountBoxes}</div>
+      <h3>무기고 (${K.armory.length}/${KEEP.armoryMax}) · 모험에서 가져온 무기</h3>
+      <div class="skins">${items}</div>
+      <p class="tmsg">${esc(msg)}</p>`;
+  }
+  root.addEventListener('click', (e) => {
+    if (e.target.closest('[data-close]')) { api.close(); return; }
+    const b = e.target.closest('button');
+    if (!b || b.disabled) return;
+    const save = getSave(), K = save.keep;
+    if (b.hasAttribute('data-up')) {
+      const cost = KEEP.lvCost(K.lv);
+      if (K.lv >= KEEP.maxLv || save.essence < cost) return;
+      save.essence -= cost; K.lv++;
+      msg = `성 Lv${K.lv}!${K.lv % 5 === 0 && KEEP.mountSlots(K.lv) > KEEP.mountSlots(K.lv - 1) ? ' 무기 거치대가 하나 늘었어요.' : ''}`;
+    } else if (b.dataset.mount !== undefined) {
+      const i = Number(b.dataset.mount);
+      if (K.mounts.length < KEEP.mountSlots(K.lv) && !K.mounts.includes(i)) { K.mounts.push(i); msg = ''; }
+    } else if (b.dataset.unmount !== undefined) {
+      K.mounts.splice(Number(b.dataset.unmount), 1); msg = '';
+    } else if (b.dataset.scrap !== undefined) {
+      const i = Number(b.dataset.scrap);
+      if (K.mounts.includes(i)) return;
+      const w = K.armory[i];
+      save.essence += 5 * WEAPONS[w.k].tier;
+      K.armory.splice(i, 1);
+      K.mounts = K.mounts.map((m) => (m > i ? m - 1 : m));
+      msg = `${WEAPONS[w.k].name} 분해: ◆${5 * WEAPONS[w.k].tier}`;
+    } else return;
+    onChange();
+    draw();
+  });
+  const api = {
+    isOpen: () => !root.hidden,
+    open() { msg = ''; draw(); root.hidden = false; },
     close() { root.hidden = true; },
   };
   return api;
