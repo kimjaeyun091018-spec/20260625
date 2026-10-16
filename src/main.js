@@ -622,7 +622,7 @@ function afterRender(snap, map, myId) {
   else overlayCache.stage = '';
 }
 
-const renderExtra = () => ({ chars: save.chars, freeChar: save.freeChar, essence: save.essence, spoils: save.spoils, crowns: save.crowns, build: buildSummary(), damageNumbers: settings.damageNumbers, zoom: settings.zoom || 1 });
+const renderExtra = () => ({ chars: save.chars, essence: save.essence, spoils: save.spoils, crowns: save.crowns, build: buildSummary(), damageNumbers: settings.damageNumbers, zoom: settings.zoom || 1 });
 
 // ---------- 프레임 ----------
 function hostFrame(s, now) {

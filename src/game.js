@@ -543,7 +543,7 @@ function evolve(p, key) {
 export function lobbyProblem(state) {
   const players = Object.values(state.players);
   const none = players.find((p) => !ownsChar(p, p.char));
-  if (none) return `${none.name}: 캐릭터 동상에서 캐릭터를 먼저 사 주세요 (첫 캐릭터는 무료)`;
+  if (none) return `${none.name}: 산 캐릭터로 바꿔 주세요 (캐릭터 동상)`;
   const limit = sameCharLimit(players.length);
   for (const k of CHARACTER_KEYS) {
     if (players.filter((p) => p.char === k).length > limit) {
@@ -2657,11 +2657,13 @@ function revealByCorridor(state, p) {
   }
 }
 
-function spawnRoomWave(state, room) {
-  room.wavesLeft--;
+// 다음 웨이브가 나올 자리를 미리 고름 (조준경 표시용)
+const WAVE_WARN = 1.6;
+function planRoomWave(state, room) {
   const idx = state.stageIdx;
   const alive = Object.values(state.players).filter((p) => p.alive);
   const count = Math.min(4 + Math.floor(idx * 0.7) + Math.max(0, alive.length - 1) * 2, 20);
+  const spots = [];
   for (let i = 0; i < count; i++) {
     let x = 0, y = 0;
     for (let tries = 0; tries < 60; tries++) {
@@ -2669,12 +2671,21 @@ function spawnRoomWave(state, room) {
       const ty = room.y0 + 1 + Math.floor(Math.random() * (room.h - 2));
       if (isWallTile(state, tx, ty)) continue;
       x = tileCenter(tx); y = tileCenter(ty);
-      if (alive.every((p) => (p.x - x) ** 2 + (p.y - y) ** 2 > 150 ** 2)) break;
+      if (alive.every((p) => (p.x - x) ** 2 + (p.y - y) ** 2 > 150 ** 2) && spots.every((o) => (o.x - x) ** 2 + (o.y - y) ** 2 > 24 ** 2)) break;
     }
-    if (!x) continue;
+    if (x) spots.push({ x, y });
+  }
+  return spots;
+}
+
+function spawnRoomWave(state, room, spots = planRoomWave(state, room)) {
+  room.wavesLeft--;
+  const idx = state.stageIdx;
+  for (const { x, y } of spots) {
     state.enemies.push(makeEnemy(state, pickKind(1 + idx), x, y, idx));
     addFx(state, { k: 'r', x, y, r: 18, c: '#ef5350', t: 0.3, life: 0.3 });
   }
+  room.plan = null;
   room.waveDelay = 0.8;
 }
 
@@ -2728,9 +2739,11 @@ function updateAdventure(state, players, dt) {
   const room = state.activeRoom;
   if (room) {
     if (state.enemies.length > 0) return;
+    // 웨이브 사이: 다음 몬스터가 나올 자리를 조준경으로 먼저 보여 줌
+    if (room.wavesLeft > 0 && !room.plan) { room.plan = planRoomWave(state, room); room.waveDelay = Math.max(room.waveDelay, WAVE_WARN); }
     room.waveDelay -= dt;
     if (room.waveDelay > 0) return;
-    if (room.wavesLeft > 0) spawnRoomWave(state, room);
+    if (room.wavesLeft > 0) spawnRoomWave(state, room, room.plan || undefined);
     else clearRoom(state, room);
     return;
   }
@@ -2939,6 +2952,8 @@ export function snapshot(state) {
       hp: e.hp, mh: e.maxHp, h: e.hitT > 0 ? 1 : 0, s: statusCode(e.st), c: e.color || 0, ch: e.act === 'charge' ? 1 : 0,
       f: r2(e.face || 0), fu: e.fuse > 0 ? 1 : 0, ai: e.air ? 1 : 0, w: e.world ?? 0,
     })),
+    wm: state.activeRoom?.plan ? state.activeRoom.plan.map((o) => [Math.round(o.x), Math.round(o.y)]) : null,
+    wmt: state.activeRoom?.plan ? r1(Math.max(0, state.activeRoom.waveDelay)) : 0,
     hz: state.hazards.map((h) => ({
       k: h.k, x: r1(h.x), y: r1(h.y), r: h.r || 0, a: r2(h.a || 0), len: h.len || 0, w: h.w || 0,
       p: r2(Math.min(1, h.t / h.warn)), on: h.t >= h.warn ? 1 : 0, c: h.c || 0,

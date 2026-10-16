@@ -177,7 +177,7 @@ export function emptySlot() {
 export function loadSave(from) {
   let s = from || null;
   if (!s) try { s = JSON.parse(localStorage.getItem(SAVE_KEY)); } catch { /* 저장소 사용 불가 */ }
-  const base = { essence: START_ESSENCE, crowns: 0, spoils: 0, supplies: {}, unlocked: [], owned: 1, active: 0, slots: [emptySlot()], chars: [], freeChar: true, skins: [], skinOf: {}, army: { unlocked: ['knight', 'archer'], lv: {}, sel: ['knight', 'archer'] } };
+  const base = { essence: START_ESSENCE, crowns: 0, spoils: 0, supplies: {}, unlocked: [], owned: 1, active: 0, slots: [emptySlot()], chars: ['knight'], skins: [], skinOf: {}, army: { unlocked: ['knight', 'archer'], lv: {}, sel: ['knight', 'archer'] } };
   if (!s || typeof s !== 'object') return base;
   const save = { ...base, ...s };
   save.unlocked = (Array.isArray(save.unlocked) ? save.unlocked : []).filter((id) => NODE[id]);
@@ -196,9 +196,9 @@ export function loadSave(from) {
     sel: [],
   };
   save.army.sel = [...new Set(Array.isArray(army.sel) ? army.sel : ['knight', 'archer'])].filter((k) => save.army.unlocked.includes(k)).slice(0, ARMY_SLOTS);
-  // 캐릭터: 산 캐릭터만 고를 수 있음 (처음 한 명은 무료)
-  save.chars = [...new Set(Array.isArray(save.chars) ? save.chars : [])].filter((k) => CHARACTERS[k]);
-  save.freeChar = save.freeChar !== false && save.chars.length === 0;
+  // 캐릭터: 산 캐릭터만 고를 수 있음 (기사는 처음부터)
+  save.chars = [...new Set(['knight', ...(Array.isArray(save.chars) ? save.chars : [])])].filter((k) => CHARACTERS[k]);
+  delete save.freeChar;
   // 예전 공용 스킨은 정수로 돌려줌 (한 번만: 바꾼 뒤엔 새 스킨 이름만 남음)
   const oldSkins = Array.isArray(save.skins) ? save.skins : [];
   const refund = oldSkins.reduce((n, k) => n + (OLD_SKIN_PRICE[k] || 0), 0);
@@ -241,7 +241,7 @@ export function sanitizeBuild(b) {
   const nodes = (Array.isArray(b?.nodes) ? b.nodes : []).filter((id) => typeof id === 'string' && NODE[id]).slice(0, TREE.length);
   const el = ELEMENTS[b?.el] && nodes.includes(`${b.el}_root`) ? b.el : null;
   const eq = fitLoadout([...new Set((Array.isArray(b?.eq) ? b.eq : []).filter((id) => nodes.includes(id) && equipable(id)))]);
-  const chars = (Array.isArray(b?.chars) ? b.chars : []).filter((k) => CHARACTERS[k]).slice(0, CHARACTER_KEYS.length);
+  const chars = [...new Set(['knight', ...(Array.isArray(b?.chars) ? b.chars : [])])].filter((k) => CHARACTERS[k]).slice(0, CHARACTER_KEYS.length);
   const skinOf = Object.fromEntries(CHARACTER_KEYS.map((c) => [c, SKINS[b?.skinOf?.[c]]?.char === c ? b.skinOf[c] : baseSkin(c)]));
   // 군단: 데려갈 유닛 4종과 레벨 (거인은 왕관 노드가 있어야)
   const lvOf = (k) => Math.max(1, Math.min(UNIT_MAX_LV, Math.floor(Number(b?.army?.lv?.[k]) || 1)));
@@ -262,7 +262,7 @@ function checksum(str) {
 }
 
 export function exportSaveCode(save) {
-  const json = JSON.stringify({ essence: save.essence, crowns: save.crowns, spoils: save.spoils, supplies: save.supplies, army: save.army, unlocked: save.unlocked, owned: save.owned, active: save.active, slots: save.slots, chars: save.chars, freeChar: save.freeChar, skins: save.skins, skinOf: save.skinOf });
+  const json = JSON.stringify({ essence: save.essence, crowns: save.crowns, spoils: save.spoils, supplies: save.supplies, army: save.army, unlocked: save.unlocked, owned: save.owned, active: save.active, slots: save.slots, chars: save.chars, skins: save.skins, skinOf: save.skinOf });
   const b64 = btoa(unescape(encodeURIComponent(json)));
   return `DS1-${checksum(b64)}-${b64}`;
 }

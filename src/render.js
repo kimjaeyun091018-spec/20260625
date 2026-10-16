@@ -1021,6 +1021,36 @@ export function createRenderer(canvas) {
   }
 
   // 보스 위험 지역: 빨간 경고가 차오르고, 다 차면 터짐 / 레이저
+  // 다음 웨이브 몬스터가 나올 자리: 빨간 조준경 (시간이 줄수록 좁아지고, 직전엔 깜빡임)
+  function drawSpawnMark(x, y, left, now) {
+    const k = Math.max(0, Math.min(1, left / 1.6));
+    const r = 11 + 11 * k;
+    const blink = left < 0.45 && Math.floor(now / 70) % 2 === 0;
+    const col = blink ? '#ffffff' : '#ff5252';
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.globalAlpha = 0.75 + 0.25 * Math.sin(now / 90);
+    ctx.fillStyle = 'rgba(255,82,82,.16)';
+    ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,.55)';
+    ctx.lineWidth = 4;
+    ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.stroke();
+    ctx.strokeStyle = col;
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.stroke();
+    ctx.rotate((now / 700) % (Math.PI * 2));
+    ctx.beginPath();
+    for (let i = 0; i < 4; i++) {
+      const a = (i * Math.PI) / 2, c = Math.cos(a), sn = Math.sin(a);
+      ctx.moveTo(c * (r - 6), sn * (r - 6));
+      ctx.lineTo(c * (r + 7), sn * (r + 7));
+    }
+    ctx.stroke();
+    ctx.fillStyle = col;
+    ctx.beginPath(); ctx.arc(0, 0, 2.5, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  }
+
   function drawHazard(h, now) {
     ctx.save();
     if (h.k === 'circle') {
@@ -1439,14 +1469,13 @@ export function createRenderer(canvas) {
   }
 
   let nearStatue = null;
-  let ownedChars = [];
-  let freeChar = false;
+  let ownedChars = ['knight'];
   // 동상 설명 말풍선 (캐릭터 위에 그림)
   function drawStatueTip(st) {
     const C = CHARACTERS[st.key];
     const own = ownedChars.includes(st.key);
     const lines = [`${C.name}  ·  체력 ${C.hp}  ·  마나 ${C.mana}`, `패시브 ${C.passive}: ${C.desc}`,
-      own ? 'E 이 캐릭터로 바꾸기' : freeChar ? 'E 무료로 받기 (첫 캐릭터)' : `E 사기  ◆${C.price}`];
+      own ? 'E 이 캐릭터로 바꾸기' : `E 사기  ◆${C.price}`];
     ctx.font = '12px sans-serif';
     const w = Math.max(...lines.map((t) => ctx.measureText(t).width)) + 24;
     const x = Math.max(8, st.x - w / 2), y = st.y - 112;
@@ -1669,8 +1698,7 @@ export function createRenderer(canvas) {
   function render(snap, map, myId, mouse, extra = {}) {
     const now = performance.now();
     showDamage = extra.damageNumbers !== false;
-    ownedChars = extra.chars || [];
-    freeChar = !!extra.freeChar;
+    ownedChars = extra.chars || ['knight'];
     const me = snap.p.find((p) => p.id === myId);
     const cam = cameraFor(map, me || map.spawn, extra.zoom || 1);
     ctx.fillStyle = '#0e0d18';
@@ -1689,6 +1717,7 @@ export function createRenderer(canvas) {
     for (const [id, k, x, y, m] of snap.xo || []) if (!(m & myBit)) drawOrb({ id, k, x, y }, now);
     for (const z of snap.zn || []) drawZone(z, now);
     for (const h of snap.hz || []) drawHazard(h, now);
+    for (const [x, y] of snap.wm || []) drawSpawnMark(x, y, snap.wmt || 0, now);
     for (const c of snap.cs || []) drawChest(c);
     for (const o of snap.sh || []) drawShopItem(o, now, me);
     const dist = (o) => (me ? Math.hypot(o.x - me.x, o.y - me.y) : 1e9);

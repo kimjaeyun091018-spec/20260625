@@ -106,7 +106,7 @@ export function createWardrobeUI(root, { getSave, onChange, preview, currentChar
 }
 
 // ---------------------------------------------------------------- 캐릭터 상점 (동상에서 E)
-// 캐릭터는 모두 정수로 삽니다. 처음 한 명은 무료.
+// 캐릭터는 정수로 삽니다. 기사는 처음부터 가지고 시작.
 export function createCharShopUI(root, { getSave, onChange, preview, onBought }) {
   let msg = '';
   let focus = null;
@@ -116,15 +116,14 @@ export function createCharShopUI(root, { getSave, onChange, preview, onBought })
       const C = CHARACTERS[k];
       const own = save.chars.includes(k);
       const btn = own ? '<span class="owned">보유 중</span>'
-        : save.freeChar ? `<button data-buy="${k}">무료로 받기</button>`
-          : `<button data-buy="${k}" ${save.essence < C.price ? 'disabled' : ''}>사기 ◆${C.price}</button>`;
+        : `<button data-buy="${k}" ${save.essence < C.price ? 'disabled' : ''}>사기 ◆${C.price}</button>`;
       return `<div class="skin char${k === focus ? ' on' : ''}" style="--c:${C.color}"><img src="${preview(k)}" alt="" width="64" height="64">
         <b style="color:${C.color}">${esc(C.name)}</b><small>체력 ${C.hp} · 마나 ${C.mana}</small>
         <small class="hint">${esc(C.passive)}: ${esc(C.desc)}</small>${btn}</div>`;
     }).join('');
     root.innerHTML = `
       <div class="tree-head"><h2>캐릭터</h2><span class="ess">◆ ${save.essence} 정수</span><button data-close class="tclose">닫기 (Esc)</button></div>
-      <p class="sub">${save.freeChar ? '첫 캐릭터는 <b>무료</b>! 마음에 드는 캐릭터를 하나 골라 받으세요. 나머지는 정수로 살 수 있어요.' : '캐릭터는 정수로 삽니다. 산 캐릭터는 동상에서 E로 바꿀 수 있어요.'}</p>
+      <p class="sub">기사는 처음부터 가지고 있어요. 다른 캐릭터는 정수로 사고, 산 캐릭터는 동상에서 E로 바꿀 수 있어요.</p>
       <div class="skins">${cards}</div>
       <p class="tmsg">${esc(msg)}</p>`;
   }
@@ -135,8 +134,7 @@ export function createCharShopUI(root, { getSave, onChange, preview, onBought })
     const save = getSave();
     const k = b.dataset.buy, C = CHARACTERS[k];
     if (save.chars.includes(k)) return;
-    if (save.freeChar) save.freeChar = false;
-    else if (save.essence >= C.price) save.essence -= C.price;
+    if (save.essence >= C.price) save.essence -= C.price;
     else return;
     save.chars.push(k);
     onChange();

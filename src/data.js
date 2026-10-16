@@ -114,7 +114,7 @@ export const DROP_ELEMENT_CHANCE = 0.5;
 
 // ---------- 캐릭터 (로비 동상에서 고름) ----------
 export const CHARACTERS = {
-  knight: { name: '기사', price: 60, hp: 7, mana: 90, color: '#90a4ae', passive: '방패', desc: '4초마다 적 탄환 1발을 막는 보호막' },
+  knight: { name: '기사', price: 0, hp: 7, mana: 90, color: '#90a4ae', passive: '방패', desc: '4초마다 적 탄환 1발을 막는 보호막' },
   ranger: { name: '레인저', price: 80, hp: 5, mana: 110, color: '#81c784', passive: '날렵함', desc: '이동 속도 +15%, 대시 쿨타임 -30%' },
   mage: { name: '마법사', price: 150, design: 'mage', hp: 4, mana: 170, color: '#9575cd', passive: '마력 증폭', desc: '장착 스킬 피해 +40%, 마나 구슬 +50%' },
   berserker: { name: '광전사', price: 120, hp: 9, mana: 60, color: '#e57373', passive: '분노', desc: '잃은 체력 1칸마다 피해 +8%' },
@@ -319,7 +319,7 @@ export const enemyScale = (lvl) => ({ hp: 1 + 0.22 * lvl, dmg: 1 + Math.floor(lv
 export const MANA = { weaponSkill: 15 };
 export const activeManaCost = (cd) => Math.round(cd * 2.5);
 
-// 캐릭터는 모두 정수로 삽니다. 처음 한 명은 무료 (save.freeChar)
+// 캐릭터는 정수로 삽니다. 기사는 처음부터 가지고 시작
 // 스킨: 캐릭터마다 따로. 기본 + 옷 색 스킨 2개 + 다른 모습이 되는 장비 스킨 1개(design: assets/heroes.png의 디자인)
 export const SKINS = {
   kn_base: { char: 'knight', name: '기본', price: 0, eye: '#ffffff' },
