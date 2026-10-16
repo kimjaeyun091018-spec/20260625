@@ -1429,12 +1429,10 @@ function updatePlayer(state, p, inp, dt) {
   }
 
   if (st.W.charge) {
-    // 활: 누르고 있으면 차징, 떼면 발사 (다 모으고 0.5초 더 누르면 자동 발사)
+    // 활: 누르고 있으면 차징, 떼는 순간에만 발사 (누르고 있으면 쏘지 않음)
     const busy = p.dashT > 0 || p.sdash;
     if (inp.fire && p.fireCd <= 0 && !busy) {
-      p.chargeT += dt;
-      const over = p.chargeT - st.W.charge;
-      if (over >= CHARGE.holdAuto) releaseCharge(state, p, st);
+      p.chargeT = Math.min(p.chargeT + dt, st.W.charge);
     } else if (!inp.fire && p.chargeT > 0) {
       releaseCharge(state, p, st);
     } else if (busy) p.chargeT = 0;
