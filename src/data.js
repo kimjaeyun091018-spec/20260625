@@ -30,13 +30,13 @@ export const WEAPONS = {
   sniper: { fam: 'gun', tier: 3, name: '저격총', kind: 'ranged', dmg: 10, cd: 1.1, minCd: 0.9, crit: 0.3, critX: 3, inacc: 0, mana: 4, speed: 1400, pierce: 2, life: 1.4 },
   combatshotgun: { fam: 'gun', tier: 3, name: '전투 샷건', kind: 'ranged', dmg: 1.5, cd: 0.8, minCd: 0.65, crit: 0.06, inacc: 0.1, mana: 4, speed: 660, life: 0.42, pellets: 9, spread: 0.65, falloff: true },
   // 활 계열
-  bow: { fam: 'bow', tier: 1, name: '활', kind: 'ranged', dmg: 2.5, cd: 0.5, crit: 0.12, inacc: 0.03, mana: 0, speed: 760, pierce: 1, life: 0.9, evo: ['longbow', 'crossbow', 'rapidbow'] },
-  longbow: { fam: 'bow', tier: 2, name: '장궁', kind: 'ranged', dmg: 4.5, cd: 0.65, crit: 0.15, inacc: 0.02, mana: 1.5, speed: 950, pierce: 2, life: 1.2, evo: ['heavenbow'] },
-  crossbow: { fam: 'bow', tier: 2, name: '쇠뇌', kind: 'ranged', dmg: 6, cd: 1.0, minCd: 0.7, crit: 0.15, inacc: 0.01, mana: 3, speed: 900, pierce: 1, life: 0.9, blast: 44, evo: ['repeater'] },
-  rapidbow: { fam: 'bow', tier: 2, name: '연사궁', kind: 'ranged', dmg: 1.8, cd: 0.26, crit: 0.12, inacc: 0.06, mana: 0.6, speed: 780, pierce: 1, life: 0.85, evo: ['stormbow'] },
-  heavenbow: { fam: 'bow', tier: 3, name: '천궁', kind: 'ranged', dmg: 7, cd: 0.7, crit: 0.2, inacc: 0.01, mana: 2.5, speed: 1100, pierce: 4, life: 1.3 },
-  repeater: { fam: 'bow', tier: 3, name: '연발 쇠뇌', kind: 'ranged', dmg: 5, cd: 1.0, minCd: 0.75, crit: 0.15, inacc: 0.02, mana: 4, speed: 920, pierce: 1, life: 0.9, blast: 40, pellets: 3, spread: 0.3 },
-  stormbow: { fam: 'bow', tier: 3, name: '폭풍궁', kind: 'ranged', dmg: 2, cd: 0.2, crit: 0.12, inacc: 0.06, mana: 0.7, speed: 820, pierce: 1, life: 0.9, barrels: [-5, 5] },
+  bow: { fam: 'bow', tier: 1, name: '활', kind: 'ranged', charge: 0.7, dmg: 2.5, cd: 0.5, crit: 0.12, inacc: 0.03, mana: 0, speed: 760, pierce: 1, life: 0.9, evo: ['longbow', 'crossbow', 'rapidbow'] },
+  longbow: { fam: 'bow', tier: 2, name: '장궁', kind: 'ranged', charge: 0.9, dmg: 4.5, cd: 0.65, crit: 0.15, inacc: 0.02, mana: 1.5, speed: 950, pierce: 2, life: 1.2, evo: ['heavenbow'] },
+  crossbow: { fam: 'bow', tier: 2, name: '쇠뇌', kind: 'ranged', charge: 0.8, dmg: 6, cd: 1.0, minCd: 0.7, crit: 0.15, inacc: 0.01, mana: 3, speed: 900, pierce: 1, life: 0.9, blast: 44, evo: ['repeater'] },
+  rapidbow: { fam: 'bow', tier: 2, name: '연사궁', kind: 'ranged', charge: 0.35, dmg: 1.8, cd: 0.26, crit: 0.12, inacc: 0.06, mana: 0.6, speed: 780, pierce: 1, life: 0.85, evo: ['stormbow'] },
+  heavenbow: { fam: 'bow', tier: 3, name: '천궁', kind: 'ranged', charge: 1.0, dmg: 7, cd: 0.7, crit: 0.2, inacc: 0.01, mana: 2.5, speed: 1100, pierce: 4, life: 1.3 },
+  repeater: { fam: 'bow', tier: 3, name: '연발 쇠뇌', kind: 'ranged', charge: 0.8, dmg: 5, cd: 1.0, minCd: 0.75, crit: 0.15, inacc: 0.02, mana: 4, speed: 920, pierce: 1, life: 0.9, blast: 40, pellets: 3, spread: 0.3 },
+  stormbow: { fam: 'bow', tier: 3, name: '폭풍궁', kind: 'ranged', charge: 0.3, dmg: 2, cd: 0.2, crit: 0.12, inacc: 0.06, mana: 0.7, speed: 820, pierce: 1, life: 0.9, barrels: [-5, 5] },
   // 검 계열
   sword: { fam: 'sword', tier: 1, name: '검', kind: 'melee', dmg: 2.5, cd: 0.3, crit: 0.08, range: 52, arc: 1.9, knock: 14, evo: ['greatsword', 'twinblades'] },
   greatsword: { fam: 'sword', tier: 2, name: '대검', kind: 'melee', dmg: 5, cd: 0.5, crit: 0.08, range: 66, arc: 2.2, knock: 24, evo: ['zanbato'] },
@@ -65,13 +65,18 @@ export function weaponInfo(key) {
   const W = WEAPONS[key];
   const shots = (W.pellets || 1) * (W.barrels?.length || 1);
   return {
-    dmg: W.dmg, shots, aps: Math.round((1 / W.cd) * 10) / 10,
+    dmg: W.dmg, shots, aps: Math.round((1 / W.cd) * 10) / 10, charge: W.charge || 0,
     crit: Math.round((W.crit || 0) * 100), critX: W.critX || 2,
     acc: W.kind === 'ranged' ? Math.max(0, Math.round(100 - (W.inacc || 0) * 150)) : 100,
     mana: W.mana || 0, pierce: W.pierce || 0, blast: W.blast || 0, falloff: !!W.falloff,
     range: W.kind === 'ranged' ? Math.round(W.speed * W.life / 10) * 10 : W.range || W.radius,
   };
 }
+
+// 활 계열은 모두 차징 무기: 누르고 있으면 힘을 모으고, 떼면 발사.
+// 피해 = 기본 × (0.4 + 1.2 × 모은 정도) → 다 모으면 160%, 화살 속도도 빨라지고 관통 +1.
+// 다 모은 채로 0.5초 더 누르고 있으면 저절로 쏩니다 (자동 공격 모드에서도 쏠 수 있게).
+export const CHARGE = { minDmg: 0.4, fullDmg: 1.6, fullPierce: 1, holdAuto: 0.5, afterCd: 0.35, moveSlow: 0.75 };
 
 // 계열별 스킬 (우클릭 기본 스킬 / 패시브 / Q 궁극기)
 // ult.type: stack(적중·처치 횟수) / gauge(피해량) / time(전투 시간)
@@ -93,7 +98,7 @@ export const SKILLS = {
   },
   bow: {
     skill: { name: '백스텝 사격', cd: 5, desc: '뒤로 뛰며 부채꼴로 화살 5발' },
-    passive: { name: '약점 포착', desc: '같은 적을 연속으로 맞히면 피해 +1씩 (최대 +3)' },
+    passive: { name: '약점 포착', desc: '같은 적을 연속으로 맞히면 피해 +1씩 (최대 +3) · 차징 무기: 누르고 있다가 떼면 발사' },
     ult: { name: '화살비', type: 'time', need: 30, unit: '초', desc: '마우스 위치에 3초간 화살비' },
   },
   gun: {

@@ -8,7 +8,7 @@ import {
   TILE, MAX_PLAYERS, WEAPONS, START_WEAPON, weaponFam, SKILLS, WEAPON_SLOTS, SWAP_COOLDOWN, RESONANCE, COMBO_EVERY,
   DROP_TIERS, DROP_ELEMENT_CHANCE, CHARACTERS, CHARACTER_KEYS, ENEMY_TYPES, STRUCTS, BUFFS,
   ELEMENTS, ELEMENT_MAX, ELEMENT_MAX_BONUS, MAX_AUGMENT_TYPES, STAGE_REWARDS, STAGES_PER_WORLD, WORLDS, ESSENCE,
-  BOSSES, SHOP, SURVIVAL, CASTLE, UNITS, ARMY_CAP, unitScale, guildPerks, SPOILS, SUPPLIES, TRAPS, stageLabel, xpToNext, enemyScale, MANA, activeManaCost, SKINS, baseSkin, TREASURES, TREASURE_KEYS, TREASURE_DUP_ESSENCE, TREASURE_CHEST_CHANCE, ESSENCE_MUL,
+  BOSSES, SHOP, SURVIVAL, CASTLE, UNITS, ARMY_CAP, unitScale, guildPerks, SPOILS, SUPPLIES, TRAPS, stageLabel, xpToNext, enemyScale, MANA, activeManaCost, CHARGE, SKINS, baseSkin, TREASURES, TREASURE_KEYS, TREASURE_DUP_ESSENCE, TREASURE_CHEST_CHANCE, ESSENCE_MUL,
 } from './data.js';
 import { buildCampMap, buildLobbyMap, generateDungeon, tileCenter } from './maps.js';
 import { ACTIVES, PERKS, NODE, LOADOUT_SIZE, sanitizeBuild, buildBonus } from './tree.js';
@@ -968,12 +968,22 @@ function makeBullet(state, p, a, speed, extra) {
   };
 }
 
-function shoot(state, p, st) {
+function releaseCharge(state, p, st) {
+  const ch = Math.min(1, p.chargeT / st.W.charge);
+  p.chargeT = 0;
+  if (ch < 0.08) return; // 너무 짧게 누르면 안 쏨 (흘리지 않게)
+  p.fireCd = shoot(state, p, st, ch) ? st.cd * CHARGE.afterCd : 0.25;
+}
+
+// ch: 차징 정도 0~1 (활 계열). 없으면 보통 사격
+function shoot(state, p, st, ch = null) {
   const W = st.W;
+  const chMul = ch === null ? 1 : CHARGE.minDmg + (CHARGE.fullDmg - CHARGE.minDmg) * ch;
+  const full = ch !== null && ch >= 1;
   // 마나: 한 번 쏠 때마다 (궁극기 '난사' 중에는 무료)
   if (!(st.fam === 'gun' && p.ultT > 0) && !spendMana(state, p, W.mana || 0)) return false;
   const ae = attackElement(p, true);
-  const speed = W.speed * (ae.el === 'wind' ? 1.3 : 1);
+  const speed = W.speed * (ae.el === 'wind' ? 1.3 : 1) * (ch === null ? 1 : 0.7 + 0.5 * ch);
   const pellets = W.pellets || 1;
   const total = st.shots * pellets;
   const spread = (W.spread || 0.16);
@@ -986,18 +996,20 @@ function shoot(state, p, st) {
       const a = p.angle + (total > 1 ? (i / (total - 1) - 0.5) * spread * Math.max(1, total / 3) : 0) + (Math.random() - 0.5) * st.inacc;
       // 멀티샷으로 늘어난 총알은 피해 50%
       const extra = pellets > 1 ? i >= pellets : i > 0;
-      let dmg = st.dmg * (extra ? 0.5 : 1);
+      let dmg = st.dmg * chMul * (extra ? 0.5 : 1);
       const crit = rollCrit(st);
       if (crit) dmg *= st.critX;
       const b = makeBullet(state, p, a, speed, {
         r: W.fam === 'bow' ? 5 : 4, dmg, crit, sx: p.x, sy: p.y, falloff: !!W.falloff,
-        life: W.life, pierce: st.pierce, bounce: st.bounce, blast: W.blast || 0, el: ae.el, elv: ae.elv, vol,
+        life: W.life, pierce: st.pierce + (full ? CHARGE.fullPierce : 0), bounce: st.bounce, blast: W.blast || 0, el: ae.el, elv: ae.elv, vol,
       });
       b.x += nx * off;
       b.y += ny * off;
+      if (full) b.full = 1;
       state.bullets.push(b);
     }
   }
+  if (full) addFx(state, { k: 'r', x: p.x + Math.cos(p.angle) * 18, y: p.y + Math.sin(p.angle) * 18, r: 16, c: '#fff59d', t: 0.2, life: 0.2 });
   return true;
 }
 
@@ -1404,7 +1416,8 @@ function updatePlayer(state, p, inp, dt) {
       }
     }
   } else {
-    moveCircle(state, p, mx * st.speed * dt, my * st.speed * dt, false);
+    const cs = p.chargeT > 0 ? CHARGE.moveSlow : 1; // 활시위를 당기는 동안 조금 느리게
+    moveCircle(state, p, mx * st.speed * cs * dt, my * st.speed * cs * dt, false);
   }
 
   p.angle = inp.aim;
@@ -1415,7 +1428,18 @@ function updatePlayer(state, p, inp, dt) {
     else { p.spinIdle += dt; if (p.spinIdle > 1) p.spin = 0; }
   }
 
-  if (inp.fire && p.fireCd <= 0 && p.dashT <= 0 && !p.sdash) {
+  if (st.W.charge) {
+    // 활: 누르고 있으면 차징, 떼면 발사 (다 모으고 0.5초 더 누르면 자동 발사)
+    const busy = p.dashT > 0 || p.sdash;
+    if (inp.fire && p.fireCd <= 0 && !busy) {
+      p.chargeT += dt;
+      const over = p.chargeT - st.W.charge;
+      if (over >= CHARGE.holdAuto) releaseCharge(state, p, st);
+    } else if (!inp.fire && p.chargeT > 0) {
+      releaseCharge(state, p, st);
+    } else if (busy) p.chargeT = 0;
+  } else if (inp.fire && p.fireCd <= 0 && p.dashT <= 0 && !p.sdash) {
+    p.chargeT = 0;
     if (st.W.kind === 'ranged') p.fireCd = shoot(state, p, st) ? st.cd : 0.25;
     else { p.fireCd = st.cd; melee(state, p, st); }
   }
@@ -3032,6 +3056,7 @@ function weaponStats(p) {
     x: st.critX,
     h: st.W.kind === 'ranged' ? Math.max(0, Math.round(100 - st.inacc * 150)) : 100,
     m: st.W.mana || 0,
+    ch: st.W.charge || 0,
   };
 }
 
@@ -3081,7 +3106,7 @@ export function snapshot(state) {
       })),
       sl: p.slot, sw: r1(p.swapCd), ut: r1(p.ultT), cb: inCombat(state) ? 1 : 0,
       jv: p.javelin ? 1 : 0, ld: p.loadout, pp: p.perkIds || [], cs: p.casts.map(r1), sgt: r2(p.swingT / SWING_TIME), sgd: p.swingDir,
-      cw: p.crowns, tr: p.trRun?.length ? p.trRun : 0, gd: p.guild ? [p.guild.name, p.guild.color] : 0, uc: state.units.filter((u) => u.owner === p.id).length, ucap: armyCap(p),
+      cg: p.chargeT > 0 && WEAPONS[held(p)?.key]?.charge ? r2(Math.min(1.5, p.chargeT / WEAPONS[held(p).key].charge)) : 0, cw: p.crowns, tr: p.trRun?.length ? p.trRun : 0, gd: p.guild ? [p.guild.name, p.guild.color] : 0, uc: state.units.filter((u) => u.owner === p.id).length, ucap: armyCap(p),
       ar: (p.army?.sel || []).map((k) => [k, unitCost(p, k), p.army.lv?.[k] || 1]),
       sp: p.spoils, rv: p.alive ? 0 : Math.ceil(p.reviveT),
       mp: Math.floor(p.mana), mm: stats(p).maxMana, sk: p.skin, wst: weaponStats(p),

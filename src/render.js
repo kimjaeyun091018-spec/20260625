@@ -394,6 +394,10 @@ export function createRenderer(canvas) {
       }
     }
 
+    // 활 차징: 활을 몸 쪽으로 당김
+    const cg = p.al ? Math.min(1, p.cg || 0) : 0;
+    if (cg > 0) { handX -= Math.cos(p.a) * 4 * cg; handY -= Math.sin(p.a) * 4 * cg; }
+
     ctx.save();
     if (!p.al) ctx.globalAlpha = 0.5;
     else if (p.iv && Math.floor(now / 80) % 2) ctx.globalAlpha = 0.55;
@@ -430,6 +434,30 @@ export function createRenderer(canvas) {
     }
     if (p.al && !weaponBehind) drawWeaponSprite(key, handX, handY, PIXEL, wa, facingLeft);
     ctx.restore();
+
+    // 차징 게이지: 발밑 둘레 원호 + (내 캐릭터는) 조준선. 다 모으면 하얗게 반짝
+    if (cg > 0) {
+      const full = (p.cg || 0) >= 1;
+      ctx.save();
+      if (isMe) {
+        ctx.strokeStyle = full ? 'rgba(255,255,255,.75)' : `rgba(255,213,79,${0.25 + cg * 0.4})`;
+        ctx.lineWidth = full ? 2 : 1.5;
+        ctx.setLineDash([6, 6]);
+        const L = 40 + 110 * cg;
+        ctx.beginPath();
+        ctx.moveTo(p.x + Math.cos(p.a) * 20, p.y + Math.sin(p.a) * 20);
+        ctx.lineTo(p.x + Math.cos(p.a) * L, p.y + Math.sin(p.a) * L);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+      ctx.strokeStyle = 'rgba(0,0,0,.6)';
+      ctx.lineWidth = 5;
+      ctx.beginPath(); ctx.arc(p.x, p.y, 24, 0, Math.PI * 2); ctx.stroke();
+      ctx.strokeStyle = full ? (Math.floor(now / 90) % 2 ? '#ffffff' : '#fff59d') : '#ffd54f';
+      ctx.lineWidth = full ? 4 : 3;
+      ctx.beginPath(); ctx.arc(p.x, p.y, 24, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * cg); ctx.stroke();
+      ctx.restore();
+    }
 
     // 기사 방패 준비 표시
     if (p.al && p.sh) {
@@ -569,7 +597,7 @@ export function createRenderer(canvas) {
     const E = ELEMENTS[el];
     const lines = [
       `${TIER_NAME[W.tier]} · ${W.kind === 'ranged' ? '원거리' : '근접'}${W.evo ? ' · 진화 가능' : ''}`,
-      `피해 ${i.dmg}${i.shots > 1 ? ` x${i.shots}` : ''} · 초당 ${i.aps}회 · 치명 ${i.crit}% (x${i.critX})`,
+      `피해 ${i.dmg}${i.shots > 1 ? ` x${i.shots}` : ''} · ${i.charge ? `차징 ${i.charge}초 (최대 x1.6)` : `초당 ${i.aps}회`} · 치명 ${i.crit}% (x${i.critX})`,
       `${W.kind === 'ranged' ? `명중 ${i.acc}% · ` : ''}사거리 ${i.range}${i.pierce ? ` · 관통 ${i.pierce}` : ''}${i.blast ? ' · 폭발' : ''}${i.falloff ? ' · 가까울수록 강함' : ''}`,
       `마나 ${i.mana ? `${i.mana}/발` : '없음'}${E ? ` · ${E.name} 속성 Lv${lv || 1}` : ''}`,
     ];
@@ -1235,7 +1263,7 @@ export function createRenderer(canvas) {
         const W = WEAPONS[cur.k];
         const extra = W.falloff ? ' · 거리 비례 150%→50%' : '';
         ctx.fillStyle = '#ffe0b2';
-        ctx.fillText(`피해 ${w.d} · 초당 ${w.a}회 · 명중 ${w.h}% · 치명 ${w.c}% (x${w.x})${w.m ? ` · 마나 ${w.m}` : ''}${extra}`, VIEW_W - 14, y0 - 12);
+        ctx.fillText(`피해 ${w.d}${w.ch ? ` (차징 최대 x1.6) · 차징 ${w.ch}초` : ` · 초당 ${w.a}회`} · 명중 ${w.h}% · 치명 ${w.c}% (x${w.x})${w.m ? ` · 마나 ${w.m}` : ''}${extra}`, VIEW_W - 14, y0 - 12);
       }
     }
     slots.forEach((s, i) => {
