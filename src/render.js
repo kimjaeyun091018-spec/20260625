@@ -1510,12 +1510,12 @@ export function createRenderer(canvas) {
       ctx.fillRect(st.x - 20, st.y + 6, 40, 4);
       if (sprites.ready) {
         ctx.save();
-        ctx.globalAlpha = taken.length ? 0.5 : ownedChars.includes(st.key) ? 1 : 0.55;
+        ctx.globalAlpha = ownedChars.includes(st.key) ? 1 : 0.55;
         drawPlayerFrame(tintedPlayer(C.color, 'base', st.key), Math.floor(now / 300) % 4, st.x, st.y - 8, false, false);
         ctx.restore();
       }
       const own = ownedChars.includes(st.key);
-      label(own ? C.name : `🔒 ${C.name} ◆${C.price}`, st.x, st.y + 30, taken.length || !own ? '#9e9e9e' : C.color, 11);
+      label(own ? C.name : `🔒 ${C.name} ◆${C.price}`, st.x, st.y + 30, !own ? '#9e9e9e' : C.color, 11);
       taken.forEach((p, i) => circle(st.x + 22 + i * 9, st.y - 18, 4, p.c));
       if (near(st, 50)) nearStatue = st;
     }

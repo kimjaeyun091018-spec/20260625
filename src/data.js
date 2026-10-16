@@ -115,15 +115,13 @@ export const DROP_ELEMENT_CHANCE = 0.5;
 // ---------- 캐릭터 (로비 동상에서 고름) ----------
 export const CHARACTERS = {
   knight: { name: '기사', price: 0, hp: 7, mana: 90, color: '#90a4ae', passive: '방패', desc: '4초마다 적 탄환 1발을 막는 보호막' },
-  ranger: { name: '레인저', price: 800, hp: 5, mana: 110, color: '#81c784', passive: '날렵함', desc: '이동 속도 +15%, 대시 쿨타임 -30%' },
-  mage: { name: '마법사', price: 1500, design: 'mage', hp: 4, mana: 170, color: '#9575cd', passive: '마력 증폭', desc: '장착 스킬 피해 +40%, 마나 구슬 +50%' },
-  berserker: { name: '광전사', price: 1200, hp: 9, mana: 60, color: '#e57373', passive: '분노', desc: '잃은 체력 1칸마다 피해 +8%' },
-  rogue: { name: '도적', price: 1000, hp: 5, mana: 90, color: '#ffd54f', passive: '급소 찌르기', desc: '치명타율 +15%, 치명타 피해 +50%' },
-  alchemist: { name: '연금술사', price: 1800, hp: 6, mana: 120, color: '#4db6ac', passive: '촉매', desc: '원소 반응 피해 +60%, 반응을 일으키면 마나 +3' },
+  ranger: { name: '레인저', price: 4000, hp: 5, mana: 110, color: '#81c784', passive: '날렵함', desc: '이동 속도 +15%, 대시 쿨타임 -30%' },
+  mage: { name: '마법사', price: 7500, design: 'mage', hp: 4, mana: 170, color: '#9575cd', passive: '마력 증폭', desc: '장착 스킬 피해 +40%, 마나 구슬 +50%' },
+  berserker: { name: '광전사', price: 6000, hp: 9, mana: 60, color: '#e57373', passive: '분노', desc: '잃은 체력 1칸마다 피해 +8%' },
+  rogue: { name: '도적', price: 5000, hp: 5, mana: 90, color: '#ffd54f', passive: '급소 찌르기', desc: '치명타율 +15%, 치명타 피해 +50%' },
+  alchemist: { name: '연금술사', price: 9000, hp: 6, mana: 120, color: '#4db6ac', passive: '촉매', desc: '원소 반응 피해 +60%, 반응을 일으키면 마나 +3' },
 };
 export const CHARACTER_KEYS = Object.keys(CHARACTERS);
-// 같은 캐릭터를 고를 수 있는 최대 인원: 2인 이하 1명, 3~4인 2명
-export const sameCharLimit = (playerCount) => (playerCount <= 2 ? 1 : 2);
 
 // ---------- 적 ----------
 // gold: 떨어뜨리는 동전 · mp: 떨어뜨리는 마나 구슬 · from: 처음 나오는 스테이지(0부터)
@@ -179,9 +177,9 @@ export const CASTLE = {
 export const UNITS = {
   knight: { name: '기사', design: 'knight', cost: 12, hp: 10, dmg: 1.5, cd: 0.8, range: 26, speed: 95, r: 10, body: '#c62828', eye: '#ffffff', weapon: 'sword', unlock: 0, desc: '단단한 근접 유닛' },
   archer: { name: '궁수', design: 'ranger', cost: 14, hp: 5, dmg: 1.3, cd: 1.0, range: 230, speed: 90, r: 9, body: '#2e7d32', eye: '#c5e1a5', weapon: 'bow', unlock: 0, desc: '멀리서 화살' },
-  scout: { name: '스카웃', design: 'scout', cost: 8, hp: 5, dmg: 1, cd: 0.45, range: 22, speed: 150, r: 9, body: '#6d4c41', eye: '#ffe0b2', weapon: 'twinblades', unlock: 60, desc: '싸고 빠른 쌍검' },
-  mage: { name: '마법사', design: 'mage', cost: 22, hp: 5, dmg: 2.2, cd: 1.6, range: 200, splash: 55, speed: 85, r: 9, body: '#4527a0', eye: '#fff59d', weapon: 'staff', unlock: 120, desc: '범위 마법탄' },
-  priest: { name: '성직자', design: 'priest', cost: 20, hp: 6, dmg: 0, heal: 1, cd: 2.4, range: 170, speed: 85, r: 9, body: '#eceff1', eye: '#ffd54f', weapon: 'mace', unlock: 150, desc: '아군·플레이어·성 회복' },
+  scout: { name: '스카웃', design: 'scout', cost: 8, hp: 5, dmg: 1, cd: 0.45, range: 22, speed: 150, r: 9, body: '#6d4c41', eye: '#ffe0b2', weapon: 'twinblades', unlock: 0, treasure: 'u_scout', desc: '싸고 빠른 쌍검' },
+  mage: { name: '마법사', design: 'mage', cost: 22, hp: 5, dmg: 2.2, cd: 1.6, range: 200, splash: 55, speed: 85, r: 9, body: '#4527a0', eye: '#fff59d', weapon: 'staff', unlock: 0, treasure: 'u_mage', desc: '범위 마법탄' },
+  priest: { name: '성직자', design: 'priest', cost: 20, hp: 6, dmg: 0, heal: 1, cd: 2.4, range: 170, speed: 85, r: 9, body: '#eceff1', eye: '#ffd54f', weapon: 'mace', unlock: 0, treasure: 'u_priest', desc: '아군·플레이어·성 회복' },
   giant: { name: '거인', design: 'giant', cost: 45, hp: 45, dmg: 4, cd: 1.5, range: 34, speed: 60, r: 18, body: '#5d4037', eye: '#ff8a65', weapon: 'hammer', unlock: 0, crown: true, desc: '느리지만 엄청 튼튼 (왕관 노드로 해금)' },
 };
 export const UNIT_KEYS = Object.keys(UNITS);
@@ -193,7 +191,7 @@ export const ARMY_CAP = 12;                           // 플레이어 한 명이
 
 // ---------- 전리품 (성 지키기 상자에서 얻는 영구 재화) → 로비 보급관에서 사용 ----------
 export const SPOILS = {
-  chest: 3, eliteChest: 5, victory: 8,   // 상자 하나에 플레이어마다 ✪3, 정예 상자 ✪5, 승리 ✪8
+  chest: 4, eliteChest: 6, victory: 10,  // 상자 하나에 플레이어마다 ✪4, 정예 상자 ✪6, 승리 ✪10
 };
 // 다음 모험에 가져갈 보급품 (한 번 쓰면 사라짐) + 교환
 export const SUPPLIES = {
@@ -325,29 +323,52 @@ export const SKINS = {
   kn_base: { char: 'knight', name: '기본', price: 0, eye: '#ffffff' },
   kn_royal: { char: 'knight', name: '왕실 근위대', price: 80, body: '#3a1d6e', eye: '#ffd54f' },
   kn_gold: { char: 'knight', name: '황금 기사', price: 200, body: '#a67c00', eye: '#fff8e1' },
-  kn_dark: { char: 'knight', name: '다크나이트', price: 300, eye: '#ff5252', design: 'darkknight' },
+  kn_dark: { char: 'knight', name: '다크나이트', price: 0, treasure: true, eye: '#ff5252', design: 'darkknight' },
   ra_base: { char: 'ranger', name: '기본', price: 0, eye: '#ffffff' },
   ra_forest: { char: 'ranger', name: '숲지기', price: 80, body: '#1b5e20', eye: '#c5e1a5' },
   ra_frost: { char: 'ranger', name: '서리 사냥꾼', price: 120, body: '#0d3b66', eye: '#b2ebf2' },
-  ra_scout: { char: 'ranger', name: '정찰대장', price: 250, eye: '#ffe0b2', design: 'scout' },
+  ra_scout: { char: 'ranger', name: '정찰대장', price: 0, treasure: true, eye: '#ffe0b2', design: 'scout' },
   ma_base: { char: 'mage', name: '기본', price: 0, eye: '#ffffff' },
   ma_ember: { char: 'mage', name: '잿불 술사', price: 100, body: '#7f1d1d', eye: '#ffcc80' },
   ma_ghost: { char: 'mage', name: '유령 마도사', price: 180, body: '#cfd8dc', eye: '#263238' },
-  ma_wizard: { char: 'mage', name: '대마법사', price: 250, eye: '#fff59d', design: 'wizard' },
+  ma_wizard: { char: 'mage', name: '대마법사', price: 0, treasure: true, eye: '#fff59d', design: 'wizard' },
   be_base: { char: 'berserker', name: '기본', price: 0, eye: '#ffffff' },
   be_blood: { char: 'berserker', name: '피의 투사', price: 100, body: '#8e0000', eye: '#ff8a80' },
   be_north: { char: 'berserker', name: '북방 전사', price: 150, body: '#37474f', eye: '#80deea' },
-  be_giant: { char: 'berserker', name: '거인 혈통', price: 300, eye: '#ff8a65', design: 'giant' },
+  be_giant: { char: 'berserker', name: '거인 혈통', price: 0, treasure: true, eye: '#ff8a65', design: 'giant' },
   ro_base: { char: 'rogue', name: '기본', price: 0, eye: '#ffffff' },
   ro_night: { char: 'rogue', name: '밤그림자', price: 100, body: '#212121', eye: '#ef5350' },
   ro_gold: { char: 'rogue', name: '황금 도둑', price: 200, body: '#a67c00', eye: '#fff8e1' },
-  ro_samurai: { char: 'rogue', name: '사무라이', price: 300, eye: '#ffffff', design: 'samurai' },
+  ro_samurai: { char: 'rogue', name: '사무라이', price: 0, treasure: true, eye: '#ffffff', design: 'samurai' },
   al_base: { char: 'alchemist', name: '기본', price: 0, eye: '#ffffff' },
   al_toxic: { char: 'alchemist', name: '독안개', price: 100, body: '#33691e', eye: '#ccff90' },
   al_ghost: { char: 'alchemist', name: '유령 조제사', price: 150, body: '#cfd8dc', eye: '#4a148c' },
-  al_priest: { char: 'alchemist', name: '성스러운 조제사', price: 250, eye: '#ffd54f', design: 'priest' },
+  al_priest: { char: 'alchemist', name: '성스러운 조제사', price: 0, treasure: true, eye: '#ffd54f', design: 'priest' },
 };
 export const SKIN_KEYS = Object.keys(SKINS);
+
+// ---------- 모험 보물 ----------
+// 모험 모드에서만 나오는 해금: 보스를 잡으면 모두 1개씩, 일반 상자는 가끔(15%).
+// 성 지키기 군단 유닛·성 지키기 강화·장비 스킨이 여기서만 나와서 모험 모드는 꼭 해야 하는 모드예요.
+// 이미 다 가졌으면 정수로 바꿔 줌.
+export const TREASURES = {
+  u_scout: { kind: 'unit', unit: 'scout', name: '스카웃 입대 문서', desc: '성 지키기 군단에 스카웃 합류' },
+  u_mage: { kind: 'unit', unit: 'mage', name: '마법사 입대 문서', desc: '성 지키기 군단에 마법사 합류' },
+  u_priest: { kind: 'unit', unit: 'priest', name: '성직자 입대 문서', desc: '성 지키기 군단에 성직자 합류' },
+  b_fence: { kind: 'castle', name: '강철 울타리 설계도', desc: '내가 지은 울타리 체력 10 → 20' },
+  b_turret: { kind: 'castle', name: '연발 터렛 설계도', desc: '내가 지은 터렛 공격 간격 0.45 → 0.3초' },
+  b_wall: { kind: 'castle', name: '성벽 문장', desc: '성 지키기 시작할 때 성 체력 +30' },
+  k_dark: { kind: 'skin', skin: 'kn_dark', name: '다크나이트 갑옷', desc: '기사 장비 스킨' },
+  k_scout: { kind: 'skin', skin: 'ra_scout', name: '정찰대장 망토', desc: '레인저 장비 스킨' },
+  k_wizard: { kind: 'skin', skin: 'ma_wizard', name: '대마법사 로브', desc: '마법사 장비 스킨' },
+  k_giant: { kind: 'skin', skin: 'be_giant', name: '거인 혈통 투구', desc: '광전사 장비 스킨' },
+  k_samurai: { kind: 'skin', skin: 'ro_samurai', name: '사무라이 갑주', desc: '도적 장비 스킨' },
+  k_priest: { kind: 'skin', skin: 'al_priest', name: '성스러운 조제사 법의', desc: '연금술사 장비 스킨' },
+};
+export const TREASURE_KEYS = Object.keys(TREASURES);
+export const TREASURE_DUP_ESSENCE = 80;   // 보물을 다 모았으면 대신 정수
+export const TREASURE_CHEST_CHANCE = 0.15;
+export const ESSENCE_MUL = 1.3;           // 모험·성 지키기에서 얻는 정수 +30%
 export const skinsFor = (ch) => SKIN_KEYS.filter((k) => SKINS[k].char === ch);
 export const baseSkin = (ch) => skinsFor(ch).find((k) => SKINS[k].price === 0) || 'kn_base';
 // 예전(모든 캐릭터 공용) 스킨 → 정수로 돌려줌

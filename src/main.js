@@ -5,7 +5,7 @@ import {
 import { packMap, unpackMap } from './maps.js';
 import { makeRoomCode, hostRoom, joinRoom, describeError } from './net.js';
 import { createRenderer, weaponIconHtml, tintedPlayer, designOf } from './render.js';
-import { SKINS, baseSkin } from './data.js';
+import { SKINS, baseSkin, TREASURES } from './data.js';
 import { loadSave, writeSave, currentBuild, setSaveAccount, NODE, onSaveWrite, hasLocalSave } from './tree.js';
 import { createTreeUI } from './treeui.js';
 import { settings, createSettingsUI, createWardrobeUI, createAccountUI, createArmyUI, createSupplyUI, createCharShopUI, showReveal, currentAccount, accountInfo, registerGoogleAccount } from './panels.js';
@@ -109,7 +109,7 @@ const anyOverlay = () => overlays.some((o) => o.isOpen());
 function updateAccountLabel() {
   const info = accountInfo(currentAccount());
   ui.accountLabel.textContent = !info ? '게스트' : info.google ? `${info.name} (구글)` : `${info.name} 계정`;
-  ui.account.textContent = info ? '계정 · 저장' : '로그인 / 회원가입';
+  ui.account.textContent = info ? '계정 · 저장' : '구글 로그인';
 }
 
 // ---------- 구글 계정 + 클라우드 저장 ----------
@@ -207,13 +207,32 @@ function sendBuild() {
 }
 
 // 이번 판에 번 정수·왕관을 저장 (판이 끝났을 때, 또는 중간에 나갈 때 한 번만)
-function bankEssence(rid, amount, crowns = 0, spoils = 0) {
-  if (!session || session.banked.has(rid) || !(amount > 0 || crowns > 0 || spoils > 0)) return;
+function bankEssence(rid, amount, crowns = 0, spoils = 0, treasures = 0) {
+  const tr = Array.isArray(treasures) ? treasures.filter((k) => TREASURES[k] && !save.treasures.includes(k)) : [];
+  if (!session || session.banked.has(rid) || !(amount > 0 || crowns > 0 || spoils > 0 || tr.length)) return;
   session.banked.add(rid);
   save.essence += Math.floor(amount || 0);
   save.crowns = (save.crowns || 0) + Math.floor(crowns || 0);
   save.spoils = (save.spoils || 0) + Math.floor(spoils || 0);
+  // 모험 보물: 유닛은 병영에 합류, 장비 스킨은 옷장에, 성 지키기 강화는 바로 적용
+  for (const k of tr) {
+    const t = TREASURES[k];
+    save.treasures.push(k);
+    if (t.kind === 'unit' && !save.army.unlocked.includes(t.unit)) save.army.unlocked.push(t.unit);
+    if (t.kind === 'skin' && !save.skins.includes(t.skin)) save.skins.push(t.skin);
+  }
   writeSave(save);
+  if (tr.length) { sendBuild(); showTreasures(tr); }
+}
+// 얻은 보물을 하나씩 크게 보여 줌
+function treasureImage(k) {
+  const t = TREASURES[k];
+  if (t.kind === 'skin') return skinPreview(t.skin);
+  if (t.kind === 'unit') return unitPreview(t.unit);
+  return { b_fence: 'assets/fence.png', b_turret: 'assets/turret.png', b_wall: 'assets/castle.png' }[k] || '';
+}
+function showTreasures(list) {
+  list.forEach((k, i) => setTimeout(() => showReveal(treasureImage(k), TREASURES[k].name, `모험 보물 · ${TREASURES[k].desc}`), 400 + i * 2800));
 }
 
 function buildSummary() {
@@ -460,7 +479,7 @@ function leave(reason = '') {
   if (!session) return;
   // 게임 도중 나가도 그때까지 번 정수는 저장
   const snap = session.lastSnap;
-  if (snap && snap.ph !== 'lobby' && session.lastMe) bankEssence(snap.rid, session.lastMe.es, session.lastMe.cw, session.lastMe.sp);
+  if (snap && snap.ph !== 'lobby' && session.lastMe) bankEssence(snap.rid, session.lastMe.es, session.lastMe.cw, session.lastMe.sp, session.lastMe.tr);
   session.net?.close();
   session = null;
   overlays.forEach((o) => o.close());
@@ -543,7 +562,7 @@ async function startClient() {
 
 window.addEventListener('pagehide', () => {
   const snap = session?.lastSnap;
-  if (snap && snap.ph !== 'lobby' && session.lastMe) bankEssence(snap.rid, session.lastMe.es, session.lastMe.cw, session.lastMe.sp);
+  if (snap && snap.ph !== 'lobby' && session.lastMe) bankEssence(snap.rid, session.lastMe.es, session.lastMe.cw, session.lastMe.sp, session.lastMe.tr);
   session?.net?.close();
 });
 ui.solo.addEventListener('click', () => startHost(true));
@@ -610,7 +629,7 @@ function afterRender(snap, map, myId) {
   if (me) session.lastMe = me;
   if (session.lastPhase !== snap.ph && snap.ph === 'lobby') { tree.refresh(); sendBuild(); }
   session.lastPhase = snap.ph;
-  if (snap.ph === 'over' && me) bankEssence(snap.rid, me.es, me.cw, me.sp);
+  if (snap.ph === 'over' && me) bankEssence(snap.rid, me.es, me.cw, me.sp, me.tr);
   // 모험을 시작하면 가져간 보급품은 사라짐
   if (snap.ph === 'playing' && snap.md === 'adv' && session.suppliesRid !== snap.rid) {
     session.suppliesRid = snap.rid;
@@ -723,7 +742,7 @@ function clientFrame(s, now) {
       return {
         ...p, of: q.of, oq: q.oq, at: q.at, rw: q.rw, rwd: q.rwd, ev: q.ev, evd: q.evd, cr: q.cr, xp: q.xp, lv: q.lv, xn: q.xn,
         ws: q.ws, sl: q.sl, sw: q.sw, ld: q.ld, cs: q.cs, es: q.es, mp: q.mp, mm: q.mm, wst: q.wst, sk: q.sk, co: q.co, sh: q.sh, cb: q.cb,
-        sp: q.sp, rv: q.rv, pp: q.pp, cw: q.cw, gd: q.gd, uc: q.uc, ucap: q.ucap, ar: q.ar,
+        sp: q.sp, tr: q.tr, rv: q.rv, pp: q.pp, cw: q.cw, gd: q.gd, uc: q.uc, ucap: q.ucap, ar: q.ar,
       };
     }),
   };

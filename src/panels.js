@@ -1,5 +1,5 @@
 // 설정 · 옷장(스킨) · 계정(로그인, 저장 코드) 화면
-import { SKINS, skinsFor, CHARACTERS, CHARACTER_KEYS, UNITS, UNIT_KEYS, ARMY_SLOTS, UNIT_MAX_LV, unitLevelCost, unitScale, SUPPLIES, SPOIL_TO_ESSENCE } from './data.js';
+import { SKINS, skinsFor, CHARACTERS, CHARACTER_KEYS, TREASURES, UNITS, UNIT_KEYS, ARMY_SLOTS, UNIT_MAX_LV, unitLevelCost, unitScale, SUPPLIES, SPOIL_TO_ESSENCE } from './data.js';
 import { exportSaveCode, importSaveCode } from './tree.js';
 
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -65,7 +65,8 @@ export function createWardrobeUI(root, { getSave, onChange, preview, currentChar
         ? '<span class="owned">착용 중</span>'
         : owned
           ? `<button data-skin="${k}" data-do="wear" ${ownChar ? '' : 'disabled'}>착용</button>`
-          : `<button data-skin="${k}" data-do="buy" ${save.essence < sk.price || !ownChar ? 'disabled' : ''}>구매 ◆${sk.price}</button>`;
+          : sk.treasure ? '<small class="hint">🗺 모험 보스 보물로만 얻어요</small>'
+            : `<button data-skin="${k}" data-do="buy" ${save.essence < sk.price || !ownChar ? 'disabled' : ''}>구매 ◆${sk.price}</button>`;
       return `<div class="skin${on ? ' on' : ''}"><img src="${preview(k)}" alt="" width="64" height="64"><b>${esc(sk.name)}</b>${sk.design ? '<small class="hint">장비 스킨 · 모습이 바뀜</small>' : ''}${btn}</div>`;
     }).join('');
     root.innerHTML = `
@@ -150,22 +151,11 @@ export function createCharShopUI(root, { getSave, onChange, preview, onBought })
 }
 
 // ---------------------------------------------------------------- 계정
-// 이 브라우저 안에서만 쓰는 계정입니다. 비밀번호는 SHA-256으로 바꿔서 저장합니다.
-// 다른 기기로 옮길 때는 '저장 코드'를 씁니다. (기기끼리 자동 동기화는 서버가 있어야 해요)
+// 로그인은 구글 계정 또는 게스트. (예전에 만든 기기 안 아이디 계정은 그대로 쓸 수 있지만 새로 만들 수는 없어요)
+// 다른 기기로 옮길 때는 구글 로그인 또는 '저장 코드'.
 const ACCOUNTS_KEY = 'sk-accounts';
 const CURRENT_KEY = 'sk-current-account';
 
-async function hashPw(salt, pw) {
-  const data = new TextEncoder().encode(`${salt}:${pw}`);
-  if (crypto?.subtle) {
-    const buf = await crypto.subtle.digest('SHA-256', data);
-    return [...new Uint8Array(buf)].map((x) => x.toString(16).padStart(2, '0')).join('');
-  }
-  // 보안 연결(https)이 아닐 때만 쓰는 간단한 대체 해시
-  let h = 2166136261;
-  for (const b of data) h = Math.imul(h ^ b, 16777619);
-  return `f${(h >>> 0).toString(16)}`;
-}
 
 export function currentAccount() {
   const id = safeGet(CURRENT_KEY, null);
@@ -187,7 +177,6 @@ export function registerGoogleAccount(id, uid, profile) {
 const GOOGLE_G = '<svg viewBox="0 0 48 48" width="18" height="18" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9.1 3.6l6.8-6.8C35.8 2.4 30.3 0 24 0 14.6 0 6.6 5.4 2.7 13.3l7.9 6.1C12.5 13.6 17.8 9.5 24 9.5z"/><path fill="#4285F4" d="M46.5 24.5c0-1.6-.1-3.1-.4-4.5H24v9h12.7c-.6 3-2.3 5.5-4.8 7.2l7.7 6c4.5-4.2 6.9-10.3 6.9-17.7z"/><path fill="#FBBC05" d="M10.5 28.6A14.5 14.5 0 0 1 9.5 24c0-1.6.3-3.2.8-4.6l-7.9-6.1A24 24 0 0 0 0 24c0 3.9.9 7.5 2.6 10.7l7.9-6.1z"/><path fill="#34A853" d="M24 48c6.5 0 11.9-2.1 15.9-5.8l-7.7-6c-2.1 1.4-4.9 2.3-8.2 2.3-6.2 0-11.5-4.2-13.4-9.8l-7.9 6.1C6.6 42.6 14.6 48 24 48z"/></svg>';
 
 export function createAccountUI(root, { getSave, onLogin, onImport, onGoogle, onSync, cloudStatus, preload }) {
-  let mode = 'login';
   let msg = '';
   let code = '';
   let busy = false;
@@ -232,41 +221,15 @@ export function createAccountUI(root, { getSave, onLogin, onImport, onGoogle, on
       return;
     }
     root.innerHTML = `
-      <h2>${mode === 'login' ? '로그인' : '회원가입'}</h2>
+      <h2>로그인</h2>
       ${googleBox()}
-      <p class="or">또는 이 기기에서만 쓰는 계정</p>
-      <form class="login">
-        <input id="accId" maxlength="16" placeholder="아이디" autocomplete="username" required>
-        <input id="accPw" type="password" maxlength="32" placeholder="비밀번호 (4자 이상)" autocomplete="${mode === 'login' ? 'current-password' : 'new-password'}" required>
-        <button type="submit">${mode === 'login' ? '로그인' : '가입하기'}</button>
-      </form>
-      <p class="help"><a href="#" data-do="switch">${mode === 'login' ? '계정이 없나요? 회원가입' : '이미 계정이 있나요? 로그인'}</a></p>
+      <p class="or">또는</p>
+      <button data-close class="guest">게스트로 계속하기</button>
+      <p class="help">게스트는 이 브라우저에만 저장돼요. 나중에 구글로 로그인하면 게스트 진행을 그대로 옮길 수 있어요.</p>
       <p class="tmsg" role="status">${esc(msg)}</p>
-      ${codeBox()}
-      <button data-close>닫기 (게스트로 계속)</button>`;
+      ${codeBox()}`;
   }
 
-  root.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const id = root.querySelector('#accId').value.trim();
-    const pw = root.querySelector('#accPw').value;
-    if (!/^[\w가-힣]{2,16}$/.test(id)) { msg = '아이디는 2~16자 (한글·영문·숫자·_)'; draw(); return; }
-    if (pw.length < 4) { msg = '비밀번호는 4자 이상이에요'; draw(); return; }
-    const accounts = safeGet(ACCOUNTS_KEY, {});
-    if (mode === 'register') {
-      if (accounts[id]) { msg = '이미 있는 아이디예요'; draw(); return; }
-      const salt = Math.random().toString(36).slice(2, 10);
-      accounts[id] = { salt, hash: await hashPw(salt, pw) };
-      safeSet(ACCOUNTS_KEY, accounts);
-    } else {
-      const a = accounts[id];
-      if (!a || a.hash !== await hashPw(a.salt, pw)) { msg = '아이디 또는 비밀번호가 맞지 않아요'; draw(); return; }
-    }
-    safeSet(CURRENT_KEY, id);
-    msg = '';
-    onLogin(id);
-    draw();
-  });
 
   root.addEventListener('click', (e) => {
     if (e.target.closest('[data-close]')) { api.close(); return; }
@@ -286,8 +249,7 @@ export function createAccountUI(root, { getSave, onLogin, onImport, onGoogle, on
       onSync().then((m) => { msg = m; }).catch((err) => { msg = err.message; }).finally(draw);
       return;
     }
-    if (b.dataset.do === 'switch') { mode = mode === 'login' ? 'register' : 'login'; msg = ''; }
-    else if (b.dataset.do === 'logout') { safeSet(CURRENT_KEY, null); code = ''; onLogin(null); }
+    if (b.dataset.do === 'logout') { safeSet(CURRENT_KEY, null); code = ''; onLogin(null); }
     else if (b.dataset.do === 'export') {
       code = exportSaveCode(getSave());
       msg = '저장 코드를 만들었어요. 복사해서 다른 기기에 붙여 넣으세요.';
@@ -335,7 +297,9 @@ export function createArmyUI(root, { getSave, onChange, preview }) {
       const sel = A.sel.indexOf(k);
       let btn;
       if (!own) {
+        const tk = U.treasure;
         btn = U.crown ? '<small class="hint">스킬 트리 왕관 노드 「거인의 맹약」</small>'
+          : tk ? `<small class="hint">🗺 모험 보물 「${esc(TREASURES[tk].name)}」로 합류</small>`
           : `<button data-army="unlock" data-k="${k}" ${save.essence < U.unlock ? 'disabled' : ''}>해금 ◆${U.unlock}</button>`;
       } else {
         btn = `<button data-army="sel" data-k="${k}" class="${sel >= 0 ? 'on' : ''}">${sel >= 0 ? `${4 + sel}번 키 ✔` : '데려가기'}</button>

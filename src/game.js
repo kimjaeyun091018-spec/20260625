@@ -6,9 +6,9 @@
 
 import {
   TILE, MAX_PLAYERS, WEAPONS, START_WEAPON, weaponFam, SKILLS, WEAPON_SLOTS, SWAP_COOLDOWN, RESONANCE, COMBO_EVERY,
-  DROP_TIERS, DROP_ELEMENT_CHANCE, CHARACTERS, CHARACTER_KEYS, sameCharLimit, ENEMY_TYPES, STRUCTS, BUFFS,
+  DROP_TIERS, DROP_ELEMENT_CHANCE, CHARACTERS, CHARACTER_KEYS, ENEMY_TYPES, STRUCTS, BUFFS,
   ELEMENTS, ELEMENT_MAX, ELEMENT_MAX_BONUS, MAX_AUGMENT_TYPES, STAGE_REWARDS, STAGES_PER_WORLD, WORLDS, ESSENCE,
-  BOSSES, SHOP, SURVIVAL, CASTLE, UNITS, ARMY_CAP, unitScale, guildPerks, SPOILS, SUPPLIES, TRAPS, stageLabel, xpToNext, enemyScale, MANA, activeManaCost, SKINS, baseSkin,
+  BOSSES, SHOP, SURVIVAL, CASTLE, UNITS, ARMY_CAP, unitScale, guildPerks, SPOILS, SUPPLIES, TRAPS, stageLabel, xpToNext, enemyScale, MANA, activeManaCost, SKINS, baseSkin, TREASURES, TREASURE_KEYS, TREASURE_DUP_ESSENCE, TREASURE_CHEST_CHANCE, ESSENCE_MUL,
 } from './data.js';
 import { buildCampMap, buildLobbyMap, generateDungeon, tileCenter } from './maps.js';
 import { ACTIVES, PERKS, NODE, LOADOUT_SIZE, sanitizeBuild, buildBonus } from './tree.js';
@@ -246,7 +246,7 @@ function usedColor(state, color) {
 function freshRunStats(p) {
   const C = charOf(p);
   Object.assign(p, {
-    hp: C.hp, maxHp: C.hp, alive: true, score: 0, invuln: 1.5,
+    hp: C.hp, maxHp: C.hp, alive: true, score: 0, invuln: 1.5, trRun: [],
     fireCd: 0, dashCd: 0, dashT: 0, healT: 0, moving: false, es: 0, coins: 0,
     buffs: {}, augTypes: [], offer: null, offerQueue: 0, element: null, elementLv: 0,
     level: 1, xp: 0, ready: false, reward: null, rewardDone: false, evo: null, evoDone: true, rewardsTaken: [],
@@ -309,9 +309,7 @@ export function setBuild(state, id, build) {
   p.build = sanitizeBuild(build);
   // 산 캐릭터가 아니면 산 캐릭터 중 하나로 (로비에서만)
   if (state.phase === 'lobby' && !ownsChar(p, p.char)) {
-    const limit = sameCharLimit(Object.keys(state.players).length);
-    const k = p.build.chars.find((c) => charCount(state, c, p.id) < limit);
-    if (k) p.char = k;
+    p.char = p.build.chars[0] || 'knight';
   }
   p.skin = skinFor(p); // 로비에서도 스킨이 바로 보이도록
   // 로비에서는 속성·장착 스킬을 바로 시험해 볼 수 있게 적용
@@ -349,13 +347,8 @@ function placeAtSpawn(state, p, index) {
   p.y = s.y + offs[1];
 }
 
-function charCount(state, key, exceptId) {
-  return Object.values(state.players).filter((p) => p.char === key && p.id !== exceptId).length;
-}
-
-function pickFreeChar(state) {
-  const limit = sameCharLimit(Object.keys(state.players).length + 1);
-  return CHARACTER_KEYS.find((k) => charCount(state, k) < limit) || 'knight';
+function pickFreeChar() {
+  return 'knight'; // 모두 기사로 시작 (같은 캐릭터 여러 명 가능)
 }
 
 function stats(p) {
@@ -430,7 +423,23 @@ function revive(state, p, hpRatio, near) {
 }
 
 function giveEssence(state, amount) {
-  for (const p of Object.values(state.players)) p.es += amount * p.bonus.essMul;
+  for (const p of Object.values(state.players)) p.es += amount * ESSENCE_MUL * p.bonus.essMul;
+}
+
+// ---------- 모험 보물 ----------
+const ownsTreasure = (p, k) => !!p.build?.tr?.includes(k);
+function giveTreasure(state, p) {
+  if (!p.trRun) p.trRun = [];
+  const pool = TREASURE_KEYS.filter((k) => !ownsTreasure(p, k) && !p.trRun.includes(k));
+  if (!pool.length) {
+    p.es += TREASURE_DUP_ESSENCE;
+    floatText(state, p.x, p.y - 48, `보물을 다 모았어요! ◆${TREASURE_DUP_ESSENCE}`, '#80deea', 1.8);
+    return;
+  }
+  const k = pool[Math.floor(Math.random() * pool.length)];
+  p.trRun.push(k);
+  floatText(state, p.x, p.y - 48, `보물: ${TREASURES[k].name}!`, '#ffd54f', 2.2);
+  addFx(state, { k: 'r', x: p.x, y: p.y, r: 50, c: '#ffd54f', t: 0.6, life: 0.6 });
 }
 
 // ---------- 증강 (레벨업) ----------
@@ -544,15 +553,7 @@ export function lobbyProblem(state) {
   const players = Object.values(state.players);
   const none = players.find((p) => !ownsChar(p, p.char));
   if (none) return `${none.name}: 산 캐릭터로 바꿔 주세요 (캐릭터 동상)`;
-  const limit = sameCharLimit(players.length);
-  for (const k of CHARACTER_KEYS) {
-    if (players.filter((p) => p.char === k).length > limit) {
-      return players.length <= 2
-        ? `2인 플레이에서는 같은 캐릭터(${CHARACTERS[k].name})를 고를 수 없어요.`
-        : `같은 캐릭터(${CHARACTERS[k].name})는 최대 2명까지 고를 수 있어요.`;
-    }
-  }
-  return null;
+  return null; // 같은 캐릭터를 여러 명이 골라도 됨
 }
 
 // 로비에서 E: 가까운 캐릭터 동상의 캐릭터로 바꿉니다.
@@ -563,11 +564,6 @@ function lobbyInteract(state, p) {
   if (p.char === k) return;
   if (!ownsChar(p, k)) {
     floatText(state, st.x, st.y - 30, '아직 사지 않은 캐릭터', '#ef9a9a', 1);
-    return;
-  }
-  const limit = sameCharLimit(Object.keys(state.players).length);
-  if (charCount(state, k, p.id) >= limit) {
-    floatText(state, st.x, st.y - 30, '다른 플레이어가 고른 캐릭터', '#ef9a9a', 1);
     return;
   }
   p.char = k;
@@ -655,7 +651,9 @@ function build(state, p, kind, bx, by) {
   const def = STRUCTS[kind];
   if (state.gold < def.cost || !canBuildAt(state, tx, ty)) return;
   state.gold -= def.cost;
-  state.structs.push({ id: state.nextId++, kind, tx, ty, hp: def.hp, maxHp: def.hp, cd: 0, owner: p.id });
+  const hp = def.hp + (kind === 'fence' && ownsTreasure(p, 'b_fence') ? 10 : 0); // 강철 울타리 설계도
+  const fast = kind === 'turret' && ownsTreasure(p, 'b_turret');              // 연발 터렛 설계도
+  state.structs.push({ id: state.nextId++, kind, tx, ty, hp, maxHp: hp, cd: 0, owner: p.id, fast });
   rebuildStructMap(state);
 }
 
@@ -757,6 +755,8 @@ function interact(state, p) {
     dropOrbs(state, chest.x, chest.y, 'g', chest.big ? 14 : 6, 30);
     dropOrbs(state, chest.x, chest.y, 'm', 3, 30, 10);
     floatText(state, chest.x, chest.y - 18, '무기 획득!', '#ffd54f', 1);
+    // 가끔 모험 보물 (모두에게)
+    if (!chest.big && Math.random() < TREASURE_CHEST_CHANCE) for (const q of Object.values(state.players)) giveTreasure(state, q);
     return;
   }
   const item = nearest(state.shop.filter((o) => !o.sold), p.x, p.y, INTERACT_RANGE - 10);
@@ -1976,7 +1976,7 @@ function updateTurrets(state, dt) {
     const x = tileCenter(s.tx), y = tileCenter(s.ty);
     const target = nearest(alive, x, y, T.range);
     if (!target) continue;
-    s.cd = T.fireEvery;
+    s.cd = s.fast ? 0.3 : T.fireEvery;
     const a = Math.atan2(target.y - y, target.x - x);
     s.angle = a;
     state.bullets.push({
@@ -2356,7 +2356,8 @@ function setupCastle(state) {
   const players = Object.values(state.players);
   const best = (k) => Math.max(0, ...players.map((p) => p.bb?.[k] || 0));
   const guildHp = Math.max(0, ...players.map((p) => (p.guild ? guildPerks(p.guild.lv).castleHp : 0)));
-  const maxHp = Math.round((CASTLE.hp + best('castleHp') + guildHp) * (1 + best('castlePct')));
+  const wall = players.some((p) => ownsTreasure(p, 'b_wall')) ? 30 : 0; // 성벽 문장 (모험 보물)
+  const maxHp = Math.round((CASTLE.hp + best('castleHp') + guildHp + wall) * (1 + best('castlePct')));
   state.castle = { x: m.castle.x, y: m.castle.y, r: CASTLE.r, hp: maxHp, maxHp, lv: 1, cd: 1, a: 0, arrow: 1 + best('castleArrow') };
   state.gold = CASTLE.startGold + best('startGold');
   state.units = [];
@@ -2717,7 +2718,7 @@ function clearRoom(state, room) {
   const alive = Object.values(state.players).filter((p) => p.alive);
   const boss = room.type === 'boss';
   floatText(state, alive[0]?.x ?? 0, (alive[0]?.y ?? 0) - 30, boss ? '보스 처치! 왕관 +1' : '방 클리어!', boss ? '#ffd54f' : '#a5d6a7', 1.6);
-  if (boss) for (const p of Object.values(state.players)) p.crowns += 1;
+  if (boss) for (const p of Object.values(state.players)) { p.crowns += 1; giveTreasure(state, p); }
   for (const p of Object.values(state.players)) if (!p.alive && alive[0]) revive(state, p, 0.5, alive[0]);
   for (const p of alive) if (hasPerk(p, 'tide')) heal(p, 1);
   giveEssence(state, ESSENCE.room);
@@ -2942,7 +2943,7 @@ export function snapshot(state) {
       })),
       sl: p.slot, sw: r1(p.swapCd), ut: r1(p.ultT), cb: inCombat(state) ? 1 : 0,
       jv: p.javelin ? 1 : 0, ld: p.loadout, pp: p.perkIds || [], cs: p.casts.map(r1), sgt: r2(p.swingT / SWING_TIME), sgd: p.swingDir,
-      cw: p.crowns, gd: p.guild ? [p.guild.name, p.guild.color] : 0, uc: state.units.filter((u) => u.owner === p.id).length, ucap: armyCap(p),
+      cw: p.crowns, tr: p.trRun?.length ? p.trRun : 0, gd: p.guild ? [p.guild.name, p.guild.color] : 0, uc: state.units.filter((u) => u.owner === p.id).length, ucap: armyCap(p),
       ar: (p.army?.sel || []).map((k) => [k, unitCost(p, k), p.army.lv?.[k] || 1]),
       sp: p.spoils, rv: p.alive ? 0 : Math.ceil(p.reviveT),
       mp: Math.floor(p.mana), mm: stats(p).maxMana, sk: p.skin, wst: weaponStats(p),
