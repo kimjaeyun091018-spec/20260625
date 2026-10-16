@@ -293,3 +293,10 @@ button.google:hover:not(:disabled) { background: #f3f3f3; }
 @keyframes rv-spin { to { rotate: 360deg; } }
 @keyframes rv-in { from { opacity: 0; } }
 @keyframes rv-pop { from { scale: .3; opacity: 0; } }
+
+/* 옷장 캐릭터 탭 · 캐릭터 상점 */
+.ctabs { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin: 4px 0 10px; }
+.ctabs button { border-bottom: 3px solid transparent; padding: 6px 12px; }
+.ctabs button.on { border-bottom-color: var(--c); background: #3a3360; }
+#chars .skins { grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); }
+.skin.char small { display: block; font-size: 12px; line-height: 1.35; }

@@ -1,5 +1,5 @@
 // 설정 · 옷장(스킨) · 계정(로그인, 저장 코드) 화면
-import { SKINS, UNITS, UNIT_KEYS, ARMY_SLOTS, UNIT_MAX_LV, unitLevelCost, unitScale, SUPPLIES, SPOIL_TO_ESSENCE } from './data.js';
+import { SKINS, skinsFor, CHARACTERS, CHARACTER_KEYS, UNITS, UNIT_KEYS, ARMY_SLOTS, UNIT_MAX_LV, unitLevelCost, unitScale, SUPPLIES, SPOIL_TO_ESSENCE } from './data.js';
 import { exportSaveCode, importSaveCode } from './tree.js';
 
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -49,40 +49,49 @@ export function createSettingsUI(root) {
   return api;
 }
 
-// ---------------------------------------------------------------- 옷장
-export function createWardrobeUI(root, { getSave, onChange, preview }) {
+// ---------------------------------------------------------------- 옷장 (캐릭터마다 스킨이 따로)
+export function createWardrobeUI(root, { getSave, onChange, preview, currentChar }) {
   let msg = '';
+  let tab = 'knight';
   function draw() {
     const save = getSave();
-    const cards = Object.entries(SKINS).map(([k, sk]) => {
+    const ownChar = save.chars.includes(tab);
+    const tabs = CHARACTER_KEYS.map((c) => `<button data-tab="${c}" class="${c === tab ? 'on' : ''}" style="--c:${CHARACTERS[c].color}">${save.chars.includes(c) ? '' : '🔒 '}${esc(CHARACTERS[c].name)}</button>`).join('');
+    const cards = skinsFor(tab).map((k) => {
+      const sk = SKINS[k];
       const owned = save.skins.includes(k);
-      const on = save.skin === k;
+      const on = save.skinOf[tab] === k;
       const btn = on
         ? '<span class="owned">착용 중</span>'
         : owned
-          ? `<button data-skin="${k}" data-do="wear">착용</button>`
-          : `<button data-skin="${k}" data-do="buy" ${save.essence < sk.price ? 'disabled' : ''}>구매 ◆${sk.price}</button>`;
-      return `<div class="skin${on ? ' on' : ''}"><img src="${preview(k)}" alt="" width="64" height="64"><b>${esc(sk.name)}</b>${btn}</div>`;
+          ? `<button data-skin="${k}" data-do="wear" ${ownChar ? '' : 'disabled'}>착용</button>`
+          : `<button data-skin="${k}" data-do="buy" ${save.essence < sk.price || !ownChar ? 'disabled' : ''}>구매 ◆${sk.price}</button>`;
+      return `<div class="skin${on ? ' on' : ''}"><img src="${preview(k)}" alt="" width="64" height="64"><b>${esc(sk.name)}</b>${sk.design ? '<small class="hint">장비 스킨 · 모습이 바뀜</small>' : ''}${btn}</div>`;
     }).join('');
     root.innerHTML = `
       <div class="tree-head"><h2>옷장</h2><span class="ess">◆ ${save.essence} 정수</span><button data-close class="tclose">닫기 (Esc)</button></div>
-      <p class="sub">스킨은 모습만 바뀝니다. 능력치는 그대로예요.</p>
+      <p class="sub">캐릭터마다 스킨이 따로 있어요. 스킨은 모습만 바뀌고 능력치는 그대로예요.</p>
+      <div class="ctabs">${tabs}</div>
+      ${ownChar ? '' : '<p class="help">이 캐릭터를 먼저 사야 스킨을 살 수 있어요. (로비의 캐릭터 동상)</p>'}
       <div class="skins">${cards}</div>
       <p class="tmsg">${esc(msg)}</p>`;
   }
   root.addEventListener('click', (e) => {
     if (e.target.closest('[data-close]')) { api.close(); return; }
+    const t = e.target.closest('[data-tab]');
+    if (t) { tab = t.dataset.tab; msg = ''; draw(); return; }
     const b = e.target.closest('[data-skin]');
     if (!b || b.disabled) return;
     const save = getSave();
-    const k = b.dataset.skin;
+    const k = b.dataset.skin, ch = SKINS[k].char;
+    if (!save.chars.includes(ch)) return;
     if (b.dataset.do === 'buy' && save.essence >= SKINS[k].price && !save.skins.includes(k)) {
       save.essence -= SKINS[k].price;
       save.skins.push(k);
-      save.skin = k;
-      msg = `${SKINS[k].name} 스킨을 샀어요!`;
+      save.skinOf[ch] = k;
+      msg = `${CHARACTERS[ch].name} 스킨 「${SKINS[k].name}」을 샀어요!`;
     } else if (b.dataset.do === 'wear') {
-      save.skin = k;
+      save.skinOf[ch] = k;
       msg = '';
     }
     onChange();
@@ -90,7 +99,53 @@ export function createWardrobeUI(root, { getSave, onChange, preview }) {
   });
   const api = {
     isOpen: () => !root.hidden,
-    open() { msg = ''; draw(); root.hidden = false; },
+    open() { msg = ''; const c = currentChar?.(); if (CHARACTERS[c]) tab = c; draw(); root.hidden = false; },
+    close() { root.hidden = true; },
+  };
+  return api;
+}
+
+// ---------------------------------------------------------------- 캐릭터 상점 (동상에서 E)
+// 캐릭터는 모두 정수로 삽니다. 처음 한 명은 무료.
+export function createCharShopUI(root, { getSave, onChange, preview, onBought }) {
+  let msg = '';
+  let focus = null;
+  function draw() {
+    const save = getSave();
+    const cards = CHARACTER_KEYS.map((k) => {
+      const C = CHARACTERS[k];
+      const own = save.chars.includes(k);
+      const btn = own ? '<span class="owned">보유 중</span>'
+        : save.freeChar ? `<button data-buy="${k}">무료로 받기</button>`
+          : `<button data-buy="${k}" ${save.essence < C.price ? 'disabled' : ''}>사기 ◆${C.price}</button>`;
+      return `<div class="skin char${k === focus ? ' on' : ''}" style="--c:${C.color}"><img src="${preview(k)}" alt="" width="64" height="64">
+        <b style="color:${C.color}">${esc(C.name)}</b><small>체력 ${C.hp} · 마나 ${C.mana}</small>
+        <small class="hint">${esc(C.passive)}: ${esc(C.desc)}</small>${btn}</div>`;
+    }).join('');
+    root.innerHTML = `
+      <div class="tree-head"><h2>캐릭터</h2><span class="ess">◆ ${save.essence} 정수</span><button data-close class="tclose">닫기 (Esc)</button></div>
+      <p class="sub">${save.freeChar ? '첫 캐릭터는 <b>무료</b>! 마음에 드는 캐릭터를 하나 골라 받으세요. 나머지는 정수로 살 수 있어요.' : '캐릭터는 정수로 삽니다. 산 캐릭터는 동상에서 E로 바꿀 수 있어요.'}</p>
+      <div class="skins">${cards}</div>
+      <p class="tmsg">${esc(msg)}</p>`;
+  }
+  root.addEventListener('click', (e) => {
+    if (e.target.closest('[data-close]')) { api.close(); return; }
+    const b = e.target.closest('[data-buy]');
+    if (!b || b.disabled) return;
+    const save = getSave();
+    const k = b.dataset.buy, C = CHARACTERS[k];
+    if (save.chars.includes(k)) return;
+    if (save.freeChar) save.freeChar = false;
+    else if (save.essence >= C.price) save.essence -= C.price;
+    else return;
+    save.chars.push(k);
+    onChange();
+    api.close();
+    onBought?.(k);
+  });
+  const api = {
+    isOpen: () => !root.hidden,
+    open(k = null) { msg = ''; focus = k; draw(); root.hidden = false; },
     close() { root.hidden = true; },
   };
   return api;

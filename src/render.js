@@ -59,16 +59,16 @@ const DESIGN_CLOTH = {
   knight: '#c62828', ranger: '#2e7d32', mage: '#5e35b1', berserker: '#5d4037', rogue: '#b71c1c', alchemist: '#00897b',
   scout: '#795548', priest: '#eceff1', giant: '#4e342e', darkknight: '#b71c1c', samurai: '#263238', wizard: '#283593',
 };
-// 플레이어가 보일 디자인: 장비 스킨이면 그 장비, 아니면 캐릭터
+// 플레이어가 보일 디자인: 장비 스킨이면 그 장비, 아니면 캐릭터 (스킨은 캐릭터마다 따로)
 export const designOf = (charKey, skin) => SKINS[skin]?.design || (DESIGNS.includes(charKey) ? charKey : 'knight');
 
 const tintCache = new Map();
 const shade = ([r, g, b], k) => (k > 0 ? [r + (255 - r) * k, g + (255 - g) * k, b + (255 - b) * k] : [r * (1 + k), g * (1 + k), b * (1 + k)]).map(Math.round);
 // skin: SKINS의 이름, 또는 { body, eye } 색 (군단 유닛). design: DESIGNS 중 하나
 export function tintedPlayer(color, skin = 'shadow', design = 'knight') {
-  const S = typeof skin === 'object' ? skin : SKINS[skin] || SKINS.shadow;
+  const S = typeof skin === 'object' ? skin : SKINS[skin] || { eye: '#ffffff' };
   const row = Math.max(0, DESIGNS.indexOf(design));
-  const plain = typeof skin !== 'object' && (!SKINS[skin] || skin === 'shadow' || SKINS[skin].design);
+  const plain = typeof skin !== 'object' && (!S.body || S.design);
   const cloth = plain ? DESIGN_CLOTH[DESIGNS[row]] : S.body;
   const key = `${color}|${cloth}|${S.eye}|${row}`;
   if (tintCache.has(key)) return tintCache.get(key);
@@ -789,7 +789,7 @@ export function createRenderer(canvas) {
       } else if (f.k === 'dn') {
         if (!showDamage) { ctx.restore(); continue; }
         if (f.g === 'block') {
-          ctx.font = 'bold 12px sans-serif';
+          ctx.font = 'bold 14px sans-serif';
           ctx.textAlign = 'center';
           ctx.fillStyle = '#cfd8dc';
           ctx.fillText(f.v, f.x, f.y - (1 - k) * 18);
@@ -797,8 +797,8 @@ export function createRenderer(canvas) {
           continue;
         }
         const crit = f.g === 'crit', dot = f.g === 'dot';
-        const y = f.y - (1 - k) * 22;
-        ctx.font = `bold ${crit ? 17 : dot ? 11 : 13}px sans-serif`;
+        const y = f.y - (1 - k) * 24;
+        ctx.font = `bold ${crit ? 21 : dot ? 13 : 16}px sans-serif`;
         ctx.textAlign = 'center';
         ctx.lineWidth = 3;
         ctx.strokeStyle = 'rgba(0,0,0,.8)';
@@ -1439,10 +1439,14 @@ export function createRenderer(canvas) {
   }
 
   let nearStatue = null;
+  let ownedChars = [];
+  let freeChar = false;
   // 동상 설명 말풍선 (캐릭터 위에 그림)
   function drawStatueTip(st) {
     const C = CHARACTERS[st.key];
-    const lines = [`${C.name}  ·  체력 ${C.hp}  ·  마나 ${C.mana}`, `패시브 ${C.passive}: ${C.desc}`, 'E 이 캐릭터로 바꾸기'];
+    const own = ownedChars.includes(st.key);
+    const lines = [`${C.name}  ·  체력 ${C.hp}  ·  마나 ${C.mana}`, `패시브 ${C.passive}: ${C.desc}`,
+      own ? 'E 이 캐릭터로 바꾸기' : freeChar ? 'E 무료로 받기 (첫 캐릭터)' : `E 사기  ◆${C.price}`];
     ctx.font = '12px sans-serif';
     const w = Math.max(...lines.map((t) => ctx.measureText(t).width)) + 24;
     const x = Math.max(8, st.x - w / 2), y = st.y - 112;
@@ -1477,11 +1481,12 @@ export function createRenderer(canvas) {
       ctx.fillRect(st.x - 20, st.y + 6, 40, 4);
       if (sprites.ready) {
         ctx.save();
-        ctx.globalAlpha = taken.length ? 0.5 : 1;
-        drawPlayerFrame(tintedPlayer(C.color, 'shadow', st.key), Math.floor(now / 300) % 4, st.x, st.y - 8, false, false);
+        ctx.globalAlpha = taken.length ? 0.5 : ownedChars.includes(st.key) ? 1 : 0.55;
+        drawPlayerFrame(tintedPlayer(C.color, 'base', st.key), Math.floor(now / 300) % 4, st.x, st.y - 8, false, false);
         ctx.restore();
       }
-      label(C.name, st.x, st.y + 30, taken.length ? '#9e9e9e' : C.color, 11);
+      const own = ownedChars.includes(st.key);
+      label(own ? C.name : `🔒 ${C.name} ◆${C.price}`, st.x, st.y + 30, taken.length || !own ? '#9e9e9e' : C.color, 11);
       taken.forEach((p, i) => circle(st.x + 22 + i * 9, st.y - 18, 4, p.c));
       if (near(st, 50)) nearStatue = st;
     }
@@ -1664,6 +1669,8 @@ export function createRenderer(canvas) {
   function render(snap, map, myId, mouse, extra = {}) {
     const now = performance.now();
     showDamage = extra.damageNumbers !== false;
+    ownedChars = extra.chars || [];
+    freeChar = !!extra.freeChar;
     const me = snap.p.find((p) => p.id === myId);
     const cam = cameraFor(map, me || map.spawn, extra.zoom || 1);
     ctx.fillStyle = '#0e0d18';

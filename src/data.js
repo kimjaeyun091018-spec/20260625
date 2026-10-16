@@ -114,12 +114,12 @@ export const DROP_ELEMENT_CHANCE = 0.5;
 
 // ---------- 캐릭터 (로비 동상에서 고름) ----------
 export const CHARACTERS = {
-  knight: { name: '기사', hp: 7, mana: 90, color: '#90a4ae', passive: '방패', desc: '4초마다 적 탄환 1발을 막는 보호막' },
-  ranger: { name: '레인저', hp: 5, mana: 110, color: '#81c784', passive: '날렵함', desc: '이동 속도 +15%, 대시 쿨타임 -30%' },
-  mage: { name: '마법사', design: 'mage', hp: 4, mana: 170, color: '#9575cd', passive: '마력 증폭', desc: '장착 스킬 피해 +40%, 마나 구슬 +50%' },
-  berserker: { name: '광전사', hp: 9, mana: 60, color: '#e57373', passive: '분노', desc: '잃은 체력 1칸마다 피해 +8%' },
-  rogue: { name: '도적', hp: 5, mana: 90, color: '#ffd54f', passive: '급소 찌르기', desc: '치명타율 +15%, 치명타 피해 +50%' },
-  alchemist: { name: '연금술사', hp: 6, mana: 120, color: '#4db6ac', passive: '촉매', desc: '원소 반응 피해 +60%, 반응을 일으키면 마나 +3' },
+  knight: { name: '기사', price: 60, hp: 7, mana: 90, color: '#90a4ae', passive: '방패', desc: '4초마다 적 탄환 1발을 막는 보호막' },
+  ranger: { name: '레인저', price: 80, hp: 5, mana: 110, color: '#81c784', passive: '날렵함', desc: '이동 속도 +15%, 대시 쿨타임 -30%' },
+  mage: { name: '마법사', price: 150, design: 'mage', hp: 4, mana: 170, color: '#9575cd', passive: '마력 증폭', desc: '장착 스킬 피해 +40%, 마나 구슬 +50%' },
+  berserker: { name: '광전사', price: 120, hp: 9, mana: 60, color: '#e57373', passive: '분노', desc: '잃은 체력 1칸마다 피해 +8%' },
+  rogue: { name: '도적', price: 100, hp: 5, mana: 90, color: '#ffd54f', passive: '급소 찌르기', desc: '치명타율 +15%, 치명타 피해 +50%' },
+  alchemist: { name: '연금술사', price: 180, hp: 6, mana: 120, color: '#4db6ac', passive: '촉매', desc: '원소 반응 피해 +60%, 반응을 일으키면 마나 +3' },
 };
 export const CHARACTER_KEYS = Object.keys(CHARACTERS);
 // 같은 캐릭터를 고를 수 있는 최대 인원: 2인 이하 1명, 3~4인 2명
@@ -319,20 +319,39 @@ export const enemyScale = (lvl) => ({ hp: 1 + 0.22 * lvl, dmg: 1 + Math.floor(lv
 export const MANA = { weaponSkill: 15 };
 export const activeManaCost = (cd) => Math.round(cd * 2.5);
 
-// 스킨: 옷(천) 색만 바꾸는 스킨 + 다른 모습이 되는 장비 스킨(design: assets/heroes.png의 디자인)
+// 캐릭터는 모두 정수로 삽니다. 처음 한 명은 무료 (save.freeChar)
+// 스킨: 캐릭터마다 따로. 기본 + 옷 색 스킨 2개 + 다른 모습이 되는 장비 스킨 1개(design: assets/heroes.png의 디자인)
 export const SKINS = {
-  shadow: { name: '그림자', price: 0, body: '#070000', eye: '#ffffff' },
-  royal: { name: '왕실', price: 80, body: '#3a1d6e', eye: '#ffd54f' },
-  forest: { name: '숲지기', price: 80, body: '#1b5e20', eye: '#c5e1a5' },
-  ember: { name: '잿불', price: 120, body: '#7f1d1d', eye: '#ffcc80' },
-  frost: { name: '서리', price: 120, body: '#0d3b66', eye: '#b2ebf2' },
-  ghost: { name: '유령', price: 180, body: '#cfd8dc', eye: '#263238' },
-  gold: { name: '황금', price: 300, body: '#a67c00', eye: '#fff8e1' },
-  knight: { name: '중세 기사', price: 250, body: '#c62828', eye: '#ffffff', design: 'knight' },
-  darkknight: { name: '다크나이트', price: 350, body: '#b71c1c', eye: '#ff5252', design: 'darkknight' },
-  wizard: { name: '대마법사', price: 250, body: '#283593', eye: '#fff59d', design: 'wizard' },
-  samurai: { name: '사무라이', price: 300, body: '#263238', eye: '#ffffff', design: 'samurai' },
+  kn_base: { char: 'knight', name: '기본', price: 0, eye: '#ffffff' },
+  kn_royal: { char: 'knight', name: '왕실 근위대', price: 80, body: '#3a1d6e', eye: '#ffd54f' },
+  kn_gold: { char: 'knight', name: '황금 기사', price: 200, body: '#a67c00', eye: '#fff8e1' },
+  kn_dark: { char: 'knight', name: '다크나이트', price: 300, eye: '#ff5252', design: 'darkknight' },
+  ra_base: { char: 'ranger', name: '기본', price: 0, eye: '#ffffff' },
+  ra_forest: { char: 'ranger', name: '숲지기', price: 80, body: '#1b5e20', eye: '#c5e1a5' },
+  ra_frost: { char: 'ranger', name: '서리 사냥꾼', price: 120, body: '#0d3b66', eye: '#b2ebf2' },
+  ra_scout: { char: 'ranger', name: '정찰대장', price: 250, eye: '#ffe0b2', design: 'scout' },
+  ma_base: { char: 'mage', name: '기본', price: 0, eye: '#ffffff' },
+  ma_ember: { char: 'mage', name: '잿불 술사', price: 100, body: '#7f1d1d', eye: '#ffcc80' },
+  ma_ghost: { char: 'mage', name: '유령 마도사', price: 180, body: '#cfd8dc', eye: '#263238' },
+  ma_wizard: { char: 'mage', name: '대마법사', price: 250, eye: '#fff59d', design: 'wizard' },
+  be_base: { char: 'berserker', name: '기본', price: 0, eye: '#ffffff' },
+  be_blood: { char: 'berserker', name: '피의 투사', price: 100, body: '#8e0000', eye: '#ff8a80' },
+  be_north: { char: 'berserker', name: '북방 전사', price: 150, body: '#37474f', eye: '#80deea' },
+  be_giant: { char: 'berserker', name: '거인 혈통', price: 300, eye: '#ff8a65', design: 'giant' },
+  ro_base: { char: 'rogue', name: '기본', price: 0, eye: '#ffffff' },
+  ro_night: { char: 'rogue', name: '밤그림자', price: 100, body: '#212121', eye: '#ef5350' },
+  ro_gold: { char: 'rogue', name: '황금 도둑', price: 200, body: '#a67c00', eye: '#fff8e1' },
+  ro_samurai: { char: 'rogue', name: '사무라이', price: 300, eye: '#ffffff', design: 'samurai' },
+  al_base: { char: 'alchemist', name: '기본', price: 0, eye: '#ffffff' },
+  al_toxic: { char: 'alchemist', name: '독안개', price: 100, body: '#33691e', eye: '#ccff90' },
+  al_ghost: { char: 'alchemist', name: '유령 조제사', price: 150, body: '#cfd8dc', eye: '#4a148c' },
+  al_priest: { char: 'alchemist', name: '성스러운 조제사', price: 250, eye: '#ffd54f', design: 'priest' },
 };
+export const SKIN_KEYS = Object.keys(SKINS);
+export const skinsFor = (ch) => SKIN_KEYS.filter((k) => SKINS[k].char === ch);
+export const baseSkin = (ch) => skinsFor(ch).find((k) => SKINS[k].price === 0) || 'kn_base';
+// 예전(모든 캐릭터 공용) 스킨 → 정수로 돌려줌
+export const OLD_SKIN_PRICE = { royal: 80, forest: 80, ember: 120, frost: 120, ghost: 180, gold: 300, knight: 250, darkknight: 350, wizard: 250, samurai: 300 };
 
 // 카드 키('dmg', 'el:fire', 'rw:might', 'evo:twin')의 표시용 정보
 // weaponName: 지금 들고 있는 무기 이름 (속성 카드 설명에 씀)

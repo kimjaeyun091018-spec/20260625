@@ -8,7 +8,7 @@ import {
   TILE, MAX_PLAYERS, WEAPONS, START_WEAPON, weaponFam, SKILLS, WEAPON_SLOTS, SWAP_COOLDOWN, RESONANCE, COMBO_EVERY,
   DROP_TIERS, DROP_ELEMENT_CHANCE, CHARACTERS, CHARACTER_KEYS, sameCharLimit, ENEMY_TYPES, STRUCTS, BUFFS,
   ELEMENTS, ELEMENT_MAX, ELEMENT_MAX_BONUS, MAX_AUGMENT_TYPES, STAGE_REWARDS, STAGES_PER_WORLD, WORLDS, ESSENCE,
-  BOSSES, SHOP, SURVIVAL, CASTLE, UNITS, ARMY_CAP, unitScale, guildPerks, SPOILS, SUPPLIES, TRAPS, stageLabel, xpToNext, enemyScale, MANA, activeManaCost, SKINS,
+  BOSSES, SHOP, SURVIVAL, CASTLE, UNITS, ARMY_CAP, unitScale, guildPerks, SPOILS, SUPPLIES, TRAPS, stageLabel, xpToNext, enemyScale, MANA, activeManaCost, SKINS, baseSkin,
 } from './data.js';
 import { buildCampMap, buildLobbyMap, generateDungeon, tileCenter } from './maps.js';
 import { ACTIVES, PERKS, NODE, LOADOUT_SIZE, sanitizeBuild, buildBonus } from './tree.js';
@@ -275,7 +275,7 @@ function applyBuild(p) {
   p.maxHp += bb.hp;
   p.hp = p.maxHp;
   p.bonus.dmgPct += bb.dmgPct;
-  p.skin = SKINS[b.skin] ? b.skin : 'shadow';
+  p.skin = skinFor(p);
   p.bonus.speed += bb.speed;
   p.bonus.xpMul += bb.xp;
   p.bonus.essMul += bb.ess;
@@ -299,11 +299,21 @@ function applyBuild(p) {
   p.perks = p.perkIds.map((id) => NODE[id].perk);
 }
 
+// 캐릭터마다 입은 스킨
+const skinFor = (p) => p.build?.skinOf?.[p.char] || baseSkin(p.char);
+const ownsChar = (p, k) => !p.build || p.build.chars.includes(k);
+
 export function setBuild(state, id, build) {
   const p = state.players[id];
   if (!p) return;
   p.build = sanitizeBuild(build);
-  p.skin = p.build.skin; // 로비에서도 스킨이 바로 보이도록
+  // 산 캐릭터가 아니면 산 캐릭터 중 하나로 (로비에서만)
+  if (state.phase === 'lobby' && !ownsChar(p, p.char)) {
+    const limit = sameCharLimit(Object.keys(state.players).length);
+    const k = p.build.chars.find((c) => charCount(state, c, p.id) < limit);
+    if (k) p.char = k;
+  }
+  p.skin = skinFor(p); // 로비에서도 스킨이 바로 보이도록
   // 로비에서는 속성·장착 스킬을 바로 시험해 볼 수 있게 적용
   if (state.phase === 'lobby') { freshRunStats(p); applyBuild(p); p.invuln = 0; }
 }
@@ -314,7 +324,7 @@ export function addPlayer(state, id, name) {
   const color = PLAYER_COLORS.find((c) => !usedColor(state, c)) ?? PLAYER_COLORS[0];
   const p = {
     id, name: sanitizeName(name), color, x: 0, y: 0, r: PLAYER_RADIUS,
-    angle: 0, char: pickFreeChar(state), lastSeq: 0, paused: false, dashX: 0, dashY: 0, build: null, skin: 'shadow',
+    angle: 0, char: pickFreeChar(state), lastSeq: 0, paused: false, dashX: 0, dashY: 0, build: null, skin: 'kn_base',
   };
   freshRunStats(p);
   // 게임 도중 들어오면 관전(쓰러진 상태)으로 시작해서 다음 부활 때 합류합니다.
@@ -532,6 +542,8 @@ function evolve(p, key) {
 // ---------- 로비 ----------
 export function lobbyProblem(state) {
   const players = Object.values(state.players);
+  const none = players.find((p) => !ownsChar(p, p.char));
+  if (none) return `${none.name}: 캐릭터 동상에서 캐릭터를 먼저 사 주세요 (첫 캐릭터는 무료)`;
   const limit = sameCharLimit(players.length);
   for (const k of CHARACTER_KEYS) {
     if (players.filter((p) => p.char === k).length > limit) {
@@ -549,12 +561,17 @@ function lobbyInteract(state, p) {
   if (!st) return;
   const k = st.key;
   if (p.char === k) return;
+  if (!ownsChar(p, k)) {
+    floatText(state, st.x, st.y - 30, '아직 사지 않은 캐릭터', '#ef9a9a', 1);
+    return;
+  }
   const limit = sameCharLimit(Object.keys(state.players).length);
   if (charCount(state, k, p.id) >= limit) {
     floatText(state, st.x, st.y - 30, '다른 플레이어가 고른 캐릭터', '#ef9a9a', 1);
     return;
   }
   p.char = k;
+  p.skin = skinFor(p);
   freshRunStats(p);
   applyBuild(p);
   p.invuln = 0;

@@ -5,10 +5,10 @@ import {
 import { packMap, unpackMap } from './maps.js';
 import { makeRoomCode, hostRoom, joinRoom, describeError } from './net.js';
 import { createRenderer, weaponIconHtml, tintedPlayer, designOf } from './render.js';
-import { SKINS } from './data.js';
+import { SKINS, baseSkin } from './data.js';
 import { loadSave, writeSave, currentBuild, setSaveAccount, NODE, onSaveWrite, hasLocalSave } from './tree.js';
 import { createTreeUI } from './treeui.js';
-import { settings, createSettingsUI, createWardrobeUI, createAccountUI, createArmyUI, createSupplyUI, currentAccount, accountInfo, registerGoogleAccount } from './panels.js';
+import { settings, createSettingsUI, createWardrobeUI, createAccountUI, createArmyUI, createSupplyUI, createCharShopUI, showReveal, currentAccount, accountInfo, registerGoogleAccount } from './panels.js';
 import { createGuildUI } from './guildui.js';
 import { setGuildAccount, adoptSession, guildReady } from './guild.js';
 import { preloadGoogle, googleSignIn, googleError, pullSave, queuePush, flushPush, cloudStatus, onCloudStatus } from './cloud.js';
@@ -38,6 +38,14 @@ const ui = {
 setSaveAccount(currentAccount());
 setGuildAccount(currentAccount());
 let save = loadSave();
+// 예전 공용 스킨을 정수로 돌려받았으면 한 번 알려 줌
+function noteRefund() {
+  if (!save.refunded) return;
+  const n = save.refunded;
+  delete save.refunded;
+  writeSave(save);
+  setTimeout(() => showReveal(skinPreview('kn_gold'), `◆${n} 정수 환불`, '스킨이 캐릭터별로 바뀌어서 예전 스킨 값을 돌려드렸어요'), 600);
+}
 const tree = createTreeUI($('tree'), {
   getSave: () => save,
   onChange: () => sendBuild(),
@@ -47,6 +55,17 @@ const wardrobe = createWardrobeUI($('wardrobe'), {
   getSave: () => save,
   onChange: () => { writeSave(save); sendBuild(); },
   preview: skinPreview,
+  currentChar: () => session?.lastMe?.cr,
+});
+// 캐릭터 상점: 동상에서 E (산 캐릭터가 아니면)
+const charShop = createCharShopUI($('chars'), {
+  getSave: () => save,
+  onChange: () => { writeSave(save); sendBuild(); },
+  preview: (k) => skinPreview(baseSkin(k)),
+  onBought(k) {
+    showReveal(skinPreview(baseSkin(k)), CHARACTERS[k].name, '새 캐릭터!');
+    setTimeout(() => pushAction('fence'), 200); // 동상 앞이면 바로 이 캐릭터로
+  },
 });
 const account = createAccountUI($('account'), {
   getSave: () => save,
@@ -58,6 +77,7 @@ const account = createAccountUI($('account'), {
     setSaveAccount(id);
     setGuildAccount(id);
     save = loadSave();
+    noteRefund();
     guildUI.quietRefresh();
     if (id && !ui.name.value) ui.name.value = id.slice(0, 10);
     updateAccountLabel();
@@ -66,6 +86,7 @@ const account = createAccountUI($('account'), {
   onImport(data) {
     save = loadSave(data);
     writeSave(save);
+    noteRefund();
     sendBuild();
   },
 });
@@ -82,7 +103,7 @@ const guildUI = createGuildUI($('guild'), {
 guildUI.quietRefresh();
 $('guildBtn').addEventListener('click', () => guildUI.open());
 const supplyUI = createSupplyUI($('supply'), { getSave: () => save, onChange: () => { writeSave(save); sendBuild(); } });
-const overlays = [tree, wardrobe, settingsUI, account, army, guildUI, supplyUI];
+const overlays = [tree, wardrobe, settingsUI, account, army, guildUI, supplyUI, charShop];
 const anyOverlay = () => overlays.some((o) => o.isOpen());
 
 function updateAccountLabel() {
@@ -137,17 +158,18 @@ async function googleLogin() {
 }
 if (googleUid() && guildReady()) syncCloud().then(() => updateAccountLabel()).catch((e) => console.warn('클라우드 불러오기 실패', e));
 updateAccountLabel();
+noteRefund();
 ui.account.addEventListener('click', () => account.open());
 for (const b of document.querySelectorAll('[data-open-settings]')) b.addEventListener('click', () => settingsUI.open());
 
 // 옷장 미리보기 그림 (스킨마다 한 번만 만듦)
 const previewCache = {};
 function skinPreview(skin) {
-  const pk = `${skin}|${session?.lastMe?.cr || 'knight'}`;
+  const pk = skin;
   if (previewCache[pk]) return previewCache[pk];
   try {
-    // 지금 고른 캐릭터(로비에서 받은 상태)에 스킨을 입힌 모습
-    const sheet = tintedPlayer('#ffffff', skin, designOf(session?.lastMe?.cr || 'knight', skin));
+    // 스킨 주인 캐릭터에 스킨을 입힌 모습
+    const sheet = tintedPlayer('#ffffff', skin, designOf(SKINS[skin]?.char || 'knight', skin));
     const c = document.createElement('canvas');
     c.width = 64;
     c.height = 64;
@@ -266,6 +288,17 @@ window.addEventListener('keydown', (e) => {
     wardrobe.open();
     e.preventDefault();
     return;
+  }
+  if (phase === 'lobby' && e.code === 'KeyE') {
+    // 아직 사지 않은 캐릭터 동상 → 캐릭터 상점
+    const me = session.lastMe;
+    const st = (session.lastMap?.lobby?.statues || []).find((o) => me && Math.hypot(o.x - me.x, o.y - me.y) < 52);
+    if (st && !save.chars.includes(st.key)) {
+      keys.clear();
+      charShop.open(st.key);
+      e.preventDefault();
+      return;
+    }
   }
   if (phase === 'lobby' && e.code === 'KeyE' && nearStation('barracks', 60)) {
     keys.clear();
@@ -589,7 +622,7 @@ function afterRender(snap, map, myId) {
   else overlayCache.stage = '';
 }
 
-const renderExtra = () => ({ essence: save.essence, spoils: save.spoils, crowns: save.crowns, build: buildSummary(), damageNumbers: settings.damageNumbers, zoom: settings.zoom || 1 });
+const renderExtra = () => ({ chars: save.chars, freeChar: save.freeChar, essence: save.essence, spoils: save.spoils, crowns: save.crowns, build: buildSummary(), damageNumbers: settings.damageNumbers, zoom: settings.zoom || 1 });
 
 // ---------- 프레임 ----------
 function hostFrame(s, now) {
