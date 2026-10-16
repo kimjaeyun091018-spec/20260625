@@ -145,6 +145,118 @@ function moveCircle(state, e, dx, dy, structsBlock) {
   return hitStruct;
 }
 
+// ---------- 적 길찾기 ----------
+// 목표가 벽 너머에 있으면 목표 칸에서 거꾸로 넓혀 가는 거리 지도(흐름장)를 따라 벽을 돌아갑니다.
+// 목표 칸마다 0.35초씩 재사용, 반경 48칸까지만 계산. 성은 장애물로 칩니다.
+const FLOW_RADIUS = 48;
+const DIRS8 = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
+function flowBlocked(state, tx, ty, big = false) {
+  if (isWallTile(state, tx, ty)) return true;
+  const c = state.castle;
+  if (c && (tileCenter(tx) - c.x) ** 2 + (tileCenter(ty) - c.y) ** 2 < (c.r + 14) ** 2) return true;
+  // 덩치 큰 적은 한 칸짜리 틈을 못 지나감
+  if (big && ((isWallTile(state, tx - 1, ty) && isWallTile(state, tx + 1, ty)) || (isWallTile(state, tx, ty - 1) && isWallTile(state, tx, ty + 1)))) return true;
+  return false;
+}
+function flowField(state, tx, ty, big = false) {
+  const m = state.map;
+  const cache = m.flow || (m.flow = new Map());
+  const key = (ty * m.cols + tx) * 2 + (big ? 1 : 0);
+  const start = ty * m.cols + tx;
+  const hit = cache.get(key);
+  if (hit && state.time - hit.t < 0.35) return hit;
+  if (cache.size > 48) for (const [k, v] of cache) if (state.time - v.t > 0.35) cache.delete(k);
+  const dist = new Int16Array(m.cols * m.rows).fill(-1);
+  const q = new Int32Array(m.cols * m.rows);
+  let head = 0, tail = 0;
+  if (tx >= 0 && ty >= 0 && tx < m.cols && ty < m.rows) { dist[start] = 0; q[tail++] = start; }
+  while (head < tail) {
+    const i = q[head++], x = i % m.cols, y = (i / m.cols) | 0, d = dist[i];
+    if (d >= FLOW_RADIUS) continue;
+    for (const [ox, oy] of DIRS8) {
+      const nx = x + ox, ny = y + oy;
+      if (nx < 0 || ny < 0 || nx >= m.cols || ny >= m.rows) continue;
+      const j = ny * m.cols + nx;
+      if (dist[j] >= 0 || flowBlocked(state, nx, ny, big)) continue;
+      if (ox && oy && (flowBlocked(state, x + ox, y, big) || flowBlocked(state, x, y + oy, big))) continue; // 모서리 대각선 금지
+      dist[j] = d + 1;
+      q[tail++] = j;
+    }
+  }
+  const f = { t: state.time, dist, cols: m.cols };
+  cache.set(key, f);
+  return f;
+}
+// 몸 폭(r)을 생각해서 직선으로 갈 수 있는지
+function clearLine(state, x0, y0, x1, y1, r) {
+  const d = Math.hypot(x1 - x0, y1 - y0);
+  if (d < 1) return true;
+  const nx = (-(y1 - y0) / d) * r * 0.8, ny = ((x1 - x0) / d) * r * 0.8;
+  const n = Math.ceil(d / 10);
+  for (let i = 1; i < n; i++) {
+    const t = i / n, x = x0 + (x1 - x0) * t, y = y0 + (y1 - y0) * t;
+    for (const k of [0, 1, -1]) if (isWallTile(state, Math.floor((x + nx * k) / TILE), Math.floor((y + ny * k) / TILE))) return false;
+  }
+  const c = state.castle;
+  if (c) {
+    // 선분과 성(원)의 거리
+    const t = Math.max(0, Math.min(1, ((c.x - x0) * (x1 - x0) + (c.y - y0) * (y1 - y0)) / (d * d)));
+    if (Math.hypot(x0 + (x1 - x0) * t - c.x, y0 + (y1 - y0) * t - c.y) < c.r + r) return false;
+  }
+  return true;
+}
+// 움직일 방향: 보이면 null(직진), 벽 너머면 흐름장에서 거리가 가장 짧아지는 이웃 칸 쪽
+function pathDir(state, e, target, dt) {
+  if (state.castle && target === state.castle) return null;
+  e.losT = (e.losT || 0) - dt;
+  if (e.losT <= 0) { e.losT = 0.2 + Math.random() * 0.1; e.los = clearLine(state, e.x, e.y, target.x, target.y, e.r); }
+  if (e.los) return null;
+  const big = e.r > 14;
+  const f = flowField(state, Math.floor(target.x / TILE), Math.floor(target.y / TILE), big);
+  const ex = Math.floor(e.x / TILE), ey = Math.floor(e.y / TILE);
+  let best = null, bestD = f.dist[ey * f.cols + ex];
+  if (bestD < 0) bestD = 1e9;
+  for (const [ox, oy] of DIRS8) {
+    const nx = ex + ox, ny = ey + oy;
+    if (nx < 0 || ny < 0 || nx >= f.cols) continue;
+    const d = f.dist[ny * f.cols + nx];
+    if (d < 0 || d >= bestD) continue;
+    if (ox && oy && (flowBlocked(state, ex + ox, ey, big) || flowBlocked(state, ex, ey + oy, big))) continue;
+    bestD = d; best = [nx, ny];
+  }
+  if (!best) return null;
+  const dx = tileCenter(best[0]) - e.x, dy = tileCenter(best[1]) - e.y, l = Math.hypot(dx, dy) || 1;
+  return [dx / l, dy / l];
+}
+
+// 빠른 적의 회피: 날아오는 플레이어 총알을 보면 옆으로 휙 (쿨타임마다 확률)
+const DODGE = { bat: { cd: 1.4, chance: 0.6 }, bomber: { cd: 2, chance: 0.6 }, spider: { cd: 2.2, chance: 0.5 } };
+function tryDodge(state, e, dt) {
+  const D = DODGE[e.kind];
+  e.dodgeCd = (e.dodgeCd || 0) - dt;
+  if (e.dodgeCd > 0) return;
+  e.scanT = (e.scanT || 0) - dt;
+  if (e.scanT > 0) return;
+  e.scanT = 0.08;
+  for (const b of state.bullets) {
+    if (b.owner !== 'p') continue;
+    const bs = Math.hypot(b.vx, b.vy);
+    if (bs < 1) continue;
+    const bx = b.vx / bs, by = b.vy / bs, rx = e.x - b.x, ry = e.y - b.y;
+    const along = rx * bx + ry * by;
+    if (along < 0 || along > 160) continue;
+    const side = rx * -by + ry * bx; // 총알 진행선에서 얼마나 옆에 있는지
+    if (Math.abs(side) > e.r + 12) continue;
+    e.dodgeCd = D.cd * (0.8 + Math.random() * 0.4);
+    if (Math.random() > D.chance) return; // 이번엔 못 봄
+    const sgn = side === 0 ? (Math.random() < 0.5 ? 1 : -1) : Math.sign(side);
+    e.dvx = -by * sgn; e.dvy = bx * sgn;
+    e.dodgeT = 0.2;
+    addFx(state, { k: 'r', x: e.x, y: e.y, r: e.r + 4, c: '#b0bec5', t: 0.25, life: 0.25 });
+    return;
+  }
+}
+
 // 벽을 뚫지 않게 잘게 나눠 밀기 (넉백). 보스는 거의 밀리지 않습니다.
 function push(state, e, ux, uy, dist) {
   if (e.kind === 'boss') dist *= 0.1;
@@ -1841,12 +1953,16 @@ function updateEnemy(state, e, alivePlayers, dt) {
 
   const dx = target.x - e.x, dy = target.y - e.y;
   const d = Math.hypot(dx, dy) || 1;
-  const ux = dx / d, uy = dy / d;
+  // 움직일 방향: 목표가 보이면 똑바로, 벽 너머면 길을 따라 돌아감
+  const pd = pathDir(state, e, target, dt);
+  const blind = !!pd;
+  const ux = pd ? pd[0] : dx / d, uy = pd ? pd[1] : dy / d;
   let vx = ux, vy = uy, spMul = 1;
   let touch = !!T.touch;
 
   switch (e.kind) {
     case 'archer':
+      if (blind) break; // 벽 너머: 쏘지 않고 길 따라 다가감
       if (Math.random() < dt * 0.5) e.strafe *= -1;
       if (d > 260) { vx = ux; vy = uy; } else if (d < 170) { vx = -ux; vy = -uy; } else { vx = -uy * e.strafe; vy = ux * e.strafe; }
       if (e.cd <= 0 && d < 420) {
@@ -1880,12 +1996,17 @@ function updateEnemy(state, e, alivePlayers, dt) {
           e.lastHit = null; // 스스로 터지면 점수 없음
           return;
         }
+      } else if (d > 90 && !blind) {
+        // 무빙: 좌우로 흔들며 접근
+        const w = Math.sin(e.t * 5 + e.id) * 0.7;
+        vx = ux - uy * w; vy = uy + ux * w;
       } else if (d < 52) {
         e.fuse = 0.7;
         floatText(state, e.x, e.y - e.r - 8, '!', '#ff5252', 0.6);
       }
       break;
     case 'caster':
+      if (blind) break;
       if (d > 300) { vx = ux; vy = uy; } else if (d < 200) { vx = -ux; vy = -uy; } else { vx = -uy * e.strafe * 0.5; vy = ux * e.strafe * 0.5; }
       if (e.cd <= 0 && d < 460) {
         e.cd = (T.fireEvery + Math.random() * 0.6) / e.sc.speed;
@@ -1940,9 +2061,26 @@ function updateEnemy(state, e, alivePlayers, dt) {
     e.cd = 0.8;
   }
 
+  // 회피 (빠른 적): 회피 중엔 옆으로 빠르게
+  if (DODGE[e.kind] && !e.fuse) tryDodge(state, e, dt);
+  if (e.dodgeT > 0) { e.dodgeT -= dt; vx = e.dvx; vy = e.dvy; spMul = 3.2; }
+  // 끼임 풀기: 0.5초 동안 거의 못 움직였으면 잠깐 옆으로 비켜 감
+  if (e.unstuckT > 0) { e.unstuckT -= dt; vx = e.usx; vy = e.usy; spMul = Math.max(spMul, 1); }
+
   const sp = T.speed * e.sc.speed * slow * spMul * dt;
   if (sp <= 0) return;
+  const ox = e.x, oy = e.y;
   const blocker = moveCircle(state, e, vx * sp, vy * sp, true);
+  e.stuckT = (e.stuckT || 0) + dt;
+  e.stuckD = (e.stuckD || 0) + Math.hypot(e.x - ox, e.y - oy);
+  if (e.stuckT >= 0.5) {
+    if (e.stuckD < sp / dt * 0.5 * 0.15 && !blocker && !(e.unstuckT > 0)) {
+      const sgn = Math.random() < 0.5 ? 1 : -1;
+      e.usx = -vy * sgn; e.usy = vx * sgn; e.unstuckT = 0.45;
+      e.losT = 0; // 길 다시 보기
+    }
+    e.stuckT = 0; e.stuckD = 0;
+  }
   if (blocker && touch && e.cd <= 0) {
     damageStruct(state, blocker, T.touch);
     e.cd = 0.8;
