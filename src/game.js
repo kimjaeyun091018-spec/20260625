@@ -548,7 +548,7 @@ function giveEssence(state, amount) {
 const ownsTreasure = (p, k) => !!p.build?.tr?.includes(k);
 function giveTreasure(state, p) {
   if (!p.trRun) p.trRun = [];
-  const pool = TREASURE_KEYS.filter((k) => !ownsTreasure(p, k) && !p.trRun.includes(k));
+  const pool = TREASURE_KEYS.filter((k) => !TREASURES[k].archived && !ownsTreasure(p, k) && !p.trRun.includes(k));
   if (!pool.length) {
     p.es += TREASURE_DUP_ESSENCE;
     floatText(state, p.x, p.y - 48, `보물을 다 모았어요! ◆${TREASURE_DUP_ESSENCE}`, '#80deea', 1.8);
@@ -2805,7 +2805,7 @@ function hitTarget(state, t, dmg) {
   else damagePlayer(state, t, dmg);
 }
 
-// ---------- 베이스캠프 = 생존 모드 (탕탕특공대 방식) ----------
+// ---------- (보관 중: 로비에서 들어갈 수 없음, archive/castle-defense-v1) 베이스캠프 = 생존 모드 (탕탕특공대 방식) ----------
 // 적이 끊임없이 몰려오고, 레벨업 카드로 자동 스킬·패시브를 모아 조합 진화합니다.
 
 // 화면 바깥(플레이어 기준 520~720px)의 바닥에서 적이 나옴

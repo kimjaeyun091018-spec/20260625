@@ -1666,7 +1666,7 @@ export function createRenderer(canvas) {
     ctx.fillText('LOBBY', 20, 30);
     ctx.fillStyle = '#80deea';
     ctx.textAlign = 'right';
-    ctx.fillText(`◆ ${extra.essence ?? 0}  ✪ ${extra.spoils ?? 0}  ♛ ${extra.crowns ?? 0}`, 230, 30);
+    ctx.fillText(`◆ ${extra.essence ?? 0}  ♛ ${extra.crowns ?? 0}`, 230, 30);
     ctx.textAlign = 'left';
     snap.p.forEach((p, i) => {
       const y = 52 + i * 22;
@@ -1695,7 +1695,7 @@ export function createRenderer(canvas) {
     roundRect(VIEW_W / 2 - 300, VIEW_H - 64, 600, 24, 6);
     ctx.fill();
     ctx.fillStyle = '#eee';
-    ctx.fillText('동상 E 캐릭터 · 제단(K) 스킬 트리 · 옷장 · 병영 · 보급관 · 길드 회관 · 1~3 스킬 · 모두 포털에 들어가면 출발', VIEW_W / 2, VIEW_H - 48);
+    ctx.fillText('동상 E 캐릭터 · 제단(K) 스킬 트리 · 옷장 · 길드 회관 · 1~3 스킬 · 모두 포털에 들어가면 출발', VIEW_W / 2, VIEW_H - 48);
     if (snap.lp && snap.lpt) banner('출발할 수 없어요', snap.lp);
   }
 

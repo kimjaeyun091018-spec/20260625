@@ -392,15 +392,16 @@ export const SKIN_KEYS = Object.keys(SKINS);
 
 // ---------- 모험 보물 ----------
 // 모험 모드에서만 나오는 해금: 보스를 잡으면 모두 1개씩, 일반 상자는 가끔(15%).
+// archived: 성 지키기와 함께 보관 중인 보물 (더 이상 나오지 않지만 가진 기록은 남김)
 // 성 지키기 군단 유닛·성 지키기 강화·장비 스킨이 여기서만 나와서 모험 모드는 꼭 해야 하는 모드예요.
 // 이미 다 가졌으면 정수로 바꿔 줌.
 export const TREASURES = {
-  u_scout: { kind: 'unit', unit: 'scout', name: '스카웃 입대 문서', desc: '성 지키기 군단에 스카웃 합류' },
-  u_mage: { kind: 'unit', unit: 'mage', name: '마법사 입대 문서', desc: '성 지키기 군단에 마법사 합류' },
-  u_priest: { kind: 'unit', unit: 'priest', name: '성직자 입대 문서', desc: '성 지키기 군단에 성직자 합류' },
-  b_fence: { kind: 'castle', name: '강철 울타리 설계도', desc: '내가 지은 울타리 체력 10 → 20' },
-  b_turret: { kind: 'castle', name: '연발 터렛 설계도', desc: '내가 지은 터렛 공격 간격 0.45 → 0.3초' },
-  b_wall: { kind: 'castle', name: '성벽 문장', desc: '성 지키기 시작할 때 성 체력 +30' },
+  u_scout: { kind: 'unit', archived: true, unit: 'scout', name: '스카웃 입대 문서', desc: '성 지키기 군단에 스카웃 합류' },
+  u_mage: { kind: 'unit', archived: true, unit: 'mage', name: '마법사 입대 문서', desc: '성 지키기 군단에 마법사 합류' },
+  u_priest: { kind: 'unit', archived: true, unit: 'priest', name: '성직자 입대 문서', desc: '성 지키기 군단에 성직자 합류' },
+  b_fence: { kind: 'castle', archived: true, name: '강철 울타리 설계도', desc: '내가 지은 울타리 체력 10 → 20' },
+  b_turret: { kind: 'castle', archived: true, name: '연발 터렛 설계도', desc: '내가 지은 터렛 공격 간격 0.45 → 0.3초' },
+  b_wall: { kind: 'castle', archived: true, name: '성벽 문장', desc: '성 지키기 시작할 때 성 체력 +30' },
   k_dark: { kind: 'skin', skin: 'kn_dark', name: '다크나이트 갑옷', desc: '기사 장비 스킨' },
   k_scout: { kind: 'skin', skin: 'ra_scout', name: '정찰대장 망토', desc: '레인저 장비 스킨' },
   k_wizard: { kind: 'skin', skin: 'ma_wizard', name: '대마법사 로브', desc: '마법사 장비 스킨' },

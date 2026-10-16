@@ -4,25 +4,25 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>던전 슈터</title>
-  <link rel="stylesheet" href="style.css?v=202610161410">
+  <link rel="stylesheet" href="style.css?v=202610170046">
   <!-- 버전 번호: 새로 올릴 때마다 tools/bump_version.py가 바꿔서, 예전 파일과 섞여 멈추는 문제를 막습니다 -->
-  <script>window.__ASSET_V = '202610161410';</script>
+  <script>window.__ASSET_V = '202610170046';</script>
   <script type="importmap">
   {
     "imports": {
-      "./src/main.js": "./src/main.js?v=202610161410",
-      "./src/game.js": "./src/game.js?v=202610161410",
-      "./src/data.js": "./src/data.js?v=202610161410",
-      "./src/maps.js": "./src/maps.js?v=202610161410",
-      "./src/net.js": "./src/net.js?v=202610161410",
-      "./src/render.js": "./src/render.js?v=202610161410",
-      "./src/tree.js": "./src/tree.js?v=202610161410",
-      "./src/treeui.js": "./src/treeui.js?v=202610161410",
-      "./src/guild.js": "./src/guild.js?v=202610161410",
-      "./src/guildui.js": "./src/guildui.js?v=202610161410",
-      "./src/config.js": "./src/config.js?v=202610161410",
-      "./src/cloud.js": "./src/cloud.js?v=202610161410",
-      "./src/panels.js": "./src/panels.js?v=202610161410"
+      "./src/main.js": "./src/main.js?v=202610170046",
+      "./src/game.js": "./src/game.js?v=202610170046",
+      "./src/data.js": "./src/data.js?v=202610170046",
+      "./src/maps.js": "./src/maps.js?v=202610170046",
+      "./src/net.js": "./src/net.js?v=202610170046",
+      "./src/render.js": "./src/render.js?v=202610170046",
+      "./src/tree.js": "./src/tree.js?v=202610170046",
+      "./src/treeui.js": "./src/treeui.js?v=202610170046",
+      "./src/guild.js": "./src/guild.js?v=202610170046",
+      "./src/guildui.js": "./src/guildui.js?v=202610170046",
+      "./src/config.js": "./src/config.js?v=202610170046",
+      "./src/cloud.js": "./src/cloud.js?v=202610170046",
+      "./src/panels.js": "./src/panels.js?v=202610170046"
     }
   }
   </script>
@@ -70,11 +70,8 @@
     <!-- 옷장 (로비 옷장에서 E) -->
     <div id="wardrobe" class="overlay tree" hidden></div>
     <div id="chars" class="overlay tree" hidden></div>
-    <div id="keep" class="overlay tree" hidden></div>
     <!-- 병영 (로비 병영에서 E) -->
-    <div id="army" class="overlay tree" hidden></div>
     <!-- 보급관 (로비 보급관에서 E) -->
-    <div id="supply" class="overlay tree" hidden></div>
     <!-- 길드 회관 (로비 길드 회관에서 E, 또는 메뉴) -->
     <div id="guild" class="overlay tree" hidden></div>
     <!-- 설정 -->
@@ -105,7 +102,7 @@
       <p class="help">
         WASD / 방향키 이동 · 마우스 조준 · 좌클릭(또는 오토에임 Enter) 공격 · 우클릭(V) 무기 스킬 · Q 궁극기<br>
         1~3 액티브 스킬 · Tab/휠 무기 교체 · Space 대시 · E 상자 열기·상점 구매·무기 줍기 · 증강 카드 클릭 또는 Z/X/C<br>
-        로비: 동상에서 E 캐릭터 고르기 · 제단(K) 스킬 트리 · 옷장 스킨 · 베이스캠프: E 울타리 · R 터렛 · F 철거 · G 바로 시작
+        로비: 동상에서 E 캐릭터 고르기 · 제단(K) 스킬 트리 · 옷장 스킨 · 길드 회관 E · 포털 위에 모두 모이면 모험 출발
       </p>
       <p class="help">
         원소 반응: 물+전기 감전 · 물+얼음 빙결 · 불+얼음 녹임 · 불+물 증발 · 불+독 폭발 · 바람 상태이상 확산

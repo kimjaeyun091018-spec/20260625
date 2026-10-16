@@ -79,7 +79,8 @@ function roomTraps(m, r, n) {
 }
 
 // ---------- 로비 (걸어 다니는 방) ----------
-// 왼쪽: 캐릭터 동상 6개 · 위: 스킬 트리 제단과 옷장 · 오른쪽: 모험/베이스캠프 포털 · 아래: 토템 자리
+// 왼쪽: 캐릭터 동상 6개 · 위: 스킬 트리 제단과 옷장 · 오른쪽: 모험 포털 · 아래: 토템 자리·길드 회관
+// (베이스캠프 포털·병영·보급관은 성 지키기와 함께 보관: archive/castle-defense-v1 브랜치)
 export function buildLobbyMap(charKeys) {
   const m = walledRoom(30, 20);
   m.lobby = {
@@ -87,13 +88,10 @@ export function buildLobbyMap(charKeys) {
     altar: { x: 13 * TILE, y: 3.5 * TILE },
     wardrobe: { x: 18.5 * TILE, y: 3.5 * TILE },
     portals: [
-      { mode: 'adv', name: '모험', x: 25 * TILE, y: 6.5 * TILE, color: '#b39ddb' },
-      { mode: 'camp', name: '베이스캠프', x: 25 * TILE, y: 13.5 * TILE, color: '#ffb74d' },
+      { mode: 'adv', name: '모험', x: 25 * TILE, y: 10 * TILE, color: '#b39ddb' },
     ],
     totems: [0, 1, 2].map((i) => ({ x: (12 + i * 3) * TILE, y: 17 * TILE })),
-    barracks: { x: 8 * TILE, y: 16.5 * TILE },   // 병영: 군단 편성
     guild: { x: 22 * TILE, y: 16.5 * TILE },     // 길드 회관
-    supply: { x: 20.5 * TILE, y: 10 * TILE },    // 보급관: 전리품으로 보급품 사기
   };
   m.spawn = { x: 15 * TILE, y: 10 * TILE };
   return m;

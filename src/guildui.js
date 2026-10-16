@@ -67,7 +67,7 @@ export function createGuildUI(root, { getSave, getName, onChange }) {
 
   function perksHtml(lv) {
     const p = guildPerks(lv);
-    return `정수 +${Math.round(p.ess * 100)}% · 피해 +${Math.round(p.dmg * 100)}% · 성 체력 +${p.castleHp} · 소환 비용 -${Math.round(p.summon * 100)}% · 같은 방 길드원 1명마다 피해 +5%`;
+    return `정수 +${Math.round(p.ess * 100)}% · 피해 +${Math.round(p.dmg * 100)}% · 같은 방 길드원 1명마다 피해 +5%`;
   }
 
   function myGuildHtml() {
@@ -85,7 +85,7 @@ export function createGuildUI(root, { getSave, getName, onChange }) {
       <p class="hint">길드 경험치 ${g.xp}${lv < GUILD.maxLv ? ` / ${next}` : ' (최대)'} · 길드원 ${g.members.length}/${GUILD.maxMembers}</p>
       <p class="gperk">길드 보너스: ${perksHtml(lv)}</p>
       <div class="grow"><input data-g="amount" type="number" min="1" placeholder="기부할 정수" value="20"><button data-gact="donate">◆ 기부 (내 정수 ${getSave().essence})</button></div>
-      <div class="grow"><input data-g="spoils" type="number" min="1" placeholder="기부할 전리품" value="1"><button data-gact="donateSp">✪ 기부 (✪1 = 경험치 ${SPOIL_GUILD_XP}, 내 전리품 ${getSave().spoils || 0})</button></div>
+      ${getSave().spoils > 0 ? `<div class="grow"><input data-g="spoils" type="number" min="1" placeholder="기부할 전리품" value="1"><button data-gact="donateSp">✪ 남은 전리품 기부 (✪1 = 경험치 ${SPOIL_GUILD_XP}, ${getSave().spoils}개)</button></div>` : ''}
       <ul class="glist">${members}</ul>
       <button class="danger" data-gact="leave">길드 나가기</button>`;
   }

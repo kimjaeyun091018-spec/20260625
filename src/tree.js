@@ -56,21 +56,11 @@ const COST = { general: 20, root: 25, active1: 40, perk: 60, mastery: 80, active
 
 // 거미줄 바깥 가지: 일반 노드에서 뻗어 나가는 스탯 3개 + 끝의 왕관 노드 (왕관 = 보스를 잡아서 얻는 재화)
 const BRANCHES = [
-  { key: 'castle', from: 'g_hp', color: '#bcaaa4', nodes: [
-    { name: '성벽 보강', desc: '성 최대 체력 +10', bonus: { castleHp: 10 } },
-    { name: '궁수탑', desc: '성 화살 피해 +50%', bonus: { castleArrow: 0.5 } },
-    { name: '군자금', desc: '성 지키기 시작 골드 +20', bonus: { startGold: 20 } },
-  ], crown: { name: '난공불락', desc: '성 최대 체력 +50%', bonus: { castlePct: 0.5 }, cost: 2 } },
   { key: 'combat', from: 'g_dmg', color: '#ef9a9a', nodes: [
     { name: '급소', desc: '치명타율 +5%', bonus: { crit: 0.05 } },
     { name: '연마', desc: '피해 +8%', bonus: { dmgPct: 0.08 } },
     { name: '전투 본능', desc: '치명타율 +5%', bonus: { crit: 0.05 } },
   ], crown: { name: '왕의 검', desc: '피해 +15%', bonus: { dmgPct: 0.15 }, cost: 2 } },
-  { key: 'army', from: 'g_speed', color: '#90caf9', nodes: [
-    { name: '훈련 교관', desc: '군단 유닛 체력 +15%', bonus: { unitHp: 0.15 } },
-    { name: '모병관', desc: '군단 소환 비용 -10%', bonus: { summon: 0.1 } },
-    { name: '전술 교본', desc: '군단 유닛 피해 +15%, 최대 유닛 +3', bonus: { unitDmg: 0.15, armyCap: 3 } },
-  ], crown: { name: '거인의 맹약', desc: '군단 유닛 거인 해금', bonus: { giant: 1 }, cost: 3 } },
   { key: 'mana', from: 'g_xp', color: '#9fa8da', nodes: [
     { name: '마나 그릇', desc: '최대 마나 +20', bonus: { mana: 20 } },
     { name: '마나 흡수', desc: '마나 구슬 +20%', bonus: { manaGain: 0.2 } },
@@ -87,6 +77,25 @@ const BRANCHES = [
     { name: '강철 심장', desc: '최대 체력 +2', bonus: { hp: 2 } },
   ], crown: { name: '두 번째 심장', desc: '판마다 한 번, 쓰러지면 바로 부활 (불사조의 깃털)', bonus: { phoenix: 1 }, cost: 3 } },
 ];
+
+// 성 지키기와 함께 보관한 가지 (archive/castle-defense-v1). 지금 게임에서는 쓰지 않음
+// 예전에 해금했으면 불러올 때 정수·왕관으로 돌려줍니다.
+const ARCHIVED_BRANCHES = [
+  { key: 'castle', from: 'g_hp', color: '#bcaaa4', nodes: [
+    { name: '성벽 보강', desc: '성 최대 체력 +10', bonus: { castleHp: 10 } },
+    { name: '궁수탑', desc: '성 화살 피해 +50%', bonus: { castleArrow: 0.5 } },
+    { name: '군자금', desc: '성 지키기 시작 골드 +20', bonus: { startGold: 20 } },
+  ], crown: { name: '난공불락', desc: '성 최대 체력 +50%', bonus: { castlePct: 0.5 }, cost: 2 } },
+  { key: 'army', from: 'g_speed', color: '#90caf9', nodes: [
+    { name: '훈련 교관', desc: '군단 유닛 체력 +15%', bonus: { unitHp: 0.15 } },
+    { name: '모병관', desc: '군단 소환 비용 -10%', bonus: { summon: 0.1 } },
+    { name: '전술 교본', desc: '군단 유닛 피해 +15%, 최대 유닛 +3', bonus: { unitDmg: 0.15, armyCap: 3 } },
+  ], crown: { name: '거인의 맹약', desc: '군단 유닛 거인 해금', bonus: { giant: 1 }, cost: 3 } },
+];
+const ARCHIVED_REFUND = Object.fromEntries(ARCHIVED_BRANCHES.flatMap((B) => [
+  ...B.nodes.map((_, j) => [`b_${B.key}${j + 1}`, { essence: 30 + 20 * j }]),
+  [`c_${B.key}`, { crown: B.crown.cost }],
+]));
 
 // 노드 목록 만들기 (위치는 화면 좌표, 가운데가 0,0). links = 연결된 이웃 (거미줄)
 function buildNodes() {
@@ -180,6 +189,11 @@ export function loadSave(from) {
   const base = { essence: START_ESSENCE, crowns: 0, spoils: 0, supplies: {}, unlocked: [], owned: 1, active: 0, slots: [emptySlot()], chars: ['knight'], treasures: [], keep: { round: 1, best: 1, lv: 1, bk: 1, mounts: [], armory: [] }, skins: [], skinOf: {}, army: { unlocked: ['knight', 'archer'], lv: {}, sel: ['knight', 'archer'] } };
   if (!s || typeof s !== 'object') return base;
   const save = { ...base, ...s };
+  // 보관한 가지(성·군단)를 해금했었다면 돌려줌
+  for (const id of Array.isArray(save.unlocked) ? save.unlocked : []) {
+    const r = ARCHIVED_REFUND[id];
+    if (r) { save.essence = (Number(save.essence) || 0) + (r.essence || 0); save.crowns = (Number(save.crowns) || 0) + (r.crown || 0); }
+  }
   save.unlocked = (Array.isArray(save.unlocked) ? save.unlocked : []).filter((id) => NODE[id]);
   save.owned = Math.max(1, Math.min(MAX_BUILD_SLOTS, Number(save.owned) || 1));
   save.slots = Array.from({ length: MAX_BUILD_SLOTS }, (_, i) => ({ ...emptySlot(), ...(save.slots?.[i] || {}) }));

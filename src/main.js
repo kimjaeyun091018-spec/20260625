@@ -5,10 +5,10 @@ import {
 import { packMap, unpackMap } from './maps.js';
 import { makeRoomCode, hostRoom, joinRoom, describeError } from './net.js';
 import { createRenderer, weaponIconHtml, tintedPlayer, designOf } from './render.js';
-import { SKINS, baseSkin, TREASURES, KEEP } from './data.js';
-import { loadSave, writeSave, currentBuild, setSaveAccount, NODE, onSaveWrite, hasLocalSave, cleanWeapon } from './tree.js';
+import { SKINS, baseSkin, TREASURES } from './data.js';
+import { loadSave, writeSave, currentBuild, setSaveAccount, NODE, onSaveWrite, hasLocalSave } from './tree.js';
 import { createTreeUI } from './treeui.js';
-import { settings, createSettingsUI, createWardrobeUI, createAccountUI, createArmyUI, createSupplyUI, createCharShopUI, createKeepUI, showReveal, currentAccount, accountInfo, registerGoogleAccount } from './panels.js';
+import { settings, createSettingsUI, createWardrobeUI, createAccountUI, createCharShopUI, showReveal, currentAccount, accountInfo, registerGoogleAccount } from './panels.js';
 import { createGuildUI } from './guildui.js';
 import { setGuildAccount, adoptSession, guildReady } from './guild.js';
 import { preloadGoogle, googleSignIn, googleError, pullSave, queuePush, flushPush, cloudStatus, onCloudStatus } from './cloud.js';
@@ -90,11 +90,6 @@ const account = createAccountUI($('account'), {
     sendBuild();
   },
 });
-const army = createArmyUI($('army'), {
-  getSave: () => save,
-  onChange: () => { writeSave(save); sendBuild(); },
-  preview: unitPreview,
-});
 const guildUI = createGuildUI($('guild'), {
   getSave: () => save,
   getName: () => playerName(),
@@ -102,14 +97,8 @@ const guildUI = createGuildUI($('guild'), {
 });
 guildUI.quietRefresh();
 $('guildBtn').addEventListener('click', () => guildUI.open());
-const supplyUI = createSupplyUI($('supply'), { getSave: () => save, onChange: () => { writeSave(save); sendBuild(); } });
-const keepUI = createKeepUI($('keep'), {
-  getSave: () => save,
-  onChange: () => { writeSave(save); sendBuild(); },
-  icon: weaponIconHtml,
-  isHost: () => !session || session.mode === 'host',
-});
-const overlays = [tree, wardrobe, settingsUI, account, army, guildUI, supplyUI, charShop, keepUI];
+// 병영(군단)·보급관·성 강화 화면은 성 지키기와 함께 보관 (archive/castle-defense-v1 브랜치)
+const overlays = [tree, wardrobe, settingsUI, account, guildUI, charShop];
 const anyOverlay = () => overlays.some((o) => o.isOpen());
 
 function updateAccountLabel() {
@@ -242,25 +231,6 @@ function treasureImage(k) {
   if (t.kind === 'unit') return unitPreview(t.unit);
   return { b_fence: 'assets/fence.png', b_turret: 'assets/turret.png', b_wall: 'assets/castle.png' }[k] || '';
 }
-// 모험에서 들고 나온 무기 → 무기고 (성에 거치해서 씀). 꽉 차면 더 낮은 단계 무기와 바꿈
-function depositArmory(rid, ws) {
-  if (!session || !Array.isArray(ws) || session.armoryRid === rid) return;
-  session.armoryRid = rid;
-  const K = save.keep;
-  const added = [];
-  for (const w of ws) {
-    const item = cleanWeapon({ k: w.k, el: w.el, lv: w.lv });
-    if (!item || item.k === 'pistol') continue; // 기본 권총은 빼고
-    if (K.armory.length < KEEP.armoryMax) { K.armory.push(item); added.push(item); continue; }
-    // 거치 안 한 것 중 가장 낮은 단계와 교체
-    let low = -1;
-    K.armory.forEach((a, i) => { if (!K.mounts.includes(i) && WEAPONS[a.k].tier < WEAPONS[item.k].tier && (low < 0 || WEAPONS[a.k].tier < WEAPONS[K.armory[low].k].tier)) low = i; });
-    if (low >= 0) { K.armory[low] = item; added.push(item); }
-  }
-  if (!added.length) return;
-  writeSave(save);
-  setTimeout(() => showReveal('assets/castle.png', `무기고 +${added.length}`, `${added.map((a) => WEAPONS[a.k].name).join(', ')} · 성 지키기에서 T로 성에 거치`), 300);
-}
 function showTreasures(list) {
   list.forEach((k, i) => setTimeout(() => showReveal(treasureImage(k), TREASURES[k].name, `모험 보물 · ${TREASURES[k].desc}`), 400 + i * 2800));
 }
@@ -349,18 +319,6 @@ window.addEventListener('keydown', (e) => {
       return;
     }
   }
-  if (phase === 'lobby' && e.code === 'KeyE' && nearStation('barracks', 60)) {
-    keys.clear();
-    army.open();
-    e.preventDefault();
-    return;
-  }
-  if (phase === 'lobby' && e.code === 'KeyE' && nearStation('supply', 56)) {
-    keys.clear();
-    supplyUI.open();
-    e.preventDefault();
-    return;
-  }
   if (phase === 'lobby' && e.code === 'KeyE' && nearStation('guild', 60)) {
     keys.clear();
     guildUI.open();
@@ -375,7 +333,6 @@ window.addEventListener('keydown', (e) => {
   // 성 지키기: 4~7 군단 소환, T 성 강화
   const sm = SUMMON_KEYS[e.code];
   if (sm && phase === 'playing' && session.lastSnap?.ca) { pushAction(`sum${sm}`); e.preventDefault(); return; }
-  if (e.code === 'KeyT' && phase === 'playing' && session.lastSnap?.ca) { keys.clear(); keepUI.open(); e.preventDefault(); return; }
   const n = NUMBER_KEYS[e.code];
   if (n) {
     if (phase === 'playing' || phase === 'lobby') pushAction(`cast${n}`);
@@ -511,7 +468,6 @@ function leave(reason = '') {
   const snap = session.lastSnap;
   if (snap && snap.ph !== 'lobby' && session.lastMe) {
     bankEssence(snap.rid, session.lastMe.es, session.lastMe.cw, session.lastMe.sp, session.lastMe.tr);
-    if (snap.md === 'adv') depositArmory(snap.rid, session.lastMe.ws);
   }
   session.net?.close();
   session = null;
@@ -597,7 +553,6 @@ window.addEventListener('pagehide', () => {
   const snap = session?.lastSnap;
   if (snap && snap.ph !== 'lobby' && session.lastMe) {
     bankEssence(snap.rid, session.lastMe.es, session.lastMe.cw, session.lastMe.sp, session.lastMe.tr);
-    if (snap.md === 'adv') depositArmory(snap.rid, session.lastMe.ws);
   }
   session?.net?.close();
 });
@@ -665,22 +620,14 @@ function afterRender(snap, map, myId) {
   if (me) session.lastMe = me;
   if (session.lastPhase !== snap.ph && snap.ph === 'lobby') { tree.refresh(); sendBuild(); }
   session.lastPhase = snap.ph;
-  if (snap.ph === 'over' && me) { bankEssence(snap.rid, me.es, me.cw, me.sp, me.tr); if (snap.md === 'adv') depositArmory(snap.rid, me.ws); }
-  // 성 지키기: 라운드를 클리어할 때마다 보상 저장, 방장은 도달한 라운드를 저장 (져도 그 라운드부터)
-  if (snap.ph === 'playing' && snap.md === 'camp' && snap.sv && me) {
-    if (session.campCl !== snap.sv.cl) { session.campCl = snap.sv.cl; bankEssence(snap.rid, me.es, me.cw, me.sp, me.tr); }
-    if (session.mode === 'host' && save.keep.round !== snap.sv.r) {
-      save.keep.round = snap.sv.r;
-      save.keep.best = Math.max(save.keep.best, snap.sv.r);
-      writeSave(save);
-    }
-  }
+  if (snap.ph === 'over' && me) bankEssence(snap.rid, me.es, me.cw, me.sp, me.tr);
+
   // 모험을 시작하면 가져간 보급품은 사라짐
   if (snap.ph === 'playing' && snap.md === 'adv' && session.suppliesRid !== snap.rid) {
     session.suppliesRid = snap.rid;
     if (Object.keys(save.supplies || {}).length) { save.supplies = {}; writeSave(save); }
   }
-  if (snap.ph !== 'lobby') { for (const o of [tree, wardrobe, army, supplyUI]) if (o.isOpen()) o.close(); }
+  if (snap.ph !== 'lobby') { for (const o of [tree, wardrobe, charShop]) if (o.isOpen()) o.close(); }
   ui.stage.hidden = snap.ph !== 'transition';
   if (snap.ph === 'transition') updateStage(snap, myId);
   else overlayCache.stage = '';
