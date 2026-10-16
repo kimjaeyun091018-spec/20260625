@@ -115,11 +115,11 @@ export const DROP_ELEMENT_CHANCE = 0.5;
 // ---------- 캐릭터 (로비 동상에서 고름) ----------
 export const CHARACTERS = {
   knight: { name: '기사', price: 0, hp: 7, mana: 90, color: '#90a4ae', passive: '방패', desc: '4초마다 적 탄환 1발을 막는 보호막' },
-  ranger: { name: '레인저', price: 80, hp: 5, mana: 110, color: '#81c784', passive: '날렵함', desc: '이동 속도 +15%, 대시 쿨타임 -30%' },
-  mage: { name: '마법사', price: 150, design: 'mage', hp: 4, mana: 170, color: '#9575cd', passive: '마력 증폭', desc: '장착 스킬 피해 +40%, 마나 구슬 +50%' },
-  berserker: { name: '광전사', price: 120, hp: 9, mana: 60, color: '#e57373', passive: '분노', desc: '잃은 체력 1칸마다 피해 +8%' },
-  rogue: { name: '도적', price: 100, hp: 5, mana: 90, color: '#ffd54f', passive: '급소 찌르기', desc: '치명타율 +15%, 치명타 피해 +50%' },
-  alchemist: { name: '연금술사', price: 180, hp: 6, mana: 120, color: '#4db6ac', passive: '촉매', desc: '원소 반응 피해 +60%, 반응을 일으키면 마나 +3' },
+  ranger: { name: '레인저', price: 800, hp: 5, mana: 110, color: '#81c784', passive: '날렵함', desc: '이동 속도 +15%, 대시 쿨타임 -30%' },
+  mage: { name: '마법사', price: 1500, design: 'mage', hp: 4, mana: 170, color: '#9575cd', passive: '마력 증폭', desc: '장착 스킬 피해 +40%, 마나 구슬 +50%' },
+  berserker: { name: '광전사', price: 1200, hp: 9, mana: 60, color: '#e57373', passive: '분노', desc: '잃은 체력 1칸마다 피해 +8%' },
+  rogue: { name: '도적', price: 1000, hp: 5, mana: 90, color: '#ffd54f', passive: '급소 찌르기', desc: '치명타율 +15%, 치명타 피해 +50%' },
+  alchemist: { name: '연금술사', price: 1800, hp: 6, mana: 120, color: '#4db6ac', passive: '촉매', desc: '원소 반응 피해 +60%, 반응을 일으키면 마나 +3' },
 };
 export const CHARACTER_KEYS = Object.keys(CHARACTERS);
 // 같은 캐릭터를 고를 수 있는 최대 인원: 2인 이하 1명, 3~4인 2명
